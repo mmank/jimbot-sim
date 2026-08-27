@@ -25,6 +25,8 @@ PACK = "PACK"
 
 # States the driver resolves on its own, without consulting the policy.
 AUTO_STATES = {"DRAW_TO_HAND", "HAND_PLAYED", "NEW_ROUND", "PLAY_TAROT"}
+# Frames to advance per poll while the game resolves a state on its own.
+AUTO_PUMP_STEP = 12
 PACK_STATES = {"TAROT_PACK", "PLANET_PACK", "SPECTRAL_PACK", "STANDARD_PACK",
                "BUFFOON_PACK"}
 TERMINAL_STATES = {"GAME_OVER", "MENU", "SPLASH"}
@@ -62,7 +64,14 @@ class HeadlessRun:
 
     def __init__(self, seed: str | None = None, deck: str | None = None,
                  stake: int = 1, game: HeadlessBalatro | None = None,
-                 verbose: bool = False, max_decisions: int = 4000) -> None:
+                 verbose: bool = False, max_decisions: int = 4000,
+                 starting_money: int | None = None,
+                 money_per_shop: int = 0) -> None:
+        # Sandbox knobs, for isolating whether a policy is money-starved or
+        # strategy-starved. Not a real run: anything measured with these set is
+        # a diagnostic, never a baseline.
+        self.starting_money = starting_money
+        self.money_per_shop = money_per_shop
         self.game = game or HeadlessBalatro().boot()
         self.seed = seed
         self.deck = deck
@@ -102,6 +111,11 @@ class HeadlessRun:
         if self.stake and self.stake != 1:
             args.append(f"stake = {self.stake}")
         self._exec("G:start_run({%s})" % ", ".join(args))
+        if self.starting_money is not None:
+            # ease_dollars is the game's own money path, so jokers and unlocks
+            # that watch the balance still see a consistent value.
+            delta = self.starting_money - self._lua("G.GAME.dollars")
+            self._exec(f"ease_dollars({delta}, true)")
         if self.seed is None:
             self.seed = self._lua("G.GAME.pseudorandom.seed")
         self._started = True
@@ -242,6 +256,7 @@ class HeadlessRun:
         last_signature = None
         stalled = 0
         shop_waits = 0
+        last_funded_round = None
 
         while decisions < self.max_decisions:
             state = self.snapshot()
@@ -260,7 +275,10 @@ class HeadlessRun:
                           f"${state['dollars']}, jokers {self.jokers()}")
 
             if name in AUTO_STATES:
-                self.pump(120)
+                # Small steps, re-checking between them. A fixed pump(120) here
+                # burned ~2400 frames a run waiting on transitions that usually
+                # take a handful, and pump frames cost ~145us during live play.
+                self.pump(AUTO_PUMP_STEP)
                 continue
             if name == "ROUND_EVAL":
                 self.cash_out()
@@ -274,12 +292,15 @@ class HeadlessRun:
             elif name == "SELECTING_HAND":
                 self._apply(SELECTING_HAND, policy.hand(self, state))
             elif name == "SHOP":
+                if self.money_per_shop and state["round"] != last_funded_round:
+                    last_funded_round = state["round"]
+                    self._exec(f"ease_dollars({self.money_per_shop}, true)")
                 # Cards arrive a few frames after the state flips. Bounded:
                 # an unbounded wait here does not increment the decision count
                 # and so would hang the run if the shop never stocks.
-                if not self._lua("api.shop_ready()") and shop_waits < 20:
+                if not self._lua("api.shop_ready()") and shop_waits < 60:
                     shop_waits += 1
-                    self.pump(60)
+                    self.pump(AUTO_PUMP_STEP)
                     continue
                 shop_waits = 0
                 self._apply(SHOP, policy.shop(self, state))

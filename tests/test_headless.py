@@ -255,8 +255,10 @@ def test_a_stacked_run_beats_ante_8():
     game.execute("api.pump(60)")
 
     result = run.play_run(GreedyPolicy())
+    # Beating the ante 8 boss is the win; whether the ante counter then rolls
+    # to 9 depends on how far the driver pumps past it, so it is not the test.
     assert result.won, f"stopped: {result.stopped} on ante {result.ante}"
-    assert result.ante > 8
+    assert result.ante >= 8, result.ante
     assert game.eval("G.GAME.won") is True
 
 
@@ -333,3 +335,60 @@ def test_booster_packs_open_with_contents():
     game.execute(f"api.buy('{pack['area']}', {pack['index']})")
     assert game.eval("api.in_pack()"), "buying a pack did not open it"
     assert len(game.eval("api.pack_contents()")) > 0, "pack opened empty"
+
+
+def test_a_voucher_can_only_be_bought_once():
+    """Regression: buying a voucher must take it off the shelf.
+
+    Card:redeem() does not remove itself from the shop -- G.FUNCS.use_card
+    does that first. Calling redeem directly let the same voucher be bought
+    repeatedly, and Hieroglyph (-1 ante) drove a run's ante to -99.
+    """
+    game = start(("j_baseball", "j_duo", "j_trio"))
+    for _ in range(6):
+        if game.eval("G.STATE") != game.eval("G.STATES.SELECTING_HAND"):
+            break
+        count = min(5, game.eval("#G.hand.cards"))
+        game.execute("api.play({%s})" % ",".join(str(i) for i in range(1, count + 1)))
+    game.execute("api.pump(200)")
+    game.execute("api.cash_out()")
+    game.execute("ease_dollars(500, true)")
+
+    items = [dict(i) for i in game.eval("api.shop_contents()").values()]
+    voucher = next((i for i in items if i["set"] == "Voucher"), None)
+    if voucher is None:
+        pytest.skip("no voucher in this shop")
+
+    before_ante = game.eval("G.GAME.round_resets.ante")
+    game.execute(f"api.buy('{voucher['area']}', {voucher['index']})")
+    remaining = [dict(i) for i in game.eval("api.shop_contents()").values()]
+    assert not any(i["set"] == "Voucher" and i["key"] == voucher["key"]
+                   for i in remaining), "voucher still on sale after being bought"
+
+    # And the ante must not run away even if a policy keeps trying to buy.
+    for _ in range(5):
+        items = [dict(i) for i in game.eval("api.shop_contents()").values()]
+        again = next((i for i in items if i["set"] == "Voucher"), None)
+        if again is None:
+            break
+        game.execute(f"api.buy('{again['area']}', {again['index']})")
+    assert game.eval("G.GAME.round_resets.ante") >= before_ante - 2
+
+
+def test_joker_slots_and_hand_size_are_not_hardcoded():
+    """Negative jokers add slots; Serpent-style effects grow the hand."""
+    from balatro_headless.run import HeadlessRun
+
+    game = HeadlessBalatro().boot()
+    run = HeadlessRun(seed=SEED, game=game)
+    run.start()
+    assert run.snapshot()["joker_limit"] == 5
+    game.execute("G.jokers.config.card_limit = G.jokers.config.card_limit + 2")
+    assert run.snapshot()["joker_limit"] == 7
+
+    run.select_blind()
+    game.execute("G.hand.config.card_limit = 13; api.pump(1)")
+    game.execute("G.FUNCS.draw_from_deck_to_hand(); api.pump(80)")
+    assert run.snapshot()["hand_size"] > 8
+    best, score = run.best_play()   # must not blow up on a bigger hand
+    assert best and score > 0

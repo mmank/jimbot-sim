@@ -13,6 +13,9 @@ local api = {}
 
 local DT = 1 / 60
 
+-- See api.pump: animation-only, but game code may read card state.
+api.update_card_areas = true
+
 -- Game:update dispatches to a per-state update function, and those carry real
 -- logic: update_draw_to_hand deals cards, update_hand_played scores them,
 -- update_round_eval pays out. This mirrors that dispatch block verbatim,
@@ -75,12 +78,19 @@ function api.pump(frames)
     G.TIMERS.TOTAL = G.TIMERS.TOTAL + DT * G.SPEEDFACTOR
     G.E_MANAGER:update(DT)
     api.state_dispatch(DT)
-    for _, area in ipairs({ G.hand, G.deck, G.play, G.discard, G.jokers,
-                            G.consumeables, G.shop_jokers, G.shop_booster,
-                            G.shop_vouchers, G.pack_cards }) do
-      -- Leaving the shop removes its card areas, but the globals linger for a
-      -- frame; a removed area has no cards table and updating it throws.
-      if area and area.cards then area:update(DT) end
+    -- Card areas are animation: they ease cards toward their target positions.
+    -- The logical transfers (draw_card, emplace, remove_card) happen in events,
+    -- not here. Updating them is ~60% of a frame's cost during scoring, so it
+    -- is optional -- but only switch it off if the whole suite still passes,
+    -- since some game code does read card state.
+    if api.update_card_areas then
+      for _, area in ipairs({ G.hand, G.deck, G.play, G.discard, G.jokers,
+                              G.consumeables, G.shop_jokers, G.shop_booster,
+                              G.shop_vouchers, G.pack_cards }) do
+        -- Leaving the shop removes its areas, but the globals linger a frame;
+        -- a removed area has no cards table and updating it throws.
+        if area and area.cards then area:update(DT) end
+      end
     end
   end
 end
@@ -550,14 +560,16 @@ function api.buy(area, index)
   local element = { config = { ref_table = card, id = 'buy' } }
 
   -- The shop's three rows are three different actions. Only the joker row
-  -- goes through buy_from_shop; vouchers are redeemed and packs are opened,
-  -- via Card methods. Both charge their own cost (card.lua ease_dollars),
-  -- and calling buy_from_shop on them silently does nothing -- which is why
-  -- packs and vouchers were never actually being bought.
-  if area == 'shop_vouchers' then
-    card:redeem()
-  elseif area == 'shop_booster' then
-    card:open()
+  -- goes through buy_from_shop; vouchers and packs go through use_card, which
+  -- removes the card from the shop (button_callbacks: card.area:remove_card)
+  -- *before* calling Card:redeem() or Card:open().
+  --
+  -- Calling those Card methods directly, as this used to, redeems or opens
+  -- without ever taking the card off the shelf -- so the same voucher could be
+  -- bought again and again. That was observable: with a large bankroll a policy
+  -- redeemed Hieroglyph 98 times and drove the ante to -99.
+  if area == 'shop_vouchers' or area == 'shop_booster' then
+    G.FUNCS.use_card(element, true)
   else
     G.FUNCS.buy_from_shop(element)
   end
