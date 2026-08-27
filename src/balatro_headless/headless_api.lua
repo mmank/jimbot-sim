@@ -692,4 +692,216 @@ function api.discard(indices)
   return G.GAME.current_round.discards_left
 end
 
+-- ---------------------------------------------------------------- RL surface
+--
+-- One call per environment step. Everything an agent needs -- observation and
+-- action legality -- comes back in a single table, because each crossing of the
+-- Lua/Python boundary costs far more than the work behind it.
+--
+-- Card selection is G.hand.highlighted, the game's own mechanism, rather than a
+-- parallel bookkeeping layer that could drift out of sync with it.
+
+local KEY_INDEX, KEY_ORDER = nil, nil
+
+local function key_index()
+  if KEY_INDEX then return KEY_INDEX end
+  KEY_INDEX, KEY_ORDER = {}, {}
+  for key, center in pairs(G.P_CENTERS) do
+    KEY_ORDER[#KEY_ORDER + 1] = key
+  end
+  table.sort(KEY_ORDER)
+  for i, key in ipairs(KEY_ORDER) do KEY_INDEX[key] = i end
+  return KEY_INDEX
+end
+
+function api.key_count()
+  key_index()
+  return #KEY_ORDER
+end
+
+-- The full centre vocabulary, in the same order as key_id, so Python can build
+-- its one-hot tables once at construction instead of shipping strings.
+function api.key_list()
+  key_index()
+  local out = {}
+  for i, key in ipairs(KEY_ORDER) do
+    out[i] = key .. '|' .. tostring(G.P_CENTERS[key].set or '')
+  end
+  return table.concat(out, ',')
+end
+
+-- Stable id for a centre (joker, consumable, enhancement...) so Python can
+-- one-hot it without shipping strings every step.
+function api.key_id(key)
+  return key and key_index()[key] or 0
+end
+
+local SET_IDS = { Joker = 1, Tarot = 2, Planet = 3, Spectral = 4, Voucher = 5,
+                  Booster = 6, Default = 7, Enhanced = 8 }
+
+local RANK_IDS = { ['2']=1, ['3']=2, ['4']=3, ['5']=4, ['6']=5, ['7']=6,
+                   ['8']=7, ['9']=8, ['10']=9, ['Jack']=10, ['Queen']=11,
+                   ['King']=12, ['Ace']=13 }
+local SUIT_IDS = { Spades = 1, Hearts = 2, Clubs = 3, Diamonds = 4 }
+
+function api.is_highlighted(index)
+  local card = G.hand.cards[index]
+  if not card then return false end
+  for _, c in ipairs(G.hand.highlighted) do
+    if c == card then return true end
+  end
+  return false
+end
+
+-- Toggle a card in or out of the selection, exactly as clicking it does.
+function api.toggle(index)
+  local card = G.hand.cards[index]
+  if not card then return false end
+  if api.is_highlighted(index) then
+    G.hand:remove_from_highlighted(card)
+  else
+    if #G.hand.highlighted >= (G.hand.config.highlighted_limit or 5) then
+      return false
+    end
+    G.hand:add_to_highlighted(card, true)
+  end
+  return true
+end
+
+function api.selection()
+  local out = {}
+  for i = 1, #G.hand.cards do
+    if api.is_highlighted(i) then out[#out + 1] = i end
+  end
+  return out
+end
+
+-- Play or discard whatever is currently selected.
+function api.play_selected()
+  local before = G.GAME.current_round.hands_played
+  G.FUNCS.play_cards_from_highlighted()
+  api.pump_until(function()
+    return G.GAME.current_round.hands_played > before and api.playable()
+  end)
+  return G.GAME.chips
+end
+
+function api.discard_selected()
+  local before = G.GAME.current_round.discards_used
+  G.FUNCS.discard_cards_from_highlighted()
+  api.pump_until(function()
+    return G.GAME.current_round.discards_used > before and api.playable()
+  end)
+  return G.GAME.current_round.discards_left
+end
+
+-- Swap a joker with its left neighbour. Repeated swaps reach any ordering,
+-- which keeps the action space linear in joker count rather than quadratic.
+function api.swap_joker_left(index)
+  if index <= 1 or not G.jokers.cards[index] then return false end
+  api.move_joker(index, index - 1)
+  return true
+end
+
+local function card_row(card, highlighted)
+  return {
+    rank = (card.base and RANK_IDS[card.base.value]) or 0,
+    suit = (card.base and SUIT_IDS[card.base.suit]) or 0,
+    center = api.key_id(card.config.center.key),
+    edition = card.edition and api.key_id(card.edition.key or '') or 0,
+    seal = card.seal and api.key_id('seal_' .. tostring(card.seal)) or 0,
+    chips = (card.base and card.base.nominal) or 0,
+    highlighted = highlighted and 1 or 0,
+    debuffed = card.debuff and 1 or 0,
+  }
+end
+
+function api.env_state()
+  local blind = G.GAME.blind
+  local state = {
+    state = G.STATE,
+    state_name = api.state_name(),
+    ante = G.GAME.round_resets.ante,
+    round = G.GAME.round,
+    dollars = G.GAME.dollars,
+    chips = G.GAME.chips,
+    blind_chips = (blind and blind.chips) or 0,
+    blind_name = (blind and blind.name) or '',
+    boss = (blind and blind.boss) and 1 or 0,
+    hands_left = G.GAME.current_round.hands_left,
+    discards_left = G.GAME.current_round.discards_left,
+    joker_limit = G.jokers.config.card_limit,
+    consumable_limit = G.consumeables.config.card_limit,
+    reroll_cost = G.GAME.current_round.reroll_cost or 0,
+    won = G.GAME.won and 1 or 0,
+    in_pack = api.in_pack() and 1 or 0,
+    shop_ready = api.shop_ready() and 1 or 0,
+    skippable = (api.blind_on_deck() ~= 'Boss') and 1 or 0,
+    offered_tag = api.key_id(G.GAME.round_resets.blind_tags[api.blind_on_deck()] or ''),
+    selection_size = #G.hand.highlighted,
+    highlight_limit = G.hand.config.highlighted_limit or 5,
+  }
+
+  state.hand = {}
+  for i, card in ipairs(G.hand.cards) do
+    state.hand[i] = card_row(card, api.is_highlighted(i))
+  end
+
+  state.jokers = {}
+  for i, card in ipairs(G.jokers.cards) do
+    state.jokers[i] = {
+      center = api.key_id(card.config.center.key),
+      sellable = card:can_sell_card() and 1 or 0,
+      sell_cost = card.sell_cost or 0,
+      rarity = card.config.center.rarity or 0,
+    }
+  end
+
+  state.consumables = {}
+  for i, card in ipairs(G.consumeables.cards) do
+    state.consumables[i] = {
+      center = api.key_id(card.config.center.key),
+      set = SET_IDS[card.config.center.set] or 0,
+      sellable = card:can_sell_card() and 1 or 0,
+      usable = (card.check_use and not card:check_use()) and 1 or 1,
+    }
+  end
+
+  state.shop = {}
+  for _, name in ipairs({ 'shop_jokers', 'shop_vouchers', 'shop_booster' }) do
+    local area = G[name]
+    if area and area.cards then
+      for i, card in ipairs(area.cards) do
+        state.shop[#state.shop + 1] = {
+          area = name,
+          index = i,
+          center = api.key_id(card.config.center.key),
+          set = SET_IDS[card.config.center.set] or 0,
+          cost = card.cost or 0,
+          buyable = ((card.cost or 0) <= G.GAME.dollars
+                     and G.FUNCS.check_for_buy_space(card)) and 1 or 0,
+        }
+      end
+    end
+  end
+
+  state.pack = {}
+  if G.pack_cards and G.pack_cards.cards then
+    for i, card in ipairs(G.pack_cards.cards) do
+      state.pack[i] = {
+        center = api.key_id(card.config.center.key),
+        set = SET_IDS[card.config.center.set] or 0,
+      }
+    end
+  end
+
+  state.hand_levels = {}
+  for name, data in pairs(G.GAME.hands) do
+    state.hand_levels[name] = { level = data.level, played = data.played,
+                                chips = data.chips, mult = data.mult }
+  end
+
+  return state
+end
+
 return api

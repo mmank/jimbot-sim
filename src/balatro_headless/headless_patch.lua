@@ -100,6 +100,27 @@ function patch.unlock_all()
   return patch
 end
 
+-- Some G.FUNCS reach straight into blind-select UI objects that only exist
+-- once that screen is built. Their logic is small; the UI around it is not.
+-- Replacing them is the same treatment already applied to BLIND_SELECT and
+-- ROUND_EVAL: keep the rules, drop the presentation.
+function patch.override_ui_functions()
+  -- The Boss Tag rerolls the boss blind. The stock implementation animates
+  -- G.blind_select_opts.boss, which is nil headless, so a Boss Tag crashed the
+  -- run. Everything that matters is these four lines.
+  G.FUNCS.reroll_boss = function()
+    if G.GAME.round_resets.boss_rerolled then return end
+    G.GAME.round_resets.boss_rerolled = true
+    if not G.from_boss_tag then ease_dollars(-10) end
+    G.from_boss_tag = nil
+    G.GAME.round_resets.blind_choices.Boss = get_new_boss()
+    for i = 1, #G.GAME.tags do
+      if G.GAME.tags[i]:apply_to_run({ type = 'new_blind_choice' }) then break end
+    end
+  end
+  return patch
+end
+
 -- Animation is pure latency for a bot. GAMESPEED is the game's own speed
 -- setting (the UI offers 0.5/1/2/4); it scales the TIMERS.TOTAL clock that
 -- event delays are measured against, so a large value collapses animation

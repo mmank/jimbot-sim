@@ -106,7 +106,7 @@ class HeadlessBalatro:
         self.lua.execute("HEADLESS.pre_boot()")
         self.lua.execute("G:start_up()")
         self.lua.execute(f"HEADLESS.apply({{width={self.width}, height={self.height}}})"
-                         ".flush_events().fast_forward(%d)" % self.game_speed)
+                         ".flush_events().override_ui_functions().fast_forward(%d)" % self.game_speed)
         if self.unlock_all:
             self.lua.execute("HEADLESS.unlock_all()")
         self.lua.execute('api = require("headless_api")')
