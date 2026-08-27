@@ -258,7 +258,26 @@ function api.in_pack()
   return PACK_STATES[G.STATE] or false
 end
 
+-- Card:open() generates the pack's cards immediately but only emplaces them
+-- once the pack area has animated into view: card.lua gates the emplace on
+-- `G.pack_cards.VT.y < G.ROOM.T.h`, and returns nil otherwise, so the event
+-- retries every frame forever. Headless the area never moves, so the pack
+-- stays permanently empty. Snapping it into view lets the game's own event
+-- place its own cards.
+function api.settle_pack()
+  if not api.in_pack() then return 0 end
+  if G.pack_cards and G.pack_cards.VT.y >= G.ROOM.T.h then
+    G.pack_cards.T.y = G.ROOM.T.h - 2
+    G.pack_cards.VT.y = G.pack_cards.T.y
+  end
+  api.pump_until(function()
+    return G.pack_cards and G.pack_cards.cards and #G.pack_cards.cards > 0
+  end, 900)
+  return (G.pack_cards and G.pack_cards.cards and #G.pack_cards.cards) or 0
+end
+
 function api.pack_contents()
+  api.settle_pack()
   local out = {}
   if G.pack_cards and G.pack_cards.cards then
     for i, card in ipairs(G.pack_cards.cards) do
@@ -337,7 +356,10 @@ function api.jokers()
   local out = {}
   for i, card in ipairs(G.jokers.cards) do
     out[#out + 1] = { index = i, key = card.config.center.key,
-                      sell_cost = card.sell_cost, rarity = card.config.center.rarity }
+                      sell_cost = card.sell_cost,
+                      rarity = card.config.center.rarity,
+                      eternal = card.ability.eternal and true or false,
+                      sellable = card:can_sell_card() and true or false }
   end
   return out
 end
@@ -386,17 +408,85 @@ function api.consumables()
   local out = {}
   for i, card in ipairs(G.consumeables.cards) do
     out[#out + 1] = { index = i, key = card.config.center.key,
-                      set = card.config.center.set }
+                      set = card.config.center.set,
+                      sell_cost = card.sell_cost,
+                      sellable = card:can_sell_card() and true or false }
   end
   return out
 end
 
-function api.use_consumable(index)
+-- Targeted consumables (most tarots) read G.hand.highlighted, exactly as they
+-- do when a player selects cards and clicks Use. Untargeted ones ignore it.
+function api.use_consumable(index, card_indices)
   local card = G.consumeables.cards[index]
   if not card then error('no consumable at index ' .. tostring(index)) end
+  if card_indices and #card_indices > 0 then
+    api.highlight(card_indices)
+  else
+    api.clear_highlights()
+  end
   G.FUNCS.use_card({ config = { ref_table = card } }, true)
-  api.pump(120)
+  api.pump_until(function()
+    for _, c in ipairs(G.consumeables.cards) do if c == card then return false end end
+    return true
+  end, 600)
+  api.pump(60)
   return G.STATE
+end
+
+-- ---------------------------------------------------------------- ordering
+
+-- Joker order is not cosmetic: effects resolve left to right, so XMult after
+-- +Mult scores differently from the reverse. Dragging is a UI affordance over
+-- this array, which is the same one the scoring loop walks.
+function api.move_joker(from, to)
+  local cards = G.jokers.cards
+  if not cards[from] then error('no joker at index ' .. tostring(from)) end
+  to = math.max(1, math.min(#cards, to))
+  local card = table.remove(cards, from)
+  table.insert(cards, to, card)
+  G.jokers:set_ranks()
+  G.jokers:align_cards()
+  return api.jokers()
+end
+
+function api.reorder_jokers(order)
+  local cards = G.jokers.cards
+  if #order ~= #cards then
+    error('reorder needs ' .. #cards .. ' indices, got ' .. #order)
+  end
+  local seen, reordered = {}, {}
+  for _, i in ipairs(order) do
+    if not cards[i] then error('no joker at index ' .. tostring(i)) end
+    if seen[i] then error('duplicate index ' .. tostring(i) .. ' in reorder') end
+    seen[i] = true
+    reordered[#reordered + 1] = cards[i]
+  end
+  for i = 1, #cards do cards[i] = reordered[i] end
+  G.jokers:set_ranks()
+  G.jokers:align_cards()
+  return api.jokers()
+end
+
+-- The game's own sort buttons.
+function api.sort_hand(by)
+  if by == 'suit' then
+    G.FUNCS.sort_hand_suit({ config = {} })
+  else
+    G.FUNCS.sort_hand_value({ config = {} })
+  end
+  api.pump(30)
+  return api.hand_cards()
+end
+
+function api.move_consumable(from, to)
+  local cards = G.consumeables.cards
+  if not cards[from] then error('no consumable at index ' .. tostring(from)) end
+  to = math.max(1, math.min(#cards, to))
+  table.insert(cards, to, table.remove(cards, from))
+  G.consumeables:set_ranks()
+  G.consumeables:align_cards()
+  return api.consumables()
 end
 
 -- ---------------------------------------------------------------- shop
@@ -451,12 +541,32 @@ function api.can_buy(area, index)
   return G.FUNCS.check_for_buy_space(card) and true or false
 end
 
+-- The shop's three rows use three different callbacks, and calling the wrong
+-- one fails silently: buy_from_shop on a voucher or a booster pack simply does
+-- nothing, which is why they never appeared to be purchasable.
 function api.buy(area, index)
   local card = api.shop_card(area, index)
   local before = G.GAME.dollars
-  G.FUNCS.buy_from_shop({ config = { ref_table = card, id = 'buy' } })
-  api.pump_until(function() return G.GAME.dollars ~= before or card.area ~= G[area] end, 600)
-  api.pump(30)
+  local element = { config = { ref_table = card, id = 'buy' } }
+
+  -- The shop's three rows are three different actions. Only the joker row
+  -- goes through buy_from_shop; vouchers are redeemed and packs are opened,
+  -- via Card methods. Both charge their own cost (card.lua ease_dollars),
+  -- and calling buy_from_shop on them silently does nothing -- which is why
+  -- packs and vouchers were never actually being bought.
+  if area == 'shop_vouchers' then
+    card:redeem()
+  elseif area == 'shop_booster' then
+    card:open()
+  else
+    G.FUNCS.buy_from_shop(element)
+  end
+
+  api.pump_until(function()
+    return G.GAME.dollars ~= before or card.area ~= G[area] or api.in_pack()
+  end, 900)
+  api.pump(60)
+  if api.in_pack() then api.settle_pack() end
   return G.GAME.dollars
 end
 
@@ -477,10 +587,24 @@ function api.reroll()
   return G.GAME.dollars
 end
 
+function api.can_sell(area, index)
+  local a = G[area or 'jokers']
+  local card = a and a.cards[index]
+  if not card then return false end
+  -- The game's own gate. G.FUNCS.sell_card does not check it -- only the UI
+  -- does, via can_sell_card -- so calling sell directly would happily sell an
+  -- Eternal joker, which the real game forbids.
+  return card:can_sell_card() and true or false
+end
+
 function api.sell(area, index)
   local a = G[area or 'jokers']
   local card = a and a.cards[index]
   if not card then error('no card to sell at ' .. tostring(area) .. '[' .. tostring(index) .. ']') end
+  if not card:can_sell_card() then
+    error('cannot sell ' .. tostring(card.config.center.key) ..
+          ' (eternal or otherwise locked)')
+  end
   local before = G.GAME.dollars
   G.FUNCS.sell_card({ config = { ref_table = card } })
   api.pump_until(function() return G.GAME.dollars ~= before end, 600)

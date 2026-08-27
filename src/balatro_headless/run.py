@@ -157,6 +157,9 @@ class HeadlessRun:
     def sell(self, area: str, index: int):
         return self._lua(f"api.sell('{area}', {index})")
 
+    def can_sell(self, area: str, index: int) -> bool:
+        return bool(self._lua(f"api.can_sell('{area}', {index})"))
+
     def reroll(self):
         return self._lua("api.reroll()")
 
@@ -169,8 +172,19 @@ class HeadlessRun:
     def pick_pack(self, index: int):
         return self._lua(f"api.pick_pack({index})")
 
-    def use_consumable(self, index: int):
-        return self._lua(f"api.use_consumable({index})")
+    def use_consumable(self, index: int, cards=None):
+        targets = "{%s}" % ",".join(str(i) for i in (cards or []))
+        return self._lua(f"api.use_consumable({index}, {targets})")
+
+    def move_joker(self, from_index: int, to_index: int):
+        return self._lua(f"api.move_joker({from_index}, {to_index})")
+
+    def reorder_jokers(self, order):
+        return self._lua("api.reorder_jokers({%s})"
+                         % ",".join(str(i) for i in order))
+
+    def sort_hand(self, by: str = "value"):
+        return self._lua(f"api.sort_hand('{by}')")
 
     def pump(self, frames: int = 120):
         return self._exec(f"api.pump({frames})")
@@ -196,7 +210,10 @@ class HeadlessRun:
         elif action == "leave":
             self.leave_shop()
         elif action == "use":
-            self.use_consumable(arg)
+            if isinstance(arg, tuple):
+                self.use_consumable(*arg)
+            else:
+                self.use_consumable(arg)
         elif action == "pick":
             self.pick_pack(arg)
         elif action == "skip_pack":
@@ -241,6 +258,8 @@ class HeadlessRun:
                 self.cash_out()
                 continue
             if name in PACK_STATES:
+                # Packs can also be opened by tags, not only by purchase.
+                self._lua("api.settle_pack()")
                 self._apply(PACK, policy.pack(self, state))
             elif name == "BLIND_SELECT":
                 self._apply(BLIND_SELECT, policy.blind(self, state))

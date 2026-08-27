@@ -258,3 +258,78 @@ def test_a_stacked_run_beats_ante_8():
     assert result.won, f"stopped: {result.stopped} on ante {result.ante}"
     assert result.ante > 8
     assert game.eval("G.GAME.won") is True
+
+
+# ---------------------------------------------------------------- action audit
+
+def test_every_player_action_works():
+    """Run the full action audit as a test.
+
+    scripts/audit_actions.py is the single source of truth for "does every
+    primitive actually do something". Each check asserts an observable
+    consequence -- money moved, a level rose, a card changed -- because the
+    game's button callbacks refuse invalid actions silently, so a call that
+    merely returns without raising proves nothing.
+    """
+    import sys
+    from pathlib import Path
+
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    sys.path.insert(0, str(scripts))
+    import audit_actions
+
+    audit_actions.RESULTS.clear()
+    for check_fn in audit_actions.CHECKS:
+        check_fn()
+
+    failures = [(name, detail) for name, ok, detail in audit_actions.RESULTS
+                if not ok]
+    assert not failures, "\n".join(f"{n}: {d}" for n, d in failures)
+    assert len(audit_actions.RESULTS) >= 20
+
+
+def test_joker_reordering_changes_the_score():
+    """Order is strategy, not cosmetics: XMult after +Mult differs."""
+    forward = start(("j_joker", "j_duo"))
+    reverse = start(("j_duo", "j_joker"))
+    a = forward.eval("api.play({2,3,4,5})")
+    b = reverse.eval("api.play({2,3,4,5})")
+    assert (a, b) == (600, 400), f"{a}, {b}"
+
+    # Reordering at runtime must reproduce the other ordering exactly.
+    moved = start(("j_duo", "j_joker"))
+    moved.execute("api.reorder_jokers({2,1})")
+    assert moved.eval("api.play({2,3,4,5})") == 600
+
+
+def test_eternal_jokers_are_not_sellable():
+    game = start(("j_joker", "j_duo"))
+    game.execute("G.jokers.cards[2].ability.eternal = true")
+    assert game.eval("api.can_sell('jokers', 1)") is True
+    assert game.eval("api.can_sell('jokers', 2)") is False
+    before = game.eval("#G.jokers.cards")
+    with pytest.raises(Exception, match="cannot sell"):
+        game.execute("api.sell('jokers', 2)")
+    assert game.eval("#G.jokers.cards") == before
+
+
+def test_booster_packs_open_with_contents():
+    """Regression: Card:open gates emplacing its cards on the pack area having
+    animated into view, so headless the pack stayed permanently empty."""
+    game = start(("j_baseball", "j_duo", "j_trio"))
+    for _ in range(6):
+        if game.eval("G.STATE") != game.eval("G.STATES.SELECTING_HAND"):
+            break
+        count = min(5, game.eval("#G.hand.cards"))
+        game.execute("api.play({%s})" % ",".join(str(i) for i in range(1, count + 1)))
+    game.execute("api.pump(200)")
+    game.execute("api.cash_out()")
+    game.execute("ease_dollars(30, true)")
+
+    items = [dict(i) for i in game.eval("api.shop_contents()").values()]
+    pack = next((i for i in items if i["set"] == "Booster"), None)
+    if pack is None:
+        pytest.skip("no booster pack in this shop")
+    game.execute(f"api.buy('{pack['area']}', {pack['index']})")
+    assert game.eval("api.in_pack()"), "buying a pack did not open it"
+    assert len(game.eval("api.pack_contents()")) > 0, "pack opened empty"
