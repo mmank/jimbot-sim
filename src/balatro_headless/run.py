@@ -86,13 +86,21 @@ class HeadlessRun:
             print(message)
 
     def start(self) -> None:
+        # Game:start_run reads the deck from G.GAME.viewed_back *before* it
+        # replaces G.GAME, so setting it here is how the deck is chosen.
+        # Stake is 1..8 (white..gold).
+        if self.deck:
+            known = self._lua("(function() local d = get_deck_from_name('%s') "
+                              "return d and d.name or nil end)()" % self.deck)
+            if not known:
+                raise ValueError(f"unknown deck {self.deck!r}")
+            self._exec(f"G.GAME.viewed_back = {{name = '{self.deck}'}}")
+
         args = []
         if self.seed:
             args.append(f"seed = '{self.seed}'")
         if self.stake and self.stake != 1:
             args.append(f"stake = {self.stake}")
-        if self.deck:
-            args.append(f"challenge = nil")
         self._exec("G:start_run({%s})" % ", ".join(args))
         if self.seed is None:
             self.seed = self._lua("G.GAME.pseudorandom.seed")
