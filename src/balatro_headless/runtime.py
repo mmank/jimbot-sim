@@ -73,8 +73,12 @@ class HeadlessBalatro:
 
     def __init__(self, source: Path | None = None, exe: Path = DEFAULT_INSTALL,
                  stub_dir: Path | None = None, game_speed: int = 64,
-                 width: int = 1280, height: int = 720) -> None:
+                 width: int = 1280, height: int = 720,
+                 unlock_all: bool = True) -> None:
         self.game_speed = game_speed
+        # A fresh profile locks 45 jokers; training on that is training on a
+        # different game. Off only if you deliberately want a new-player pool.
+        self.unlock_all = unlock_all
         self.width = width
         self.height = height
         self.source = Path(source) if source else extract_source(exe)
@@ -103,6 +107,8 @@ class HeadlessBalatro:
         self.lua.execute("G:start_up()")
         self.lua.execute(f"HEADLESS.apply({{width={self.width}, height={self.height}}})"
                          ".flush_events().fast_forward(%d)" % self.game_speed)
+        if self.unlock_all:
+            self.lua.execute("HEADLESS.unlock_all()")
         self.lua.execute('api = require("headless_api")')
         self._booted = True
         return self

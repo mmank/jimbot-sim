@@ -35,7 +35,7 @@ function api.state_dispatch(dt)
   -- BLIND_SELECT's real update builds the blind-select screen; its only logic
   -- is applying pending tags, which api.enter_blind_select does instead.
   if G.STATE == S.BLIND_SELECT   then api.enter_blind_select() end
-  if G.STATE == S.ROUND_EVAL     then G:update_round_eval(dt) end
+  if G.STATE == S.ROUND_EVAL     then api.enter_round_eval() end
   if G.STATE == S.TAROT_PACK     then G:update_arcana_pack(dt) end
   if G.STATE == S.SPECTRAL_PACK  then G:update_spectral_pack(dt) end
   if G.STATE == S.STANDARD_PACK  then G:update_standard_pack(dt) end
@@ -78,7 +78,9 @@ function api.pump(frames)
     for _, area in ipairs({ G.hand, G.deck, G.play, G.discard, G.jokers,
                             G.consumeables, G.shop_jokers, G.shop_booster,
                             G.shop_vouchers, G.pack_cards }) do
-      if area then area:update(DT) end
+      -- Leaving the shop removes its card areas, but the globals linger for a
+      -- frame; a removed area has no cards table and updating it throws.
+      if area and area.cards then area:update(DT) end
     end
   end
 end
@@ -108,6 +110,45 @@ function api.enter_blind_select()
   for i = 1, #G.GAME.tags do
     if G.GAME.tags[i]:apply_to_run({ type = 'new_blind_choice' }) then break end
   end
+end
+
+-- Game:update_round_eval builds the cash-out box, then waits for it to finish
+-- sliding into place before calling evaluate_round(). Headless, the box never
+-- moves, so that wait never ends and the blind is never paid out. Build the box
+-- for real (add_round_eval_row measures against it, and ease_dollars pokes the
+-- HUD, so both must exist), then snap it into position and pay out.
+function api.enter_round_eval()
+  if G.STATE_COMPLETE then return end
+  G.STATE_COMPLETE = true
+  G.GAME.facing_blind = nil
+  if G.buttons then G.buttons:remove(); G.buttons = nil end
+  if not G.round_eval then
+    G.round_eval = UIBox{
+      definition = create_UIBox_round_evaluation(),
+      config = {align = "bm", offset = {x = 0, y = G.ROOM.T.y + 19},
+                major = G.hand, bond = 'Weak'},
+    }
+  end
+  G.round_eval.alignment.offset.y = -7.8
+  G.FUNCS.evaluate_round()
+end
+
+-- G.FUNCS.cash_out expects the button element it was clicked from.
+function api.cash_out()
+  api.pump_until(function() return G.round_eval ~= nil end, 600)
+  local owed = G.GAME.current_round.dollars or 0
+  local before = G.GAME.dollars
+  G.FUNCS.cash_out({ config = {} })
+  -- ease_dollars queues the payment rather than applying it, so waiting only
+  -- for the SHOP state reads the money before it lands.
+  api.pump_until(function()
+    return G.STATE == G.STATES.SHOP and (owed == 0 or G.GAME.dollars ~= before)
+  end, 3000)
+  -- The shop's cards are dealt asynchronously after the state flips, so
+  -- returning on the state alone hands the caller an empty shop.
+  api.pump_until(api.shop_ready, 400)
+  api.pump(30)
+  return G.GAME.dollars
 end
 
 function api.blind_on_deck()
@@ -151,6 +192,307 @@ function api.skip_blind()
   G.GAME.blind_on_deck = on_deck == 'Small' and 'Big' or 'Boss'
   api.pump(30)
   return G.GAME.blind_on_deck
+end
+
+-- Enumerating the 218 subsets of an 8-card hand is done here rather than in
+-- Python: each hand_info call crosses the language boundary, and 218 crossings
+-- per decision is far more expensive than the search itself.
+local function subsets(n, max_size, fn)
+  local idx = {}
+  local function recurse(start, depth)
+    if depth > 0 then fn(idx) end
+    if depth == max_size then return end
+    for i = start, n do
+      idx[depth + 1] = i
+      recurse(i + 1, depth + 1)
+      idx[depth + 1] = nil
+    end
+  end
+  recurse(1, 0)
+end
+
+function api.best_play(max_size)
+  max_size = max_size or 5
+  local best, best_score = nil, -1
+  subsets(#G.hand.cards, max_size, function(idx)
+    local info = api.hand_info(idx)
+    -- Tie-break toward fewer cards: playing a card that does not score just
+    -- discards it, which matters for hands the deck still needs.
+    if info.estimate > best_score or
+       (info.estimate == best_score and best and #idx < #best) then
+      best_score = info.estimate
+      best = { unpack(idx) }
+    end
+  end)
+  return best, best_score
+end
+
+-- Discard the cards the best play does not use, worst-first. Keeping the
+-- best play's cards is a simple heuristic but a sound one: it never throws
+-- away the hand it is building toward.
+function api.best_discard(max_size)
+  max_size = max_size or 5
+  local keep_list = api.best_play(5)
+  local keep = {}
+  for _, i in ipairs(keep_list or {}) do keep[i] = true end
+  local junk = {}
+  for i = 1, #G.hand.cards do
+    if not keep[i] then junk[#junk + 1] = { i, G.hand.cards[i].base.nominal or 0 } end
+  end
+  table.sort(junk, function(a, b) return a[2] < b[2] end)
+  local out = {}
+  for i = 1, math.min(max_size, #junk) do out[#out + 1] = junk[i][1] end
+  table.sort(out)
+  return out
+end
+
+-- ---------------------------------------------------------------- packs
+
+local PACK_STATES = nil
+function api.in_pack()
+  PACK_STATES = PACK_STATES or {
+    [G.STATES.TAROT_PACK] = true, [G.STATES.PLANET_PACK] = true,
+    [G.STATES.SPECTRAL_PACK] = true, [G.STATES.STANDARD_PACK] = true,
+    [G.STATES.BUFFOON_PACK] = true,
+  }
+  return PACK_STATES[G.STATE] or false
+end
+
+function api.pack_contents()
+  local out = {}
+  if G.pack_cards and G.pack_cards.cards then
+    for i, card in ipairs(G.pack_cards.cards) do
+      out[#out + 1] = {
+        index = i,
+        key = card.config.center.key,
+        set = card.config.center.set,
+      }
+    end
+  end
+  return out
+end
+
+function api.skip_pack()
+  G.FUNCS.skip_booster({ config = {} })
+  api.pump_until(function() return not api.in_pack() end, 2000)
+  api.pump(30)
+  return G.STATE
+end
+
+-- Taking from a pack is the same "use this card" path as playing a consumable.
+function api.pick_pack(index)
+  local card = G.pack_cards and G.pack_cards.cards and G.pack_cards.cards[index]
+  if not card then error('no pack card at index ' .. tostring(index)) end
+  G.FUNCS.use_card({ config = { ref_table = card } }, true)
+  api.pump(120)
+  return G.STATE
+end
+
+-- ---------------------------------------------------------------- inspection
+
+-- Non-destructive: asks the game what a candidate selection would be scored as,
+-- without playing it. This is what a policy uses to choose a hand.
+function api.hand_info(indices)
+  local cards = {}
+  for _, i in ipairs(indices) do
+    cards[#cards + 1] = G.hand.cards[i]
+  end
+  local text, _, _, scoring = G.FUNCS.get_poker_hand_info(cards)
+  local level = G.GAME.hands[text]
+  local chips, mult = 0, 0
+  if level then chips, mult = level.chips, level.mult end
+  local card_chips = 0
+  for _, card in ipairs(scoring or {}) do
+    card_chips = card_chips + (card.base and card.base.nominal or 0)
+  end
+  return {
+    hand = text,
+    level = level and level.level or 0,
+    base_chips = chips,
+    base_mult = mult,
+    card_chips = card_chips,
+    scoring = #(scoring or {}),
+    -- Jokers are not accounted for, so this is a ranking signal, not a score.
+    estimate = (chips + card_chips) * mult,
+  }
+end
+
+function api.hand_cards()
+  local out = {}
+  for i, card in ipairs(G.hand.cards) do
+    out[#out + 1] = {
+      index = i,
+      rank = card.base.value,
+      suit = card.base.suit,
+      nominal = card.base.nominal,
+      id = card:get_id(),
+      enhancement = card.config.center.key,
+      debuffed = card.debuff and true or false,
+    }
+  end
+  return out
+end
+
+function api.jokers()
+  local out = {}
+  for i, card in ipairs(G.jokers.cards) do
+    out[#out + 1] = { index = i, key = card.config.center.key,
+                      sell_cost = card.sell_cost, rarity = card.config.center.rarity }
+  end
+  return out
+end
+
+-- One flat snapshot, cheap to cross the Lua/Python boundary once per decision.
+function api.snapshot()
+  local blind = G.GAME.blind
+  return {
+    state = G.STATE,
+    state_name = api.state_name(),
+    ante = G.GAME.round_resets.ante,
+    round = G.GAME.round,
+    dollars = G.GAME.dollars,
+    chips = G.GAME.chips,
+    blind_name = blind and blind.name or '',
+    blind_chips = (blind and blind.chips) or 0,
+    blind_on_deck = api.blind_on_deck(),
+    -- Both of the ante's skip rewards, which the real game shows on the blind
+    -- select screen -- the skip decision is uninformed without them.
+    tag_small = G.GAME.round_resets.blind_tags.Small or '',
+    tag_big = G.GAME.round_resets.blind_tags.Big or '',
+    offered_tag = G.GAME.round_resets.blind_tags[api.blind_on_deck()] or '',
+    skippable = api.blind_on_deck() ~= 'Boss',
+    hands_left = G.GAME.current_round.hands_left,
+    discards_left = G.GAME.current_round.discards_left,
+    hand_size = #G.hand.cards,
+    joker_count = #G.jokers.cards,
+    joker_limit = G.jokers.config.card_limit,
+    consumable_count = #G.consumeables.cards,
+    consumable_limit = G.consumeables.config.card_limit,
+    reroll_cost = G.GAME.current_round.reroll_cost or 0,
+    won = G.GAME.won and true or false,
+  }
+end
+
+local STATE_NAMES = nil
+function api.state_name()
+  if not STATE_NAMES then
+    STATE_NAMES = {}
+    for name, value in pairs(G.STATES) do STATE_NAMES[value] = name end
+  end
+  return STATE_NAMES[G.STATE] or ('STATE_' .. tostring(G.STATE))
+end
+
+function api.consumables()
+  local out = {}
+  for i, card in ipairs(G.consumeables.cards) do
+    out[#out + 1] = { index = i, key = card.config.center.key,
+                      set = card.config.center.set }
+  end
+  return out
+end
+
+function api.use_consumable(index)
+  local card = G.consumeables.cards[index]
+  if not card then error('no consumable at index ' .. tostring(index)) end
+  G.FUNCS.use_card({ config = { ref_table = card } }, true)
+  api.pump(120)
+  return G.STATE
+end
+
+-- ---------------------------------------------------------------- shop
+-- The shop's buttons pass the clicked UI element to their callback; all any of
+-- them actually read is e.config, so a table with the right fields stands in.
+
+local SHOP_AREAS = { 'shop_jokers', 'shop_booster', 'shop_vouchers' }
+
+-- The shop always stocks its main row; empty means the cards have not landed.
+function api.shop_ready()
+  return G.STATE == G.STATES.SHOP
+     and G.shop_jokers ~= nil and G.shop_jokers.cards ~= nil
+     and #G.shop_jokers.cards > 0
+end
+
+function api.shop_contents()
+  local out = {}
+  for _, name in ipairs(SHOP_AREAS) do
+    local area = G[name]
+    if area then
+      for i, card in ipairs(area.cards) do
+        out[#out + 1] = {
+          area = name,
+          index = i,
+          key = card.config.center.key,
+          name = card.ability and card.ability.name or card.config.center.key,
+          set = card.config.center.set,
+          rarity = card.config.center.rarity or 0,
+          cost = card.cost,
+          affordable = (card.cost or 0) <= G.GAME.dollars,
+          -- The game's own space check: joker slots for jokers, consumable
+          -- slots for consumables and for the packs that yield them.
+          buyable = ((card.cost or 0) <= G.GAME.dollars)
+                    and (G.FUNCS.check_for_buy_space(card) and true or false),
+        }
+      end
+    end
+  end
+  return out
+end
+
+function api.shop_card(area, index)
+  local a = G[area]
+  local card = a and a.cards[index]
+  if not card then error('no shop card at ' .. tostring(area) .. '[' .. tostring(index) .. ']') end
+  return card
+end
+
+function api.can_buy(area, index)
+  local card = api.shop_card(area, index)
+  if (card.cost or 0) > G.GAME.dollars then return false end
+  return G.FUNCS.check_for_buy_space(card) and true or false
+end
+
+function api.buy(area, index)
+  local card = api.shop_card(area, index)
+  local before = G.GAME.dollars
+  G.FUNCS.buy_from_shop({ config = { ref_table = card, id = 'buy' } })
+  api.pump_until(function() return G.GAME.dollars ~= before or card.area ~= G[area] end, 600)
+  api.pump(30)
+  return G.GAME.dollars
+end
+
+function api.reroll_cost()
+  return G.GAME.current_round.reroll_cost or 0
+end
+
+function api.can_reroll()
+  return api.reroll_cost() <= G.GAME.dollars
+end
+
+function api.reroll()
+  local before = G.GAME.dollars
+  G.FUNCS.reroll_shop({ config = {} })
+  api.pump_until(function() return G.GAME.dollars ~= before end, 600)
+  api.pump(60)
+  G.CONTROLLER.locks.shop_reroll = nil
+  return G.GAME.dollars
+end
+
+function api.sell(area, index)
+  local a = G[area or 'jokers']
+  local card = a and a.cards[index]
+  if not card then error('no card to sell at ' .. tostring(area) .. '[' .. tostring(index) .. ']') end
+  local before = G.GAME.dollars
+  G.FUNCS.sell_card({ config = { ref_table = card } })
+  api.pump_until(function() return G.GAME.dollars ~= before end, 600)
+  api.pump(30)
+  return G.GAME.dollars
+end
+
+function api.leave_shop()
+  G.FUNCS.toggle_shop({ config = {} })
+  api.pump_until(function() return G.STATE == G.STATES.BLIND_SELECT end, 3000)
+  G.CONTROLLER.locks.toggle_shop = nil
+  return G.STATE
 end
 
 -- Selection is normally done by clicking; highlight_card does it directly.

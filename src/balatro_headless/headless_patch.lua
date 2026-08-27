@@ -72,6 +72,34 @@ function patch.apply(opts)
   return patch
 end
 
+-- Progression: a fresh profile has 45 of 150 jokers locked (Blueprint,
+-- Brainstorm, Canio, Chicot among them), half the vouchers, 14 of 15 decks and
+-- 7 of 8 stakes. Pool eligibility is gated on `unlocked ~= false`
+-- (get_current_pool), and tag eligibility additionally checks `discovered`, so
+-- an un-unlocked profile trains the bot on a smaller game than the real one.
+--
+-- The game's own unlock_card() is no use here: it early-returns on seeded runs
+-- and does save-file and notification I/O. Setting the flags directly is what a
+-- 100%-completion save file looks like to the pool code.
+function patch.unlock_all()
+  local unlocked, discovered = 0, 0
+  for _, center in pairs(G.P_CENTERS) do
+    if center.unlocked == false then center.unlocked = true; unlocked = unlocked + 1 end
+    if not center.discovered then center.discovered = true; discovered = discovered + 1 end
+    center.alert = nil
+  end
+  for _, back in pairs(G.P_CENTER_POOLS.Back or {}) do
+    back.unlocked = true
+    back.discovered = true
+  end
+  for _, stake in pairs(G.P_STAKES or {}) do stake.unlocked = true end
+  for _, blind in pairs(G.P_BLINDS or {}) do blind.discovered = true end
+  for _, tag in pairs(G.P_TAGS or {}) do tag.discovered = true end
+  if set_discover_tallies then set_discover_tallies() end
+  patch.unlock_counts = { unlocked = unlocked, discovered = discovered }
+  return patch
+end
+
 -- Animation is pure latency for a bot. GAMESPEED is the game's own speed
 -- setting (the UI offers 0.5/1/2/4); it scales the TIMERS.TOTAL clock that
 -- event delays are measured against, so a large value collapses animation

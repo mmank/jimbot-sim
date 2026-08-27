@@ -132,3 +132,129 @@ def test_beating_a_blind_advances_the_round():
         game.execute("api.play({%s})" % ",".join(str(i) for i in range(1, count + 1)))
     assert game.eval("G.GAME.chips") >= game.eval("G.GAME.blind.chips")
     assert game.eval("G.STATE") != game.eval("G.STATES.GAME_OVER")
+
+
+# ---------------------------------------------------------------- unlocks
+
+def test_unlock_all_opens_the_full_pool():
+    """A fresh profile locks 45 jokers, which would train on a smaller game."""
+    locked = HeadlessBalatro(unlock_all=False).boot()
+    opened = HeadlessBalatro(unlock_all=True).boot()
+
+    def usable(game):
+        return game.eval("(function() local n=0 for _,v in pairs(G.P_CENTERS) do"
+                         " if v.set=='Joker' and v.unlocked ~= false then n=n+1 end"
+                         " end return n end)()")
+
+    assert usable(locked) == 105
+    assert usable(opened) == 150
+
+    def rare_pool(game):
+        game.execute("G:start_run({seed = 'ABCDEFGH'})")
+        return game.eval("(function() local n=0 for _,v in "
+                         "ipairs(get_current_pool('Joker',0.99)) do"
+                         " if v ~= 'UNAVAILABLE' then n=n+1 end end return n end)()")
+
+    # The gate is `unlocked ~= false` in get_current_pool, so this is the
+    # shop's real distribution changing, not just a flag.
+    assert rare_pool(locked) < rare_pool(opened)
+
+
+def test_unlocking_reaches_the_live_shop_pool():
+    game = HeadlessBalatro(unlock_all=True).boot()
+    game.execute("G:start_run({seed = 'ABCDEFGH'})")
+    has_blueprint = game.eval(
+        "(function() for _,v in ipairs(get_current_pool('Joker',0.99)) do"
+        " if v=='j_blueprint' then return true end end return false end)()")
+    assert has_blueprint
+
+
+# ---------------------------------------------------------------- full run
+
+def test_a_round_pays_out_and_opens_the_shop():
+    """Beating a blind must cash out and stock a shop, not park on the screen."""
+    game = start(("j_baseball", "j_duo", "j_trio"))
+    before = game.eval("G.GAME.dollars")
+    for _ in range(4):
+        if game.eval("G.STATE") != game.eval("G.STATES.SELECTING_HAND"):
+            break
+        count = min(5, game.eval("#G.hand.cards"))
+        game.execute("api.play({%s})" % ",".join(str(i) for i in range(1, count + 1)))
+    game.execute("api.pump(200)")
+    paid = game.eval("api.cash_out()")
+
+    assert paid > before, "the blind reward was never paid"
+    assert game.eval("G.STATE") == game.eval("G.STATES.SHOP")
+    assert game.eval("api.shop_ready()"), "shop reached but never stocked"
+    assert len(game.eval("api.shop_contents()")) > 0
+
+
+def test_shop_purchase_costs_money_and_grants_the_card():
+    game = start(("j_duo",))
+    for _ in range(4):
+        if game.eval("G.STATE") != game.eval("G.STATES.SELECTING_HAND"):
+            break
+        count = min(5, game.eval("#G.hand.cards"))
+        game.execute("api.play({%s})" % ",".join(str(i) for i in range(1, count + 1)))
+    game.execute("api.pump(200)")
+    game.execute("api.cash_out()")
+
+    items = [dict(i) for i in game.eval("api.shop_contents()").values()]
+    joker = next((i for i in items if i["set"] == "Joker" and i["buyable"]), None)
+    if joker is None:
+        pytest.skip("this seed's first shop has no affordable joker")
+
+    before_money = game.eval("G.GAME.dollars")
+    before_jokers = game.eval("#G.jokers.cards")
+    game.execute(f"api.buy('{joker['area']}', {joker['index']})")
+    assert game.eval("G.GAME.dollars") == before_money - joker["cost"]
+    assert game.eval("#G.jokers.cards") == before_jokers + 1
+
+
+def test_leaving_the_shop_returns_to_blind_select():
+    game = start(("j_duo",))
+    for _ in range(4):
+        if game.eval("G.STATE") != game.eval("G.STATES.SELECTING_HAND"):
+            break
+        count = min(5, game.eval("#G.hand.cards"))
+        game.execute("api.play({%s})" % ",".join(str(i) for i in range(1, count + 1)))
+    game.execute("api.pump(200)")
+    game.execute("api.cash_out()")
+    game.execute("api.leave_shop()")
+    assert game.eval("G.STATE") == game.eval("G.STATES.BLIND_SELECT")
+    assert game.eval("api.blind_on_deck()") == "Big"
+
+
+def test_driver_plays_a_complete_run_without_hanging():
+    from balatro_headless.policy import GreedyPolicy
+    from balatro_headless.run import HeadlessRun
+
+    run = HeadlessRun(seed="ABCDEFGH", game=HeadlessBalatro().boot())
+    result = run.play_run(GreedyPolicy())
+    assert result.stopped in ("won", "game over"), result.stopped
+    assert result.decisions < run.max_decisions, "run hit the decision limit"
+    assert result.ante >= 1
+
+
+def test_a_stacked_run_beats_ante_8():
+    """The win condition, end to end: all 8 antes and the finisher boss.
+
+    Deliberately overpowered -- this tests that the driver can traverse and
+    finish a whole run, not that the policy is any good.
+    """
+    from balatro_headless.policy import GreedyPolicy
+    from balatro_headless.run import HeadlessRun
+
+    game = HeadlessBalatro().boot()
+    run = HeadlessRun(seed="ABCDEFGH", game=game)
+    run.start()
+    for joker in ("j_caino", "j_triboulet", "j_yorick", "j_chicot", "j_perkeo"):
+        game.execute(f'add_joker("{joker}")')
+    game.execute("for i=1,30 do for k in pairs(G.GAME.hands) do "
+                 "level_up_hand(nil, k, true, 1) end end")
+    game.execute("api.pump(60)")
+
+    result = run.play_run(GreedyPolicy())
+    assert result.won, f"stopped: {result.stopped} on ante {result.ante}"
+    assert result.ante > 8
+    assert game.eval("G.GAME.won") is True
