@@ -185,6 +185,7 @@ function BotAPI.state()
     in_pack = in_pack() and 1 or 0,
     selection_size = in_run and #G.hand.highlighted or 0,
     blind_on_deck = in_run and blind_on_deck() or "",
+    run_pending = BOT_RUN_PENDING and 1 or 0,
     -- The client uses this to know whether it may act at all: mid-animation
     -- the game is in a transient state and inputs are ignored.
     -- G.FUNCS.select_blind is guarded by `if G.blind_select then`, so calling
@@ -215,7 +216,7 @@ function BotAPI.state()
     cash_out_ready = BotAPI.cash_out_ready() and 1 or 0,
     -- Every phase where the client may act, plus the terminal one: leaving
     -- GAME_OVER out means any wait after a losing hand hangs until timeout.
-    ready = ((G.STATE == G.STATES.SELECTING_HAND
+    ready = ((not BOT_RUN_PENDING) and (G.STATE == G.STATES.SELECTING_HAND
               or (G.STATE == G.STATES.BLIND_SELECT and G.blind_select ~= nil)
               or (G.STATE == G.STATES.SHOP and G.shop ~= nil and G.shop.T
                   and G.shop.VT and math.abs(G.shop.T.y - G.shop.VT.y) < 3)
@@ -330,6 +331,169 @@ function BotAPI.best_play()
   return { cards = best or {}, estimate = best_score, hand = best_hand }
 end
 
+-- --------------------------------------------------------------- recording
+--
+-- Records a human playing, so the same actions can be replayed through the
+-- bot's own API and the resulting state compared step by step. If the replay
+-- diverges, either the action set is incomplete or the state we read is not
+-- the state the game is in -- both worth knowing before trusting an agent.
+--
+-- The hooks wrap the game's own G.FUNCS, so they capture real clicks rather
+-- than a parallel notion of what a click means.
+
+local recording = nil        -- nil = not recording
+
+local function fingerprint()
+  local jokers = {}
+  for i, card in ipairs(G.jokers.cards) do
+    jokers[i] = card.config.center.key
+  end
+  local consumables = {}
+  for i, card in ipairs(G.consumeables.cards) do
+    consumables[i] = card.config.center.key
+  end
+  local levels = {}
+  for name, data in pairs(G.GAME.hands) do
+    if data.level > 1 then levels[name] = data.level end
+  end
+  return {
+    phase = state_name(),
+    dollars = G.GAME.dollars,
+    -- The round score, compared exactly at every step. If this diverges, the
+    -- replay produced a different hand or different joker effects, which is
+    -- the failure that matters most.
+    chips = G.GAME.chips,
+    hands_played = G.GAME.current_round.hands_played,
+    last_hand = G.GAME.last_hand_played or "",
+    -- Best single hand this run, so a divergence in scoring shows up even
+    -- after the round score has been reset.
+    best_hand = math.floor(tonumber(G.GAME.round_scores
+                   and G.GAME.round_scores.hand and G.GAME.round_scores.hand.amt or 0)),
+    ante = G.GAME.round_resets.ante,
+    round = G.GAME.round,
+    hands_left = G.GAME.current_round.hands_left,
+    discards_left = G.GAME.current_round.discards_left,
+    blind = (G.GAME.blind and G.GAME.blind.name) or "",
+    blind_chips = (G.GAME.blind and G.GAME.blind.chips) or 0,
+    hand_size = #G.hand.cards,
+    jokers = jokers,
+    consumables = consumables,
+    hand_levels = levels,
+    deck_size = G.playing_cards and #G.playing_cards or 0,
+  }
+end
+
+BotAPI.fingerprint = fingerprint
+
+local function selected_indices()
+  local out = {}
+  for i = 1, #G.hand.cards do
+    if is_highlighted(i) then out[#out + 1] = i end
+  end
+  return out
+end
+
+local function note(action, params)
+  if not recording then return end
+  recording[#recording + 1] = {
+    n = #recording + 1,
+    action = action,
+    params = params or {},
+    -- State *before* the action; the replay applies the action and then
+    -- compares against the next entry's before-state.
+    before = fingerprint(),
+  }
+end
+
+--- Find a card's area and index, so a click can be replayed by position.
+local function locate(card)
+  for _, name in ipairs({ 'shop_jokers', 'shop_vouchers', 'shop_booster',
+                          'jokers', 'consumeables', 'pack_cards', 'hand' }) do
+    local area = G[name]
+    if area and area.cards then
+      for i, other in ipairs(area.cards) do
+        if other == card then return name, i end
+      end
+    end
+  end
+  return "?", 0
+end
+
+local hooked = false
+
+local function install_hooks()
+  if hooked then return end
+  hooked = true
+
+  local function wrap(name, capture)
+    local original = G.FUNCS[name]
+    if not original then return end
+    G.FUNCS[name] = function(e, ...)
+      if recording then
+        local ok, params = pcall(capture, e)
+        note(name, ok and params or {})
+      end
+      return original(e, ...)
+    end
+  end
+
+  wrap('select_blind', function() return { blind = blind_on_deck() } end)
+  wrap('skip_blind', function() return { blind = blind_on_deck() } end)
+  wrap('play_cards_from_highlighted', function()
+    return { cards = selected_indices() } end)
+  wrap('discard_cards_from_highlighted', function()
+    return { cards = selected_indices() } end)
+  wrap('buy_from_shop', function(e)
+    local area, index = locate(e.config.ref_table)
+    return { area = area, index = index,
+             key = e.config.ref_table.config.center.key } end)
+  wrap('sell_card', function(e)
+    local area, index = locate(e.config.ref_table)
+    return { area = area, index = index,
+             key = e.config.ref_table.config.center.key } end)
+  wrap('use_card', function(e)
+    local area, index = locate(e.config.ref_table)
+    return { area = area, index = index,
+             key = e.config.ref_table.config.center.key,
+             targets = selected_indices() } end)
+  wrap('reroll_shop', function() return {} end)
+  wrap('toggle_shop', function() return {} end)
+  wrap('cash_out', function() return {} end)
+  wrap('skip_booster', function() return {} end)
+end
+
+function BotAPI.start_recording()
+  install_hooks()
+  recording = {}
+  return { recording = true,
+           seed = G.GAME.pseudorandom and G.GAME.pseudorandom.seed or "",
+           deck = G.GAME.selected_back and G.GAME.selected_back.name or "",
+           start = fingerprint() }
+end
+
+function BotAPI.stop_recording()
+  local log = recording or {}
+  recording = nil
+  return { entries = #log }
+end
+
+--- Fetch the recording in slices: a full run is far more than one line.
+function BotAPI.recording(args)
+  if not recording then return { recording = false, entries = 0 } end
+  local from = tonumber(args and args[1]) or 1
+  local count = tonumber(args and args[2]) or 25
+  local out = {}
+  for i = from, math.min(from + count - 1, #recording) do
+    out[#out + 1] = recording[i]
+  end
+  return { total = #recording, from = from, entries = out }
+end
+
+--- The current state fingerprint, for comparing a replay against a recording.
+function BotAPI.check()
+  return fingerprint()
+end
+
 -- --------------------------------------------------------------- actions
 
 --- Run `fn` as a queued event rather than immediately.
@@ -357,7 +521,20 @@ function BotAPI.start_run(args)
   if seed == "-" then seed = nil end          -- "no seed" placeholder
   local deck = args and args[2] and args[2]:gsub("_", " ")
   if deck then G.GAME.viewed_back = { name = deck } end
+
+  -- G.FUNCS.start_run queues delete_run and start_run as events, so when this
+  -- returns the previous run is still on screen. A client that acts on what it
+  -- sees now is acting on the old run: the stale blind-select box is still
+  -- there, and select_blind against it silently does nothing.
+  --
+  -- Mark the restart as pending and clear it from an event queued behind the
+  -- game's own, so `run_pending` tells the client when the new run is real.
+  BOT_RUN_PENDING = true
   G.FUNCS.start_run(nil, { seed = seed })
+  G.E_MANAGER:add_event(Event({
+    trigger = 'immediate', no_delete = true,
+    func = function() BOT_RUN_PENDING = false; return true end,
+  }))
   return { started = true, seed = seed or "random", deck = deck or "Red Deck" }
 end
 
@@ -393,12 +570,27 @@ function BotAPI.clear()
   return { selection = 0 }
 end
 
+-- Guard the empty case: evaluate_play indexes the scoring hand unconditionally,
+-- so playing nothing crashes the game (state_events.lua:574). A client should
+-- not be able to do that by mistake.
 function BotAPI.play()
+  if #G.hand.highlighted == 0 then
+    error("play with no cards selected", 0)
+  end
+  if G.STATE ~= G.STATES.SELECTING_HAND then
+    error("play outside the hand-selection phase", 0)
+  end
   G.FUNCS.play_cards_from_highlighted()
   return { played = true }
 end
 
 function BotAPI.discard()
+  if #G.hand.highlighted == 0 then
+    error("discard with no cards selected", 0)
+  end
+  if G.GAME.current_round.discards_left <= 0 then
+    error("no discards left", 0)
+  end
   G.FUNCS.discard_cards_from_highlighted()
   return { discarded = true }
 end
