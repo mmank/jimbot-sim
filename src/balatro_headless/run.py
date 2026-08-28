@@ -105,6 +105,13 @@ class HeadlessRun:
                 raise ValueError(f"unknown deck {self.deck!r}")
             self._exec(f"G.GAME.viewed_back = {{name = '{self.deck}'}}")
 
+        # Tear the previous run down first. G.FUNCS.start_run (the game's own
+        # entry point) queues G:delete_run() before G:start_run(), and skipping
+        # it leaks the whole run: measured at 53 cards, ~2.5 UIBoxes and ~1
+        # queued event per episode, which is what made a long training run get
+        # steadily slower -- 447 steps/s decaying to 184 within minutes.
+        self._exec("if G.STAGE == G.STAGES.RUN then G:delete_run() end")
+
         args = []
         if self.seed:
             args.append(f"seed = '{self.seed}'")

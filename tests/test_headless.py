@@ -444,3 +444,41 @@ def test_buy_space_check_still_reports_correctly():
     assert game.eval(f"api.can_buy('{joker['area']}', {joker['index']})") is True
     game.execute("G.jokers.config.card_limit = 0")
     assert game.eval(f"api.can_buy('{joker['area']}', {joker['index']})") is False
+
+
+def test_starting_a_run_tears_down_the_previous_one():
+    """Regression: a reused runtime must not accumulate state across runs.
+
+    G.FUNCS.start_run queues G:delete_run() before G:start_run(). Calling
+    start_run directly skipped that and leaked the entire run -- 53 cards,
+    ~2.5 UIBoxes and a queued event per episode. In training, where one
+    runtime plays thousands of episodes, throughput decayed from 447 steps/s
+    to 184 within minutes.
+    """
+    from balatro_headless.run import HeadlessRun
+
+    game = HeadlessBalatro().boot()
+
+    def live_objects():
+        return (
+            game.eval("(function() local n=0 for _ in pairs(G.I.CARD or {}) do"
+                      " n=n+1 end return n end)()"),
+            game.eval("(function() local n=0 for _ in pairs(G.I.UIBOX or {}) do"
+                      " n=n+1 end return n end)()"),
+        )
+
+    HeadlessRun(seed="ABCDEFGH", game=game).start()
+    first_cards, first_boxes = live_objects()
+
+    for i in range(8):
+        run = HeadlessRun(seed=f"SEED{i:04d}", game=game)
+        run.start()
+        run.select_blind()
+    last_cards, last_boxes = live_objects()
+
+    # A little slack for run-to-run variation, but nothing that grows with
+    # episode count: 8 more runs must not mean 8 more decks.
+    assert last_cards < first_cards + 20, \
+        f"cards leaked across runs: {first_cards} -> {last_cards}"
+    assert last_boxes < first_boxes + 12, \
+        f"UIBoxes leaked across runs: {first_boxes} -> {last_boxes}"
