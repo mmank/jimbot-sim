@@ -80,15 +80,19 @@ def main() -> None:
     parser.add_argument("--max-rounds", type=int, default=30)
     args = parser.parse_args()
 
-    try:
-        if args.launch:
-            print("launching the modded game (Steam must be running)...")
+    bridge = None
+    if not args.launch:
+        try:
+            bridge = BalatroBridge(timeout=30).connect()
+        except BridgeError:
+            print("no game listening, starting one...")
+    if bridge is None:
+        try:
             _process, bridge = launch(wait=90)
-        else:
-            bridge = BalatroBridge(timeout=30).connect(retries=5, delay=2)
-    except BridgeError as error:
-        print(error, file=sys.stderr)
-        raise SystemExit(1)
+        except BridgeError as error:
+            print(f"{error}\n\nBalatro quits immediately without Steam "
+                  "running -- check Steam is up.", file=sys.stderr)
+            raise SystemExit(1)
 
     print(f"connected: {bridge.hello()}")
     bridge.command("start_run", args.seed,

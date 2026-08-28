@@ -23,7 +23,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from balatro_bridge import BalatroBridge, BridgeError, launch  # noqa: E402
+from balatro_bridge import (DEFAULT_BUILD, DEFAULT_HOST, DEFAULT_PORT,  # noqa: E402
+                            BalatroBridge, BridgeError, launch)
 
 # Fields compared at every step. Money, jokers and round score are the ones
 # that catch real divergence; hand_size and deck_size catch bookkeeping drift.
@@ -211,11 +212,32 @@ def do_replay(args) -> None:
 
 
 def _connect(args) -> BalatroBridge:
-    if args.launch:
-        print("launching the modded game (Steam must be running)...")
-        _proc, bridge = launch(wait=90)
-        return bridge
-    return BalatroBridge(timeout=30).connect(retries=5, delay=2)
+    """Attach to a running game, starting one if there is not one already.
+
+    Requiring an explicit --launch just means the first attempt usually fails
+    with a connection error, so this falls back to launching.
+    """
+    if not args.launch:
+        try:
+            return BalatroBridge(timeout=30).connect()
+        except BridgeError:
+            print("no game listening on "
+                  f"{DEFAULT_HOST}:{DEFAULT_PORT}, starting one...")
+    else:
+        print("launching the modded game...")
+
+    if not DEFAULT_BUILD.exists():
+        raise SystemExit(
+            f"{DEFAULT_BUILD} not found. Build it first:\n"
+            f"    python scripts/build_modded_game.py")
+    try:
+        _process, bridge = launch(wait=90)
+    except BridgeError as error:
+        raise SystemExit(
+            f"{error}\n\nBalatro quits immediately if Steam is not running "
+            "(main.lua calls love.event.quit when luasteam fails to init), "
+            "so check Steam is up.")
+    return bridge
 
 
 def main() -> None:
