@@ -201,6 +201,9 @@ class HeadlessRun:
     def pick_pack(self, index: int):
         return self._lua(f"api.pick_pack({index})")
 
+    def buy_and_use(self, area: str, index: int):
+        return self._lua(f"api.buy_and_use('{area}', {index})")
+
     def use_consumable(self, index: int, cards=None):
         targets = "{%s}" % ",".join(str(i) for i in (cards or []))
         return self._lua(f"api.use_consumable({index}, {targets})")

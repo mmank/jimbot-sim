@@ -940,7 +940,11 @@ function api.env_state()
       center = api.key_id(card.config.center.key),
       set = SET_IDS[card.config.center.set] or 0,
       sellable = card:can_sell_card() and 1 or 0,
-      usable = (card.check_use and not card:check_use()) and 1 or 1,
+      -- The game's own gate, and the only one that matters. This used to read
+      -- `(card.check_use and not card:check_use()) and 1 or 1` -- both arms
+      -- return 1, so it was a check-shaped constant, and the agent was free to
+      -- burn a Death on one selected card and get nothing for it.
+      usable = card:can_use_consumeable() and 1 or 0,
     }
   end
 
@@ -957,6 +961,10 @@ function api.env_state()
           cost = card.cost or 0,
           buyable = ((card.cost or 0) <= G.GAME.dollars
                      and buy_space(card)) and 1 or 0,
+          -- The shop's second button on a consumable. Worth its own flag
+          -- because it is legal in cases plain buying is not: it needs no
+          -- free slot, since the card is used rather than stored.
+          buy_and_usable = api.can_buy_and_use(name, i) and 1 or 0,
         }
       end
     end
@@ -968,6 +976,12 @@ function api.env_state()
       state.pack[i] = {
         center = api.key_id(card.config.center.key),
         set = SET_IDS[card.config.center.set] or 0,
+        -- A consumable taken from a pack is used the instant it is taken, so
+        -- it faces the same gate. A card that is not a consumable -- a joker
+        -- from a Buffoon pack, a playing card from a Standard one -- is always
+        -- takeable.
+        usable = ((not card.ability.consumeable)
+                  or card:can_use_consumeable()) and 1 or 0,
       }
     end
   end
