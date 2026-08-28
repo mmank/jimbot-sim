@@ -65,6 +65,21 @@ local function blind_on_deck()
       or (not done(states.Big) and 'Big') or 'Boss'
 end
 
+--- Whether the Cash Out button exists yet.
+---
+--- It is built as its own UIBox with `major = G.round_eval` rather than as a
+--- child of it, so asking round_eval for it never finds it. Scanning the UIBox
+--- registry is the way to see what the player can actually click.
+function BotAPI.cash_out_ready()
+  if G.STATE ~= G.STATES.ROUND_EVAL or not G.round_eval then return false end
+  for _, box in pairs((G.I and G.I.UIBOX) or {}) do
+    if box.get_UIE_by_ID and box:get_UIE_by_ID('cash_out_button') then
+      return true
+    end
+  end
+  return false
+end
+
 local function is_highlighted(index)
   local card = G.hand.cards[index]
   if not card then return false end
@@ -161,13 +176,27 @@ function BotAPI.state()
     -- before its screen is up silently does nothing.
     blind_select_up = (G.blind_select ~= nil) and 1 or 0,
     shop_up = (G.shop ~= nil) and 1 or 0,
+    -- update_shop queues an event that waits for the shop to finish sliding in
+    -- (`math.abs(G.shop.T.y - G.shop.VT.y) < 3`). Leaving before that event
+    -- runs removes G.shop out from under it and crashes the game -- reachable
+    -- only because a bot can act faster than a player physically can.
+    shop_settled = (G.shop ~= nil and G.shop.T and G.shop.VT
+                    and math.abs(G.shop.T.y - G.shop.VT.y) < 3) and 1 or 0,
     round_eval_up = (G.round_eval ~= nil) and 1 or 0,
+    -- The round evaluation adds its rows (blind reward, unused hands,
+    -- interest, each joker's payout) over several frames, and the Cash Out
+    -- button is created last. Cashing out before it exists removes the
+    -- round_eval box while those row events are still queued, and they then
+    -- crash on a nil G.round_eval. Waiting for the button is exactly what a
+    -- player does.
+    cash_out_ready = BotAPI.cash_out_ready() and 1 or 0,
     -- Every phase where the client may act, plus the terminal one: leaving
     -- GAME_OVER out means any wait after a losing hand hangs until timeout.
     ready = ((G.STATE == G.STATES.SELECTING_HAND
               or (G.STATE == G.STATES.BLIND_SELECT and G.blind_select ~= nil)
-              or (G.STATE == G.STATES.SHOP and G.shop ~= nil)
-              or (G.STATE == G.STATES.ROUND_EVAL and G.round_eval ~= nil)
+              or (G.STATE == G.STATES.SHOP and G.shop ~= nil and G.shop.T
+                  and G.shop.VT and math.abs(G.shop.T.y - G.shop.VT.y) < 3)
+              or (G.STATE == G.STATES.ROUND_EVAL and BotAPI.cash_out_ready())
               or G.STATE == G.STATES.GAME_OVER
               or in_pack())) and 1 or 0,
   }
@@ -279,6 +308,23 @@ function BotAPI.best_play()
 end
 
 -- --------------------------------------------------------------- actions
+
+--- Run `fn` as a queued event rather than immediately.
+---
+--- Balatro's screens finish themselves over several frames: the round
+--- evaluation is still adding payout rows, the shop is still sliding in. Those
+--- pending events hold references to UI the action is about to destroy, so
+--- calling directly crashes the game. Events block by default, so queueing puts
+--- the action behind whatever is still in flight -- which is what a player's
+--- reaction time does for free, and why this is not reachable by hand.
+local function queue(fn)
+  G.E_MANAGER:add_event(Event({
+    trigger = 'immediate',
+    func = function() fn(); return true end,
+  }))
+end
+
+BotAPI.queue = queue
 --
 -- Actions return immediately. The game animates them over the following
 -- frames, and the client polls `state` until `ready` comes back.
@@ -335,7 +381,7 @@ function BotAPI.discard()
 end
 
 function BotAPI.cash_out()
-  G.FUNCS.cash_out({ config = {} })
+  queue(function() G.FUNCS.cash_out({ config = {} }) end)
   return { cashed_out = true }
 end
 
@@ -344,11 +390,15 @@ function BotAPI.buy(args)
   local card = G[area] and G[area].cards[index]
   if not card then return { ok = false, reason = "no shop card" } end
   local element = { config = { ref_table = card, id = 'buy' } }
-  if area == 'shop_vouchers' or area == 'shop_booster' then
-    G.FUNCS.use_card(element, true)
-  else
-    G.FUNCS.buy_from_shop(element)
-  end
+  -- Queued for the same reason as leave_shop: the shop's entry animation may
+  -- still have work pending that expects the shop to exist.
+  queue(function()
+    if area == 'shop_vouchers' or area == 'shop_booster' then
+      G.FUNCS.use_card(element, true)
+    else
+      G.FUNCS.buy_from_shop(element)
+    end
+  end)
   return { bought = true }
 end
 
@@ -377,23 +427,28 @@ function BotAPI.reroll()
 end
 
 function BotAPI.leave_shop()
-  -- toggle_shop takes a controller lock that the UI would normally release on
-  -- mouse-up. Nothing releases it here, so without this the shop never closes
-  -- and every subsequent leave_shop is a no-op.
-  G.FUNCS.toggle_shop({ config = {} })
-  G.CONTROLLER.locks.toggle_shop = nil
+  -- Queue it rather than calling it directly. update_shop leaves an event
+  -- pending that waits for the shop to finish sliding in and then touches
+  -- G.shop; closing the shop before that event runs removes G.shop out from
+  -- under it and crashes the game. Balatro's events block by default, so an
+  -- action queued behind that one simply waits for it -- which is what a
+  -- player's reaction time does for free.
+  --
+  -- toggle_shop also clears its own lock in its final event, so nothing here
+  -- should clear it early.
+  queue(function() G.FUNCS.toggle_shop({ config = {} }) end)
   return { left = true }
 end
 
 function BotAPI.pick_pack(args)
   local card = G.pack_cards and G.pack_cards.cards[tonumber(args[1])]
   if not card then return { ok = false, reason = "no pack card" } end
-  G.FUNCS.use_card({ config = { ref_table = card } }, true)
+  queue(function() G.FUNCS.use_card({ config = { ref_table = card } }, true) end)
   return { picked = true }
 end
 
 function BotAPI.skip_pack()
-  G.FUNCS.skip_booster({ config = {} })
+  queue(function() G.FUNCS.skip_booster({ config = {} }) end)
   return { skipped = true }
 end
 

@@ -80,12 +80,12 @@ def main() -> None:
     parser.add_argument("--max-rounds", type=int, default=30)
     args = parser.parse_args()
 
-    if args.launch:
-        print("launching the modded game...")
-        launch()
-
     try:
-        bridge = BalatroBridge(timeout=30).connect(retries=5)
+        if args.launch:
+            print("launching the modded game (Steam must be running)...")
+            _process, bridge = launch(wait=90)
+        else:
+            bridge = BalatroBridge(timeout=30).connect(retries=5, delay=2)
     except BridgeError as error:
         print(error, file=sys.stderr)
         raise SystemExit(1)
@@ -121,8 +121,16 @@ def main() -> None:
             print(f"  cashed out -> ${state['dollars']}")
             time.sleep(args.pace)
         elif name == "SHOP":
-            if not state.get("shop_up"):
+            if not state.get("shop_settled"):
                 time.sleep(0.2)
+                continue
+            shop = state.get("shop") or []
+            affordable = [i for i in shop if i.get("buyable")]
+            if affordable:
+                pick = max(affordable, key=lambda i: i["cost"])
+                bridge.buy(pick["area"], pick["index"])
+                print(f"  bought something for ${pick['cost']}")
+                time.sleep(args.pace)
                 continue
             time.sleep(args.pace)
             state = bridge.leave_shop()

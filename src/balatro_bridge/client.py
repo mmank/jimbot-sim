@@ -181,16 +181,20 @@ class BalatroBridge:
                         until=lambda s: s.get("discards_left", left) < left)
 
     def cash_out(self) -> dict:
-        # The cash-out button only exists once the round-eval box has animated
-        # in; calling earlier is a silent no-op.
-        self.wait_until(lambda s: s.get("round_eval_up"), timeout=30.0)
+        # Wait for the Cash Out button itself, not merely for the round-eval
+        # box: the payout rows are still being added until the button appears,
+        # and cashing out early tears the box out from under them.
+        self.wait_until(lambda s: s.get("cash_out_ready"), timeout=30.0)
         return self.act("cash_out",
                         until=lambda s: s["state_name"] != "ROUND_EVAL")
 
     def buy(self, area: str, index: int) -> dict:
+        self.wait_until(lambda s: s.get("shop_settled"), timeout=30.0)
         return self.act("buy", area, index)
 
     def leave_shop(self) -> dict:
+        # The shop must have finished animating in before it can be closed.
+        self.wait_until(lambda s: s.get("shop_settled"), timeout=30.0)
         return self.act("leave_shop",
                         until=lambda s: s["state_name"] != "SHOP")
 
@@ -198,19 +202,33 @@ class BalatroBridge:
         return self.act("skip_pack")
 
 
-def launch(build: Path = DEFAULT_BUILD, wait: float = 20.0) -> subprocess.Popen:
-    """Start the modded build and wait for its socket to answer."""
+def launch(build: Path = DEFAULT_BUILD, wait: float = 90.0) -> subprocess.Popen:
+    """Start the modded build and wait until it actually answers.
+
+    Waiting for the port to accept is not enough: the OS completes a TCP
+    handshake from the listen backlog before the game has called accept(), so a
+    probe connection appears to succeed while the game is still loading -- and
+    that probe then occupies the single client slot. The only reliable signal is
+    a protocol reply, so this handshakes properly and hands back a live client.
+    """
     build = Path(build)
     if not build.exists():
         raise BridgeError(
             f"{build} not found -- run scripts/build_modded_game.py first")
     process = subprocess.Popen([str(build)], cwd=str(build.parent))
+
     deadline = time.time() + wait
     while time.time() < deadline:
+        if process.poll() is not None:
+            raise BridgeError(
+                f"the game exited during startup (code {process.returncode})")
+        bridge = BalatroBridge(timeout=5.0)
         try:
-            with socket.create_connection((DEFAULT_HOST, DEFAULT_PORT), 1.0):
-                return process
-        except OSError:
-            time.sleep(0.5)
+            bridge.connect()
+            bridge.hello()
+            return process, bridge
+        except (BridgeError, OSError, ValueError):
+            bridge.close()
+            time.sleep(1.0)
     process.terminate()
-    raise BridgeError(f"the game did not open its socket within {wait}s")
+    raise BridgeError(f"the game did not answer within {wait}s")
