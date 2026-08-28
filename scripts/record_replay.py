@@ -114,6 +114,55 @@ def differences(expected: dict, actual: dict) -> list[str]:
 
 # ---------------------------------------------------------------- record
 
+# G.FUNCS names are the game's; these are what a player would call them.
+FRIENDLY = {
+    "select_blind": "select blind",
+    "skip_blind": "skip blind",
+    "play_cards_from_highlighted": "play",
+    "discard_cards_from_highlighted": "discard",
+    "buy_from_shop": "buy",
+    "sell_card": "sell",
+    "use_card": "use",
+    "reroll_shop": "reroll",
+    "toggle_shop": "leave shop",
+    "cash_out": "cash out",
+    "skip_booster": "skip pack",
+}
+
+
+def describe(entry: dict) -> str:
+    """One readable line per recorded action, so a player can check live that
+    what they did is what got captured."""
+    action = entry["action"]
+    params = normalise(entry.get("params")) or {}
+    name = FRIENDLY.get(action, action)
+    detail = ""
+
+    cards = params.get("cards")
+    if cards:
+        detail = f"cards {list(cards)}"
+    elif params.get("key"):
+        where = params.get("area", "")
+        detail = str(params["key"])
+        if where and where != "consumeables":
+            detail += f" from {where}"
+        targets = params.get("targets")
+        if targets:
+            detail += f" on cards {list(targets)}"
+    elif params.get("blind"):
+        detail = str(params["blind"])
+
+    before = entry.get("before") or {}
+    state = (f"${before.get('dollars', '?')}"
+             f"  ante {before.get('ante', '?')}")
+    if before.get("phase") in SCORE_STABLE_PHASES:
+        state += f"  chips {before.get('chips', 0)}/{before.get('blind_chips', 0)}"
+    jokers = normalise(before.get("jokers")) or []
+    if jokers:
+        state += f"  jokers {len(jokers)}"
+    return f"  {entry['n']:3d}  {name:<12} {detail:<34} {state}"
+
+
 def do_record(args) -> None:
     bridge = _connect(args)
     print(f"starting a run on seed {args.seed}...")
@@ -125,27 +174,30 @@ def do_record(args) -> None:
     print(f"whatever you like. Press Ctrl+C here when you are done.\n")
     print(f"  seed {info['seed']}  deck {info['deck']}")
 
-    entries: list[dict] = []
+    def drain(actions: list[dict]) -> None:
+        """Print every action that has landed since the last check."""
+        total = bridge.command("recording", 1, 1).get("total", 0)
+        while len(actions) < total:
+            chunk = bridge.command("recording", len(actions) + 1, 20)
+            got = normalise(chunk.get("entries")) or []
+            if not got:
+                break
+            for entry in got:
+                print(describe(entry), flush=True)
+            actions.extend(got)
+
+    # Print each action as it lands rather than a running count: the point of
+    # watching is to see that what you did is what got captured.
+    print(f"  {'#':>3}  {'action':<12} {'detail':<34} state\n")
+    actions: list[dict] = []
     try:
         while True:
-            time.sleep(2)
-            total = bridge.command("recording", 1, 1).get("total", 0)
-            if total != len(entries):
-                print(f"  {total} actions recorded", end="\r", flush=True)
-                entries = [None] * total
+            time.sleep(0.4)
+            drain(actions)
     except KeyboardInterrupt:
         print()
 
-    total = bridge.command("recording", 1, 1).get("total", 0)
-    actions = []
-    at = 1
-    while at <= total:
-        chunk = bridge.command("recording", at, 20)
-        got = normalise(chunk.get("entries")) or []
-        if not got:
-            break
-        actions.extend(got)
-        at += len(got)
+    drain(actions)          # anything between the last poll and the interrupt
     bridge.command("stop_recording")
 
     payload = {"seed": info["seed"], "deck": info["deck"],
