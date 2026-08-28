@@ -893,106 +893,11 @@ local function card_row(card, highlighted)
   }
 end
 
+--- The observation lives in bot_api now, so that the engine and the real game
+--- produce it with the same code. This used to be a second implementation of
+--- nearly the same table, and the halves drifted where nobody compared them.
 function api.env_state()
-  local blind = G.GAME.blind
-  local state = {
-    state = G.STATE,
-    state_name = api.state_name(),
-    ante = G.GAME.round_resets.ante,
-    round = G.GAME.round,
-    dollars = G.GAME.dollars,
-    chips = G.GAME.chips,
-    blind_chips = (blind and blind.chips) or 0,
-    blind_name = (blind and blind.name) or '',
-    boss = (blind and blind.boss) and 1 or 0,
-    hands_left = G.GAME.current_round.hands_left,
-    discards_left = G.GAME.current_round.discards_left,
-    joker_limit = G.jokers.config.card_limit,
-    consumable_limit = G.consumeables.config.card_limit,
-    reroll_cost = G.GAME.current_round.reroll_cost or 0,
-    won = G.GAME.won and 1 or 0,
-    in_pack = api.in_pack() and 1 or 0,
-    shop_ready = api.shop_ready() and 1 or 0,
-    skippable = (api.blind_on_deck() ~= 'Boss') and 1 or 0,
-    offered_tag = api.key_id(G.GAME.round_resets.blind_tags[api.blind_on_deck()] or ''),
-    selection_size = #G.hand.highlighted,
-    highlight_limit = G.hand.config.highlighted_limit or 5,
-  }
-
-  state.hand = {}
-  for i, card in ipairs(G.hand.cards) do
-    state.hand[i] = card_row(card, api.is_highlighted(i))
-  end
-
-  state.jokers = {}
-  for i, card in ipairs(G.jokers.cards) do
-    state.jokers[i] = {
-      center = api.key_id(card.config.center.key),
-      sellable = card:can_sell_card() and 1 or 0,
-      sell_cost = card.sell_cost or 0,
-      rarity = card.config.center.rarity or 0,
-    }
-  end
-
-  state.consumables = {}
-  for i, card in ipairs(G.consumeables.cards) do
-    state.consumables[i] = {
-      center = api.key_id(card.config.center.key),
-      set = SET_IDS[card.config.center.set] or 0,
-      sellable = card:can_sell_card() and 1 or 0,
-      -- The game's own gate, and the only one that matters. This used to read
-      -- `(card.check_use and not card:check_use()) and 1 or 1` -- both arms
-      -- return 1, so it was a check-shaped constant, and the agent was free to
-      -- burn a Death on one selected card and get nothing for it.
-      usable = card:can_use_consumeable() and 1 or 0,
-    }
-  end
-
-  state.shop = {}
-  for _, name in ipairs({ 'shop_jokers', 'shop_vouchers', 'shop_booster' }) do
-    local area = G[name]
-    if area and area.cards then
-      for i, card in ipairs(area.cards) do
-        state.shop[#state.shop + 1] = {
-          area = name,
-          index = i,
-          center = api.key_id(card.config.center.key),
-          set = SET_IDS[card.config.center.set] or 0,
-          cost = card.cost or 0,
-          buyable = ((card.cost or 0) <= G.GAME.dollars
-                     and buy_space(card)) and 1 or 0,
-          -- The shop's second button on a consumable. Worth its own flag
-          -- because it is legal in cases plain buying is not: it needs no
-          -- free slot, since the card is used rather than stored.
-          buy_and_usable = api.can_buy_and_use(name, i) and 1 or 0,
-        }
-      end
-    end
-  end
-
-  state.pack = {}
-  if G.pack_cards and G.pack_cards.cards then
-    for i, card in ipairs(G.pack_cards.cards) do
-      state.pack[i] = {
-        center = api.key_id(card.config.center.key),
-        set = SET_IDS[card.config.center.set] or 0,
-        -- A consumable taken from a pack is used the instant it is taken, so
-        -- it faces the same gate. A card that is not a consumable -- a joker
-        -- from a Buffoon pack, a playing card from a Standard one -- is always
-        -- takeable.
-        usable = ((not card.ability.consumeable)
-                  or card:can_use_consumeable()) and 1 or 0,
-      }
-    end
-  end
-
-  state.hand_levels = {}
-  for name, data in pairs(G.GAME.hands) do
-    state.hand_levels[name] = { level = data.level, played = data.played,
-                                chips = data.chips, mult = data.mult }
-  end
-
-  return state
+  return require("bot_api").state()
 end
 
 return api

@@ -1,14 +1,43 @@
 -- The game-facing half of the bridge, running inside the real Balatro.
 --
--- `state` returns the same shape as the headless engine's api.env_state(), so
--- an agent trained headless can drive the real game without a translation
--- layer. The difference is timing, not structure: here actions are asynchronous
--- because the game is actually animating them, so the client polls `state`
--- until the phase is actionable again rather than blocking.
+-- `state` is the single observation for this project. The bridge polls it, the
+-- replay compares it, and the learning environment encodes it -- one producer,
+-- running unchanged in both the real game and the headless engine, so a policy
+-- trained against the engine sees exactly what it will see when it drives the
+-- real thing.
+--
+-- It used to be one of two: the engine had its own api.env_state() of nearly
+-- the same shape. They drifted, quietly, in the places nobody compared -- the
+-- per-card flags. env_state reported every consumable as usable, because the
+-- expression was `(card.check_use and not card:check_use()) and 1 or 1`, whose
+-- arms are both 1, and a policy trained on that spent Deaths on one selected
+-- card for nothing.
+--
+-- The difference between the two runtimes is timing, not structure: in the
+-- real game actions are asynchronous because it is animating them, so the
+-- client polls this until the phase is actionable again rather than blocking.
 
 local BotAPI = {}
 
 local KEY_INDEX, KEY_ORDER
+local TAG_INDEX, TAG_ORDER
+
+-- Editions and seals are a large part of what a card is worth -- polychrome is
+-- x1.5 on the whole hand, negative is a whole extra joker slot, a gold seal is
+-- $3 every time the card is played -- and neither was in the observation at
+-- all. Ordered explicitly rather than by sorting, so the ids are stable if the
+-- game ever adds one.
+local EDITION_IDS = { foil = 1, holo = 2, polychrome = 3, negative = 4 }
+local SEAL_IDS = { Gold = 1, Red = 2, Blue = 3, Purple = 4 }
+
+local function edition_id(card)
+  local e = card.edition
+  return (e and e.type and EDITION_IDS[e.type]) or 0
+end
+
+local function seal_id(card)
+  return (card.seal and SEAL_IDS[card.seal]) or 0
+end
 
 local function key_index()
   if KEY_INDEX then return KEY_INDEX end
@@ -20,6 +49,25 @@ local function key_index()
 end
 
 local function key_id(key) return key and key_index()[key] or 0 end
+
+local function tag_index()
+  if TAG_INDEX then return TAG_INDEX end
+  TAG_INDEX, TAG_ORDER = {}, {}
+  for key in pairs(G.P_TAGS) do TAG_ORDER[#TAG_ORDER + 1] = key end
+  table.sort(TAG_ORDER)
+  for i, key in ipairs(TAG_ORDER) do TAG_INDEX[key] = i end
+  return TAG_INDEX
+end
+
+local function tag_id(key) return (key and tag_index()[key]) or 0 end
+
+--- The tag vocabulary, so the client can size a one-hot over it. Tags are in
+--- G.P_TAGS, a different table from P_CENTERS -- which is why asking key_id
+--- for a tag quietly returned 0 for every tag there is.
+function BotAPI.tag_list()
+  tag_index()
+  return table.concat(TAG_ORDER, ",")
+end
 
 function BotAPI.key_list()
   key_index()
@@ -297,6 +345,19 @@ function BotAPI.state()
     won = (in_run and G.GAME.won) and 1 or 0,
     in_pack = in_pack() and 1 or 0,
     selection_size = in_run and #G.hand.highlighted or 0,
+    -- How many cards may be selected at once. Not always five: a Serpent-style
+    -- hand or a joker can change it, so it cannot be a constant on the client.
+    highlight_limit = in_run and (G.hand.config.highlighted_limit or 5) or 0,
+    boss = (blind and blind.boss) and 1 or 0,
+    skippable = (in_run and blind_on_deck() ~= "Boss") and 1 or 0,
+    -- The tag on offer for the blind on deck. Skipping is a trade -- no money
+    -- and no chips, in exchange for this -- so it has to be visible before the
+    -- decision, not after.
+    offered_tag = in_run and tag_id(
+      G.GAME.round_resets.blind_tags[blind_on_deck()]) or 0,
+    shop_ready = (G.STATE == G.STATES.SHOP and G.shop_jokers ~= nil
+                  and G.shop_jokers.cards ~= nil
+                  and #G.shop_jokers.cards > 0) and 1 or 0,
     stop_use = in_run and (G.GAME.STOP_USE or 0) or 0,
     -- A bought playing card lands in neither tray -- the Magic Trick voucher
     -- puts them in the shop and buy_from_shop sends them to the deck -- so
@@ -420,6 +481,8 @@ function BotAPI.state()
       chips = (card.base and card.base.nominal) or 0,
       highlighted = is_highlighted(i) and 1 or 0,
       debuffed = card.debuff and 1 or 0,
+      edition = edition_id(card),
+      seal = seal_id(card),
     }
   end
 
@@ -431,6 +494,9 @@ function BotAPI.state()
       sellable = card:can_sell_card() and 1 or 0,
       sell_cost = card.sell_cost or 0,
       rarity = card.config.center.rarity or 0,
+      -- Negative is worth seeing for a reason beyond scoring: it is an extra
+      -- joker slot, so it changes how many jokers can be held at all.
+      edition = edition_id(card),
       -- Stickers from the higher stakes. They change what is legal or wise:
       -- eternal cannot be sold or destroyed, perishable expires after five
       -- rounds, rental charges $3 every round.
@@ -447,6 +513,11 @@ function BotAPI.state()
       center = key_id(card.config.center.key),
       set = SET_IDS[card.config.center.set] or 0,
       sellable = card:can_sell_card() and 1 or 0,
+      edition = edition_id(card),
+      -- The game's own gate. A Death with one card selected is not usable,
+      -- and using it anyway spends it for nothing -- or, in the real game,
+      -- crashes on highlighted[2].
+      usable = card:can_use_consumeable() and 1 or 0,
     }
   end
 
@@ -460,8 +531,15 @@ function BotAPI.state()
           center = key_id(card.config.center.key),
           set = SET_IDS[card.config.center.set] or 0,
           cost = card.cost or 0,
+          edition = edition_id(card),
+          seal = seal_id(card),
           buyable = ((card.cost or 0) <= G.GAME.dollars
                      and buy_space(card)) and 1 or 0,
+          -- The shop's second button. Legal where plain buying is not: the
+          -- card is used rather than stored, so it needs no free slot.
+          buy_and_usable = (card.ability.consumeable
+                            and (card.cost or 0) <= G.GAME.dollars
+                            and card:can_use_consumeable()) and 1 or 0,
         }
       end
     end
@@ -471,7 +549,14 @@ function BotAPI.state()
   if G.pack_cards and G.pack_cards.cards then
     for i, card in ipairs(G.pack_cards.cards) do
       state.pack[i] = { center = key_id(card.config.center.key),
-                        set = SET_IDS[card.config.center.set] or 0 }
+                        set = SET_IDS[card.config.center.set] or 0,
+                        edition = edition_id(card),
+                        seal = seal_id(card),
+                        -- A consumable is used the instant it is taken, so it
+                        -- faces the same gate. Anything else is always
+                        -- takeable.
+                        usable = ((not card.ability.consumeable)
+                                  or card:can_use_consumeable()) and 1 or 0 }
     end
   end
 
