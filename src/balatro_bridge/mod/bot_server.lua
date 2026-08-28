@@ -217,6 +217,38 @@ function BotServer.install()
   -- Settings that must land before Game:start_up() runs in love.load. This
   -- module is required at the end of main.lua, which is still early enough.
   if G and G.SETTINGS then
+    -- The game's own tutorial switch. tutorial_controller honours it by
+    -- setting tutorial_complete and clearing tutorial_progress itself, which
+    -- is better than fabricating a progress table: Game:update calls that
+    -- controller every frame while the tutorial is incomplete, and it indexes
+    -- tutorial_progress unconditionally. Set here, before start_up, because
+    -- the game's update runs before any of our per-frame code.
+    G.F_SKIP_TUTORIAL = true
+
+    -- F_SKIP_TUTORIAL alone is not enough. It is only read by
+    -- tutorial_controller, which runs in Game:update -- but Game:main_menu is
+    -- called from start_up during love.load, before any update, and line 1531
+    -- indexes G.SETTINGS.tutorial_progress unconditionally:
+    --
+    --   if (not tutorial_complete) and tutorial_progress.completed_parts[...]
+    --
+    -- On a fresh save tutorial_progress is nil, so that crashes before any
+    -- per-frame code can run. Setting tutorial_complete makes the `and`
+    -- short-circuit, so the nil is never indexed.
+    G.SETTINGS.tutorial_complete = true
+    G.SETTINGS.tutorial_progress = nil
+
+    -- Belt and braces: start_up reloads settings.jkr, which can put
+    -- tutorial_complete back to false with tutorial_progress still nil. Guard
+    -- the call site itself so the order of settings loading cannot matter.
+    local original_main_menu = Game.main_menu
+    Game.main_menu = function(self, ...)
+      G.SETTINGS.tutorial_complete = true
+      G.SETTINGS.tutorial_progress = nil
+      G.F_SKIP_TUTORIAL = true
+      return original_main_menu(self, ...)
+    end
+
     -- The splash is ~7 seconds of logo animation before the menu appears.
     G.SETTINGS.skip_splash = "Yes"
     -- 4 is the maximum the options screen offers; it shortens animation only.
@@ -254,6 +286,10 @@ function BotServer.install()
 
   local original = love.update
   love.update = function(dt)
+    -- Before the game's own update, not after: Game:update calls
+    -- tutorial_controller on its first frame, so configuring afterwards is
+    -- already too late.
+    configure_once()
     if original then
       local ok, err = pcall(original, dt)
       if not ok then

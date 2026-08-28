@@ -129,14 +129,11 @@ function BotAPI.configure(args)
 
   -- The tutorial forces specific shop items, a specific voucher and specific
   -- tags (see G.FUNCS.start_tutorial), so leaving it on quietly corrupts runs.
+  -- G.F_SKIP_TUTORIAL is the game's own switch; tutorial_controller acts on it.
+  G.F_SKIP_TUTORIAL = true
   if not G.SETTINGS.tutorial_complete then
     G.SETTINGS.tutorial_complete = true
-    G.SETTINGS.tutorial_progress = {
-      hold_parts = {},
-      completed_parts = { small_blind = true, big_blind = true,
-                          second_hand = true, shop_1 = true, shop_2 = true,
-                          consumables = true },
-    }
+    G.SETTINGS.tutorial_progress = nil
     changed.tutorial = true
   end
 
