@@ -85,6 +85,10 @@ function BotServer.handlers.hello()
     protocol = 1,
     love = string.format("%d.%d.%d", love.getVersion()),
     socket = socket_ok and "yes" or "no",
+    screenmode = (G and G.SETTINGS and G.SETTINGS.WINDOW
+                  and G.SETTINGS.WINDOW.screenmode) or "?",
+    fullscreen = (love.window.getFullscreen and love.window.getFullscreen())
+                 and 1 or 0,
   }
 end
 
@@ -168,7 +172,8 @@ local function configure_once()
   local ok, changed = pcall(BotServer.api.configure)
   log(ok and ("configured: tutorial_skipped=" .. tostring(changed.tutorial)
               .. " unlocked=" .. tostring(changed.unlocked)
-              .. " gamespeed=" .. tostring(changed.gamespeed))
+              .. " gamespeed=" .. tostring(changed.gamespeed)
+              .. " screenmode=" .. tostring(changed.screenmode))
            or ("configure failed: " .. tostring(changed)))
 end
 
@@ -216,7 +221,23 @@ function BotServer.install()
     G.SETTINGS.skip_splash = "Yes"
     -- 4 is the maximum the options screen offers; it shortens animation only.
     G.SETTINGS.GAMESPEED = 4
-    log("pre-boot: splash skipped, gamespeed 4")
+
+    -- Windowed by default: a bot-driven game you want to watch alongside a
+    -- terminal should not own the whole screen. Game:init_window copies this
+    -- into QUEUED_CHANGE before calling apply_window_changes, and that path
+    -- sizes the window at 80% of the desktop.
+    --
+    -- Override without rebuilding: BALATRO_BOT_SCREENMODE=Borderless (or
+    -- Fullscreen) in the environment the game is launched from.
+    local mode = os.getenv("BALATRO_BOT_SCREENMODE") or "Windowed"
+    if mode ~= "Windowed" and mode ~= "Fullscreen" and mode ~= "Borderless" then
+      log("unknown BALATRO_BOT_SCREENMODE " .. tostring(mode) .. ", using Windowed")
+      mode = "Windowed"
+    end
+    G.SETTINGS.WINDOW = G.SETTINGS.WINDOW or {}
+    G.SETTINGS.WINDOW.screenmode = mode
+
+    log("pre-boot: splash skipped, gamespeed 4, screenmode " .. mode)
   end
   if not BotServer.start() then return false end
   -- An error anywhere in the game drops LOVE into its error screen and stops

@@ -106,6 +106,27 @@ function BotAPI.configure(args)
   G.SETTINGS.GAMESPEED = tonumber(args and args[1]) or 4
   changed.gamespeed = G.SETTINGS.GAMESPEED
 
+  -- Window mode has to be set here rather than pre-boot: Game:start_up loads
+  -- settings.jkr from the profile, which overwrites anything set before it.
+  -- apply_window_changes reads QUEUED_CHANGE for the sizing branch, so both
+  -- fields are set, and it is applied live.
+  local mode = os.getenv("BALATRO_BOT_SCREENMODE") or "Windowed"
+  if mode ~= "Windowed" and mode ~= "Fullscreen" and mode ~= "Borderless" then
+    mode = "Windowed"
+  end
+  if G.SETTINGS.WINDOW and G.SETTINGS.WINDOW.screenmode ~= mode then
+    G.SETTINGS.WINDOW.screenmode = mode
+    G.SETTINGS.QUEUED_CHANGE = G.SETTINGS.QUEUED_CHANGE or {}
+    G.SETTINGS.QUEUED_CHANGE.screenmode = mode
+    if G.FUNCS.apply_window_changes then
+      pcall(G.FUNCS.apply_window_changes)
+    end
+    -- Persist it, so the next launch starts in this mode from the first frame
+    -- rather than flipping after boot.
+    pcall(function() G:save_settings() end)
+  end
+  changed.screenmode = mode
+
   -- The tutorial forces specific shop items, a specific voucher and specific
   -- tags (see G.FUNCS.start_tutorial), so leaving it on quietly corrupts runs.
   if not G.SETTINGS.tutorial_complete then
