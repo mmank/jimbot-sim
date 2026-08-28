@@ -1,0 +1,1420 @@
+{
+ "seed": "ABCDEFGH",
+ "deck": "Red Deck",
+ "start": {
+  "ante": 1,
+  "best_hand": 0,
+  "blind": "",
+  "blind_chips": 0,
+  "chips": 0,
+  "consumables": [],
+  "deck_size": 52,
+  "discards_left": 4,
+  "dollars": 4,
+  "hand_ids": [],
+  "hand_levels": [],
+  "hand_size": 0,
+  "hands_left": 4,
+  "hands_played": 0,
+  "jokers": [],
+  "last_hand": "",
+  "phase": "BLIND_SELECT",
+  "round": 0
+ },
+ "actions": [
+  {
+   "params": {
+    "blind": "Small"
+   },
+   "action": "skip_blind",
+   "before": {
+    "jokers": [],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 0,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 0,
+    "phase": "BLIND_SELECT",
+    "last_hand": "",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 0,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 4
+   },
+   "n": 1
+  },
+  {
+   "params": {
+    "blind": "Big"
+   },
+   "action": "select_blind",
+   "before": {
+    "jokers": [],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 0,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 0,
+    "phase": "BLIND_SELECT",
+    "last_hand": "",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 0,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 4
+   },
+   "n": 2
+  },
+  {
+   "params": {
+    "by": "suit"
+   },
+   "action": "sort_hand_suit",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     10,
+     32,
+     19,
+     44,
+     31,
+     27,
+     39,
+     26
+    ],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 0,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 0,
+    "phase": "SELECTING_HAND",
+    "last_hand": "",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 3
+  },
+  {
+   "params": {
+    "cards": [
+     1,
+     2,
+     7,
+     8
+    ],
+    "card_ids": [
+     44,
+     39,
+     19,
+     10
+    ]
+   },
+   "action": "discard_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     44,
+     39,
+     32,
+     31,
+     27,
+     26,
+     19,
+     10
+    ],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 0,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 0,
+    "phase": "SELECTING_HAND",
+    "last_hand": "",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 4
+  },
+  {
+   "params": {
+    "cards": [
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "card_ids": [
+     34,
+     31,
+     32,
+     29,
+     27
+    ]
+   },
+   "action": "play_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     40,
+     34,
+     31,
+     32,
+     29,
+     27,
+     26,
+     23
+    ],
+    "hand_levels": [],
+    "discards_left": 3,
+    "hands_played": 0,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 0,
+    "phase": "SELECTING_HAND",
+    "last_hand": "",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 5
+  },
+  {
+   "params": {
+    "by": "suit"
+   },
+   "action": "sort_hand_suit",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     48,
+     43,
+     40,
+     35,
+     26,
+     5,
+     23,
+     13
+    ],
+    "hand_levels": [],
+    "discards_left": 3,
+    "hands_played": 1,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Flush",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 3,
+    "chips": 276,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 6
+  },
+  {
+   "params": {
+    "by": "rank"
+   },
+   "action": "sort_hand_value",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     48,
+     43,
+     40,
+     35,
+     26,
+     5,
+     23,
+     13
+    ],
+    "hand_levels": [],
+    "discards_left": 3,
+    "hands_played": 1,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Flush",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 3,
+    "chips": 276,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 7
+  },
+  {
+   "params": {
+    "cards": [
+     2,
+     6,
+     7,
+     8
+    ],
+    "card_ids": [
+     35,
+     48,
+     26,
+     13
+    ]
+   },
+   "action": "play_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     23,
+     35,
+     43,
+     5,
+     40,
+     48,
+     26,
+     13
+    ],
+    "hand_levels": [],
+    "discards_left": 3,
+    "hands_played": 1,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Flush",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 3,
+    "chips": 276,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 8
+  },
+  {
+   "params": {
+    "cards": [
+     1,
+     6
+    ],
+    "card_ids": [
+     50,
+     11
+    ]
+   },
+   "action": "play_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     50,
+     21,
+     23,
+     5,
+     43,
+     11,
+     42,
+     40
+    ],
+    "hand_levels": [],
+    "discards_left": 3,
+    "hands_played": 2,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Two Pair",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 2,
+    "chips": 364,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 9
+  },
+  {
+   "params": {
+    "by": "suit"
+   },
+   "action": "sort_hand_suit",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     21,
+     23,
+     9,
+     12,
+     5,
+     43,
+     42,
+     40
+    ],
+    "hand_levels": [],
+    "discards_left": 3,
+    "hands_played": 3,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Pair",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 1,
+    "chips": 424,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 10
+  },
+  {
+   "params": {
+    "by": "rank"
+   },
+   "action": "sort_hand_value",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     43,
+     42,
+     40,
+     9,
+     12,
+     5,
+     21,
+     23
+    ],
+    "hand_levels": [],
+    "discards_left": 3,
+    "hands_played": 3,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Pair",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 1,
+    "chips": 424,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 11
+  },
+  {
+   "params": {
+    "cards": [
+     1,
+     2,
+     6,
+     7,
+     8
+    ],
+    "card_ids": [
+     21,
+     23,
+     43,
+     42,
+     40
+    ]
+   },
+   "action": "discard_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     21,
+     23,
+     9,
+     12,
+     5,
+     43,
+     42,
+     40
+    ],
+    "hand_levels": [],
+    "discards_left": 3,
+    "hands_played": 3,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Pair",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 1,
+    "chips": 424,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 12
+  },
+  {
+   "params": {
+    "by": "suit"
+   },
+   "action": "sort_hand_suit",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     36,
+     9,
+     51,
+     12,
+     33,
+     45,
+     5,
+     17
+    ],
+    "hand_levels": [],
+    "discards_left": 2,
+    "hands_played": 3,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Pair",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 1,
+    "chips": 424,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 13
+  },
+  {
+   "params": {
+    "cards": [
+     1,
+     2,
+     3,
+     4,
+     8
+    ],
+    "card_ids": [
+     51,
+     45,
+     36,
+     33,
+     17
+    ]
+   },
+   "action": "discard_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     51,
+     45,
+     36,
+     33,
+     9,
+     12,
+     5,
+     17
+    ],
+    "hand_levels": [],
+    "discards_left": 2,
+    "hands_played": 3,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Pair",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 1,
+    "chips": 424,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 14
+  },
+  {
+   "params": {
+    "cards": [
+     1,
+     2,
+     7,
+     8
+    ],
+    "card_ids": [
+     41,
+     28,
+     25,
+     20
+    ]
+   },
+   "action": "discard_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     41,
+     28,
+     9,
+     12,
+     5,
+     0,
+     25,
+     20
+    ],
+    "hand_levels": [],
+    "discards_left": 1,
+    "hands_played": 3,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Pair",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 1,
+    "chips": 424,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 15
+  },
+  {
+   "params": {
+    "cards": [
+     3,
+     4,
+     5,
+     6,
+     8
+    ],
+    "card_ids": [
+     9,
+     12,
+     5,
+     0,
+     2
+    ]
+   },
+   "action": "play_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_ids": [
+     47,
+     37,
+     9,
+     12,
+     5,
+     0,
+     24,
+     2
+    ],
+    "hand_levels": [],
+    "discards_left": 0,
+    "hands_played": 3,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Pair",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 1,
+    "chips": 424,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 16
+  },
+  {
+   "params": [],
+   "action": "cash_out",
+   "before": {
+    "jokers": [],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 0,
+    "hands_played": 4,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "ROUND_EVAL",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 0,
+    "chips": 696,
+    "hand_size": 0,
+    "dollars": 4
+   },
+   "n": 17
+  },
+  {
+   "params": {
+    "area": "shop_jokers",
+    "key": "j_rocket",
+    "index": 1
+   },
+   "action": "buy_from_shop",
+   "before": {
+    "jokers": [],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 4,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 8
+   },
+   "n": 18
+  },
+  {
+   "params": {
+    "area": "jokers",
+    "key": "j_rocket",
+    "index": 1
+   },
+   "action": "sell_card",
+   "before": {
+    "jokers": [
+     "j_rocket"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 4,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 2
+   },
+   "n": 19
+  },
+  {
+   "params": {
+    "targets": [],
+    "area": "shop_booster",
+    "key": "p_buffoon_normal_1",
+    "index": 1
+   },
+   "action": "use_card",
+   "before": {
+    "jokers": [],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 4,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 5
+   },
+   "n": 20
+  },
+  {
+   "params": {
+    "targets": [],
+    "area": "pack_cards",
+    "key": "j_blueprint",
+    "index": 2
+   },
+   "action": "use_card",
+   "before": {
+    "jokers": [],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 4,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "BUFFOON_PACK",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 1
+   },
+   "n": 21
+  },
+  {
+   "params": [],
+   "action": "toggle_shop",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 4,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 1
+   },
+   "n": 22
+  },
+  {
+   "params": {
+    "blind": "Boss"
+   },
+   "action": "select_blind",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 4,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "BLIND_SELECT",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 1
+   },
+   "n": 23
+  },
+  {
+   "params": {
+    "cards": [
+     1,
+     2,
+     6,
+     7,
+     8
+    ],
+    "card_ids": [
+     49,
+     42,
+     4,
+     3,
+     17
+    ]
+   },
+   "action": "discard_cards_from_highlighted",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [
+     49,
+     42,
+     32,
+     28,
+     27,
+     4,
+     3,
+     17
+    ],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 0,
+    "blind": "The Goad",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Flush",
+    "blind_chips": 600,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 8,
+    "dollars": 1
+   },
+   "n": 24
+  },
+  {
+   "params": {
+    "cards": [
+     1,
+     2,
+     7,
+     8
+    ],
+    "card_ids": [
+     47,
+     39,
+     21,
+     22
+    ]
+   },
+   "action": "discard_cards_from_highlighted",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [
+     47,
+     39,
+     32,
+     28,
+     27,
+     26,
+     21,
+     22
+    ],
+    "hand_levels": [],
+    "discards_left": 3,
+    "hands_played": 0,
+    "blind": "The Goad",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Flush",
+    "blind_chips": 600,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 8,
+    "dollars": 1
+   },
+   "n": 25
+  },
+  {
+   "params": {
+    "cards": [
+     3,
+     4,
+     5,
+     6,
+     7
+    ],
+    "card_ids": [
+     32,
+     31,
+     28,
+     27,
+     26
+    ]
+   },
+   "action": "play_cards_from_highlighted",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [
+     51,
+     41,
+     32,
+     31,
+     28,
+     27,
+     26,
+     9
+    ],
+    "hand_levels": [],
+    "discards_left": 2,
+    "hands_played": 0,
+    "blind": "The Goad",
+    "consumables": [],
+    "best_hand": 276,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Flush",
+    "blind_chips": 600,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 8,
+    "dollars": 1
+   },
+   "n": 26
+  },
+  {
+   "params": {
+    "cards": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "card_ids": [
+     51,
+     41,
+     29,
+     9,
+     1
+    ]
+   },
+   "action": "discard_cards_from_highlighted",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [
+     51,
+     41,
+     29,
+     9,
+     1,
+     20,
+     18,
+     15
+    ],
+    "hand_levels": [],
+    "discards_left": 2,
+    "hands_played": 1,
+    "blind": "The Goad",
+    "consumables": [],
+    "best_hand": 436,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Flush",
+    "blind_chips": 600,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 1,
+    "hands_left": 3,
+    "chips": 436,
+    "hand_size": 8,
+    "dollars": 1
+   },
+   "n": 27
+  },
+  {
+   "params": {
+    "cards": [
+     4,
+     5,
+     6,
+     7,
+     8
+    ],
+    "card_ids": [
+     20,
+     19,
+     18,
+     16,
+     15
+    ]
+   },
+   "action": "play_cards_from_highlighted",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [
+     30,
+     7,
+     5,
+     20,
+     19,
+     18,
+     16,
+     15
+    ],
+    "hand_levels": [],
+    "discards_left": 1,
+    "hands_played": 1,
+    "blind": "The Goad",
+    "consumables": [],
+    "best_hand": 436,
+    "phase": "SELECTING_HAND",
+    "last_hand": "Flush",
+    "blind_chips": 600,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 1,
+    "hands_left": 3,
+    "chips": 436,
+    "hand_size": 8,
+    "dollars": 1
+   },
+   "n": 28
+  },
+  {
+   "params": [],
+   "action": "cash_out",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 1,
+    "hands_played": 2,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 472,
+    "phase": "ROUND_EVAL",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 2,
+    "hands_left": 2,
+    "chips": 908,
+    "hand_size": 0,
+    "dollars": 1
+   },
+   "n": 29
+  },
+  {
+   "params": {
+    "targets": [],
+    "area": "shop_booster",
+    "key": "p_buffoon_normal_1",
+    "index": 2
+   },
+   "action": "use_card",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 2,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 472,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 2,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 33
+   },
+   "n": 30
+  },
+  {
+   "params": {
+    "targets": [],
+    "area": "pack_cards",
+    "key": "j_clever",
+    "index": 2
+   },
+   "action": "use_card",
+   "before": {
+    "jokers": [
+     "j_blueprint"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 2,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 472,
+    "phase": "BUFFOON_PACK",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 2,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 29
+   },
+   "n": 31
+  },
+  {
+   "params": {
+    "area": "shop_jokers",
+    "key": "j_hanging_chad",
+    "index": 2
+   },
+   "action": "buy_from_shop",
+   "before": {
+    "jokers": [
+     "j_blueprint",
+     "j_clever"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 2,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 472,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 2,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 29
+   },
+   "n": 32
+  },
+  {
+   "params": {
+    "area": "shop_jokers",
+    "key": "c_death",
+    "index": 1
+   },
+   "action": "buy_from_shop",
+   "before": {
+    "jokers": [
+     "j_blueprint",
+     "j_clever",
+     "j_hanging_chad"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 2,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 472,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 2,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 25
+   },
+   "n": 33
+  },
+  {
+   "params": [],
+   "action": "reroll_shop",
+   "before": {
+    "jokers": [
+     "j_blueprint",
+     "j_clever",
+     "j_hanging_chad"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 2,
+    "blind": "",
+    "consumables": [
+     "c_death"
+    ],
+    "best_hand": 472,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 2,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 22
+   },
+   "n": 34
+  },
+  {
+   "params": {
+    "area": "shop_jokers",
+    "key": "j_mad",
+    "index": 2
+   },
+   "action": "buy_from_shop",
+   "before": {
+    "jokers": [
+     "j_blueprint",
+     "j_clever",
+     "j_hanging_chad"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 2,
+    "blind": "",
+    "consumables": [
+     "c_death"
+    ],
+    "best_hand": 472,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 2,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 17
+   },
+   "n": 35
+  },
+  {
+   "params": [],
+   "action": "reroll_shop",
+   "before": {
+    "jokers": [
+     "j_blueprint",
+     "j_clever",
+     "j_hanging_chad",
+     "j_mad"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 2,
+    "blind": "",
+    "consumables": [
+     "c_death"
+    ],
+    "best_hand": 472,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 2,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 13
+   },
+   "n": 36
+  },
+  {
+   "params": {
+    "area": "shop_jokers",
+    "key": "j_greedy_joker",
+    "index": 2
+   },
+   "action": "buy_from_shop",
+   "before": {
+    "jokers": [
+     "j_blueprint",
+     "j_clever",
+     "j_hanging_chad",
+     "j_mad"
+    ],
+    "hand_ids": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 2,
+    "blind": "",
+    "consumables": [
+     "c_death"
+    ],
+    "best_hand": 472,
+    "phase": "SHOP",
+    "last_hand": "Flush",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 2,
+    "ante": 2,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 7
+   },
+   "n": 37
+  }
+ ]
+}

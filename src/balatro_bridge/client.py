@@ -232,8 +232,11 @@ class BalatroBridge:
             return any(i["area"] == area and i["index"] == index
                        for i in (state.get("shop") or []))
 
-        self.wait_until(lambda s: (s.get("shop_settled") and s.get("shop_stocked")
-                                   and offered(s)), timeout=30.0)
+        # Precondition is that *this* item is on the shelf -- not that the
+        # joker row has cards. A row the player bought out is legitimately
+        # empty while vouchers and packs are still perfectly buyable.
+        self.wait_until(lambda s: s.get("shop_settled") and offered(s),
+                        timeout=30.0)
         before = self.state()
         money = before["dollars"]
         item = next(i for i in before["shop"]
@@ -294,8 +297,11 @@ class BalatroBridge:
         money change leaves the caller acting on a shop that is about to become
         a pack screen.
         """
-        self.wait_until(lambda s: s.get("shop_settled") and s.get("shop_stocked"),
-                        timeout=30.0)
+        self.wait_until(
+            lambda s: (s.get("shop_settled")
+                       and any(i["area"] == area and i["index"] == index
+                               for i in (s.get("shop") or []))),
+            timeout=30.0)
         money = self.state()["dollars"]
         self.command("buy", area, index)
         # Wait for the pack to open *and* stock itself, not merely for the

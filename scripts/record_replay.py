@@ -31,7 +31,7 @@ from balatro_bridge import (DEFAULT_BUILD, DEFAULT_HOST, DEFAULT_PORT,  # noqa: 
 COMPARED = ("phase", "dollars", "chips", "ante", "round", "hands_left",
             "discards_left", "blind", "blind_chips", "hand_size", "jokers",
             "consumables", "hand_levels", "deck_size", "hands_played",
-            "last_hand", "hand_ids", "tags")
+            "last_hand", "hand_ids", "tags", "joker_ids")
 
 # Phases where the round score is a settled number rather than mid-animation.
 # cash_out resets it with ease_chips(0) over several frames, so between the
@@ -77,6 +77,65 @@ def _select(bridge, params):
     else:
         for index in params.get("cards") or []:
             bridge.toggle(index)
+
+
+def _match_order(bridge, expected_ids, field: str, command: str) -> bool:
+    """Put an area into the recorded order.
+
+    Dragging is not a G.FUNCS call so it cannot be hooked, but the order it
+    produces is observable and can be set directly. Joker order matters as much
+    as hand order: effects resolve left to right, and a recording of this very
+    project diverged by 434 chips on ordering alone.
+    """
+    if not expected_ids:
+        return True
+    current = normalise(bridge.command("check").get(field)) or []
+    expected = list(expected_ids)
+    if current == expected:
+        return True
+    if sorted(current) != sorted(expected):
+        return False          # different contents, not a reorder
+    bridge.command(command, *expected)
+    return True
+
+
+def _match_joker_order(bridge, expected: dict) -> bool:
+    """Put the jokers into the recorded order.
+
+    Prefers ids, but falls back to the recorded key order: a recording made
+    before joker ids existed still carries the joker keys in order, and the
+    key sequence is enough to reorder by. Jokers sharing a key are
+    interchangeable for this purpose.
+    """
+    ids = normalise(expected.get("joker_ids"))
+    if ids:
+        return _match_order(bridge, ids, "joker_ids", "set_joker_order")
+
+    keys = normalise(expected.get("jokers")) or []
+    if not keys:
+        return True
+    state = bridge.command("check")
+    current_keys = normalise(state.get("jokers")) or []
+    if list(current_keys) == list(keys):
+        return True
+    if sorted(current_keys) != sorted(keys):
+        return False
+    live = normalise(bridge.command("state").get("jokers")) or []
+    if len(live) != len(current_keys):
+        return True
+    # Greedily pair each recorded key with an unused joker carrying that key.
+    remaining = {i: k for i, k in enumerate(current_keys)}
+    order = []
+    for key in keys:
+        for i, have in list(remaining.items()):
+            if have == key:
+                order.append(live[i]["id"])
+                del remaining[i]
+                break
+    if len(order) != len(live):
+        return False
+    bridge.command("set_joker_order", *order)
+    return True
 
 
 def _match_hand_order(bridge, expected_ids) -> bool:
@@ -279,6 +338,7 @@ def do_replay(args) -> None:
         # buttons) before comparing, so a rearranged hand is followed rather
         # than reported as a divergence.
         _match_hand_order(bridge, normalise(entry["before"].get("hand_ids")))
+        _match_joker_order(bridge, entry["before"])
 
         # Compare before acting: the recorded `before` is the state the human
         # was looking at when they made this choice.

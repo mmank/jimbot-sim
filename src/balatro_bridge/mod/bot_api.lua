@@ -309,6 +309,7 @@ function BotAPI.state()
   state.jokers = {}
   for i, card in ipairs(G.jokers.cards) do
     state.jokers[i] = {
+      id = card_uid(card, base),
       center = key_id(card.config.center.key),
       sellable = card:can_sell_card() and 1 or 0,
       sell_cost = card.sell_cost or 0,
@@ -436,6 +437,14 @@ local function fingerprint()
   local hand_ids = {}
   local base = deck_base()
   for i, card in ipairs(G.hand.cards) do hand_ids[i] = card_uid(card, base) end
+
+  -- Joker order is not decoration: effects resolve left to right, so XMult
+  -- after +Mult scores differently from the reverse. Dragging jokers is a
+  -- real move and has to be reproduced, not just noticed.
+  local joker_ids = {}
+  for i, card in ipairs(G.jokers.cards) do
+    joker_ids[i] = card_uid(card, base)
+  end
   return {
     phase = state_name(),
     dollars = G.GAME.dollars,
@@ -462,6 +471,7 @@ local function fingerprint()
     deck_size = G.playing_cards and #G.playing_cards or 0,
     hand_ids = hand_ids,
     tags = tags,
+    joker_ids = joker_ids,
     skips = G.GAME.skips or 0,
   }
 end
@@ -704,6 +714,35 @@ end
 --- observable in the resulting order, and reproducible by setting that order
 --- directly. This is what lets a replay follow a hand the player rearranged
 --- by hand.
+--- Put the jokers into an explicit order, given as ids.
+---
+--- Like dragging a card in hand, dragging a joker is not a G.FUNCS call and
+--- cannot be hooked -- but the order it produces is observable and can be set
+--- directly, which is what lets a replay reproduce it.
+function BotAPI.set_joker_order(args)
+  local wanted = {}
+  for _, token in ipairs(args or {}) do wanted[#wanted + 1] = tonumber(token) end
+  local by_id, base = {}, deck_base()
+  for _, card in ipairs(G.jokers.cards) do by_id[card_uid(card, base)] = card end
+  local ordered = {}
+  for _, id in ipairs(wanted) do
+    if by_id[id] then
+      ordered[#ordered + 1] = by_id[id]
+      by_id[id] = nil
+    end
+  end
+  for _, card in ipairs(G.jokers.cards) do
+    if by_id[card_uid(card, base)] then ordered[#ordered + 1] = card end
+  end
+  if #ordered ~= #G.jokers.cards then
+    error("joker order must cover every joker", 0)
+  end
+  for i = 1, #ordered do G.jokers.cards[i] = ordered[i] end
+  G.jokers:set_ranks()
+  G.jokers:align_cards()
+  return { ordered = #ordered }
+end
+
 function BotAPI.set_hand_order(args)
   local wanted = {}
   for _, token in ipairs(args or {}) do
