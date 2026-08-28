@@ -160,6 +160,30 @@ class BalatroBridge:
         raise NotReady(f"consequence not observed within {timeout}s "
                        f"(state {last.get('state_name')})")
 
+    def wait_hand_dealt(self, timeout: float = 20.0) -> dict:
+        """Wait for dealing to finish, not merely to have started.
+
+        Cards arrive over several frames. A hand of three on its way to eight
+        is indistinguishable from a finished hand of three unless you either
+        know the limit or watch it stop changing -- so do both: settle for the
+        full hand, and accept a smaller one that has stopped growing (the deck
+        can run short).
+        """
+        deadline = time.time() + timeout
+        last, stable = -1, 0
+        while time.time() < deadline:
+            state = self.state()
+            size = len(state.get("hand") or [])
+            limit = int(state.get("hand_limit") or 0)
+            if size and limit and size >= limit:
+                return state
+            stable = stable + 1 if size == last and size > 0 else 0
+            if stable >= 3:
+                return state
+            last = size
+            time.sleep(0.1)
+        return self.state()
+
     def act(self, cmd: str, *args: Any, until=None,
             settle: float = 30.0) -> dict:
         """Run an action and wait for the change it causes to land."""
@@ -316,15 +340,76 @@ class BalatroBridge:
         self.wait_for(lambda s: s["dollars"] != before, timeout=30.0)
         return self.state()
 
-    def use_consumable(self, index: int) -> dict:
-        before = len(self.state().get("consumables") or [])
-        self.command("use_consumable", index)
-        self.wait_for(
-            lambda s: len(s.get("consumables") or []) != before
-            or s["state_name"] != "SHOP", timeout=30.0)
+    def _await_use(self, landed, timeout: float = 30.0) -> dict:
+        """Wait for a card use to land, reporting the game's reason if it does not.
+
+        The use itself runs inside a game event, well after the command was
+        answered, so a refusal there cannot come back as a command error. The
+        game leaves its reason in the state instead.
+        """
+        try:
+            return self.wait_for(landed, timeout=timeout)
+        except NotReady:
+            reason = (self.state().get("last_refusal") or "").strip()
+            raise BridgeError(reason or "the card was never used") from None
+
+    def wait_idle(self, stable: int = 3, timeout: float = 20.0) -> dict:
+        """Wait for the game to be idle and *stay* idle.
+
+        A single not-busy reading is not enough: a consumable resolves as a
+        chain of queued events, and between two of them the game reads idle for
+        a frame. Selecting in that gap and firing the next action lands right
+        back inside the chain, where can_use_consumeable refuses it.
+        """
+        deadline = time.time() + timeout
+        run = 0
+        while time.time() < deadline:
+            if self.state().get("busy"):
+                run = 0
+            else:
+                run += 1
+                if run >= stable:
+                    return self.state()
+            time.sleep(0.05)
         return self.state()
 
-    def pick_pack(self, index: int) -> dict:
+    def select(self, cards) -> dict:
+        """Highlight exactly `cards` (1-based hand positions), and check it took.
+
+        The game refuses a selection rather than reporting one: over the hand
+        limit, or mid-animation, `toggle` is a no-op. Verifying here turns a
+        wrong-target bug into a plain error at the point it happens.
+        """
+        self.command("clear")
+        for index_in_hand in cards:
+            self.command("toggle", index_in_hand)
+        state = self.state()
+        got = len(state.get("selected") or [])
+        if got != len(cards):
+            raise BridgeError(
+                f"selected {got} cards, wanted {len(cards)} ({list(cards)}) "
+                f"of a hand of {len(state.get('hand') or [])}")
+        return state
+
+    def use_consumable(self, index: int, cards=None) -> dict:
+        """Use a held consumable, optionally on chosen cards.
+
+        Usable during a pack as well as in a shop or a hand: a tarot held in
+        the consumable slots can be played while an Arcana pack is open.
+        """
+        # Wait *before* selecting, not after. A consumable still resolving
+        # clears the highlight, so a selection made while busy is silently
+        # thrown away and the card is then used on nothing.
+        if cards:
+            self.wait_idle()
+            self.wait_hand_dealt()
+            self.select(cards)
+        before = len(self.state().get("consumables") or [])
+        self.command("use_consumable", index)
+        self._await_use(lambda s: len(s.get("consumables") or []) != before)
+        return self.state()
+
+    def pick_pack(self, index: int, cards=None) -> dict:
         """Take a card from a pack and wait for it to arrive.
 
         The pack closing and the card landing are separate: moving on as soon
@@ -334,16 +419,26 @@ class BalatroBridge:
         # The pack's cards are dealt a few frames after the pack screen opens,
         # exactly as the shop's are. Picking before they land addresses an
         # index that does not exist yet.
-        self.wait_until(lambda s: s.get("pack"), timeout=30.0)
+        self.wait_for(lambda s: s.get("pack"), timeout=30.0)
+        # A tarot taken from an Arcana pack is applied to cards chosen in hand,
+        # exactly as one used from the consumable slots is. Without selecting
+        # them first the card is taken but lands on nothing.
+        if cards:
+            self.wait_idle()
+            self.wait_hand_dealt()
+            self.select(cards)
         before = self.state()
         jokers = len(before.get("jokers") or [])
         consumables = len(before.get("consumables") or [])
+        deck = before.get("deck_size", 0)
+        packed = len(before.get("pack") or [])
         self.command("pick_pack", index)
-        self.wait_for(
+        self._await_use(
             lambda s: (len(s.get("jokers") or []) != jokers
                        or len(s.get("consumables") or []) != consumables
-                       or not s.get("in_pack")),
-            timeout=30.0)
+                       or s.get("deck_size", deck) != deck
+                       or len(s.get("pack") or []) < packed
+                       or not s.get("in_pack")))
         # Then let the pack finish closing, if it is going to. A Mega pack
         # allows two picks and legitimately stays open, so this must not be
         # treated as a failure -- it is a courtesy wait, not a condition.

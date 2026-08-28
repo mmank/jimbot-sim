@@ -92,10 +92,30 @@ end
 --- created before. The deck is built in a deterministic order per seed, so
 --- subtracting the run's lowest deck id cancels that offset and yields the
 --- same identity every time.
+-- sort_id is a process-global counter, so the same card has a different id in
+-- every run; subtracting the run's lowest id makes ids comparable across runs.
+--
+-- That lowest id has to be pinned when the run starts, not recomputed. Cards
+-- are created and destroyed mid-run -- glass shattering, Immolate, DNA,
+-- Familiar, a Death converting one card into another -- and if the card
+-- holding the minimum is destroyed, a recomputed base jumps and *every* id
+-- shifts with it, turning one destroyed card into a whole-deck divergence.
+-- Cards created later get ids above the base, which is what we want: they read
+-- as new cards, because they are.
+local pinned_base = nil
+local reset_ids   -- defined below, used by start_run
+
 local function deck_base()
+  if pinned_base then return pinned_base end
   local base = nil
   for _, card in ipairs(G.playing_cards or {}) do
     if not base or card.sort_id < base then base = card.sort_id end
+  end
+  -- Pin only once the run is real. start_run queues the old run's teardown, so
+  -- for a few frames G.playing_cards still holds the *previous* deck; pinning
+  -- against that offsets every id in the new run.
+  if base and not BOT_RUN_PENDING and G.STAGE == G.STAGES.RUN then
+    pinned_base = base
   end
   return base or 0
 end
@@ -202,6 +222,31 @@ end
 
 -- --------------------------------------------------------------- state
 
+--- Forget the pinned base, so the next run pins its own.
+function reset_ids()
+  pinned_base = nil
+end
+
+local function selected_indices()
+  local out = {}
+  for i = 1, #G.hand.cards do
+    if is_highlighted(i) then out[#out + 1] = i end
+  end
+  return out
+end
+
+--- The sort_ids of the selected cards, so a replay can pick the same cards
+--- even if the hand is in a different order.
+local function selected_ids()
+  local out, base = {}, deck_base()
+  for i = 1, #G.hand.cards do
+    if is_highlighted(i) then
+      out[#out + 1] = card_uid(G.hand.cards[i], base)
+    end
+  end
+  return out
+end
+
 function BotAPI.state()
   if not G.GAME or not G.STATES then return { state_name = "BOOTING" } end
   -- G.STAGE flips to RUN before the run's card areas exist, so it alone is not
@@ -228,6 +273,36 @@ function BotAPI.state()
     won = (in_run and G.GAME.won) and 1 or 0,
     in_pack = in_pack() and 1 or 0,
     selection_size = in_run and #G.hand.highlighted or 0,
+    -- Which stake and deck the run is on. Stake decides whether jokers can
+    -- come out eternal, perishable or rental, so it changes what is legal to
+    -- do with them.
+    stake = in_run and (G.GAME.stake or 1) or 0,
+    deck = (in_run and G.GAME.selected_back and G.GAME.selected_back.name)
+           or "",
+    -- Why the last deferred use gave up, if it did. The use happens inside an
+    -- event, long after the command was answered, so this is the only channel
+    -- back to the client.
+    last_refusal = BOT_LAST_REFUSAL or "",
+    -- Which positions are highlighted, so the client can confirm a selection
+    -- took rather than assume it did.
+    selected = in_run and selected_indices() or {},
+    -- How many cards the hand holds once dealing finishes. An Arcana or
+    -- Spectral pack deals a hand to target and it arrives over several frames;
+    -- acting on a partial hand targets the wrong cards.
+    hand_limit = in_run and (G.hand.config.card_limit or 0) or 0,
+    -- The game's own "not now": the first guard in can_use_consumeable. A
+    -- consumable used while the previous one is still resolving is refused,
+    -- and the redraw clears the highlight, so wait on this before selecting.
+    busy = ((in_run and ((G.play and #G.play.cards > 0)
+                         or G.CONTROLLER.locked
+                         or (G.GAME.STOP_USE and G.GAME.STOP_USE > 0)
+                         -- can_use_consumeable's *other* guard: these three
+                         -- states mean a hand or a tarot is mid-resolution, so
+                         -- the next consumable is refused until it finishes.
+                         or G.STATE == G.STATES.PLAY_TAROT
+                         or G.STATE == G.STATES.HAND_PLAYED
+                         or G.STATE == G.STATES.DRAW_TO_HAND))
+            and 1 or 0),
     blind_on_deck = in_run and blind_on_deck() or "",
     run_pending = BOT_RUN_PENDING and 1 or 0,
     -- The Investment Tag pays only when the blind just set up was a boss
@@ -314,6 +389,13 @@ function BotAPI.state()
       sellable = card:can_sell_card() and 1 or 0,
       sell_cost = card.sell_cost or 0,
       rarity = card.config.center.rarity or 0,
+      -- Stickers from the higher stakes. They change what is legal or wise:
+      -- eternal cannot be sold or destroyed, perishable expires after five
+      -- rounds, rental charges $3 every round.
+      eternal = card.ability.eternal and 1 or 0,
+      perishable = card.ability.perishable and 1 or 0,
+      perish_tally = card.ability.perish_tally or 0,
+      rental = card.ability.rental and 1 or 0,
     }
   end
 
@@ -465,6 +547,20 @@ local function fingerprint()
     blind = (G.GAME.blind and G.GAME.blind.name) or "",
     blind_chips = (G.GAME.blind and G.GAME.blind.chips) or 0,
     hand_size = #G.hand.cards,
+    -- How many cards the hand should hold once dealing finishes. An Arcana or
+    -- Spectral pack deals a hand to target, and it arrives over several
+    -- frames; acting on a partial hand targets the wrong cards.
+    hand_limit = G.hand.config.card_limit or 0,
+    -- What is highlighted right now, so the client can confirm a selection
+    -- took rather than assume it did.
+    selected = selected_indices(),
+    selected_ids = selected_ids(),
+    -- The game's own "not now" signal, the first guard in can_use_consumeable
+    -- and can_sell_card. A consumable used while the previous one is still
+    -- resolving is refused, so this is what to wait on between them.
+    busy = (((G.play and #G.play.cards > 0)
+             or G.CONTROLLER.locked
+             or (G.GAME.STOP_USE and G.GAME.STOP_USE > 0)) and 1 or 0),
     jokers = jokers,
     consumables = consumables,
     hand_levels = levels,
@@ -477,26 +573,6 @@ local function fingerprint()
 end
 
 BotAPI.fingerprint = fingerprint
-
-local function selected_indices()
-  local out = {}
-  for i = 1, #G.hand.cards do
-    if is_highlighted(i) then out[#out + 1] = i end
-  end
-  return out
-end
-
---- The sort_ids of the selected cards, so a replay can pick the same cards
---- even if the hand is in a different order.
-local function selected_ids()
-  local out, base = {}, deck_base()
-  for i = 1, #G.hand.cards do
-    if is_highlighted(i) then
-      out[#out + 1] = card_uid(G.hand.cards[i], base)
-    end
-  end
-  return out
-end
 
 local function note(action, params)
   if not recording then return end
@@ -630,6 +706,14 @@ function BotAPI.start_run(args)
   if seed == "-" then seed = nil end          -- "no seed" placeholder
   local deck = args and args[2] and args[2]:gsub("_", " ")
   if deck then G.GAME.viewed_back = { name = deck } end
+  -- Stake 1-8 (White, Red, Green, Black, Blue, Purple, Orange, Gold). Higher
+  -- stakes add the modifiers worth testing against: eternal, perishable,
+  -- rental jokers.
+  local stake = args and args[3] and tonumber(args[3]) or nil
+
+  -- Card ids are normalised against this run's lowest sort_id; forget the
+  -- previous run's.
+  reset_ids()
 
   -- G.FUNCS.start_run queues delete_run and start_run as events, so when this
   -- returns the previous run is still on screen. A client that acts on what it
@@ -639,12 +723,13 @@ function BotAPI.start_run(args)
   -- Mark the restart as pending and clear it from an event queued behind the
   -- game's own, so `run_pending` tells the client when the new run is real.
   BOT_RUN_PENDING = true
-  G.FUNCS.start_run(nil, { seed = seed })
+  G.FUNCS.start_run(nil, { seed = seed, stake = stake })
   G.E_MANAGER:add_event(Event({
     trigger = 'immediate', no_delete = true,
     func = function() BOT_RUN_PENDING = false; return true end,
   }))
-  return { started = true, seed = seed or "random", deck = deck or "Red Deck" }
+  return { started = true, seed = seed or "random", deck = deck or "Red Deck",
+           stake = stake or 1 }
 end
 
 function BotAPI.select_blind()
@@ -838,12 +923,69 @@ function BotAPI.sell(args)
   return { sold = true }
 end
 
+--- Why can_use_consumeable said no. It has a dozen guards and none of them are
+--- visible from outside, so report their values rather than the verdict.
+local function why_unusable(card)
+  local con = card.ability.consumeable
+  return "cannot use " .. tostring(card.config.center.key) ..
+      " right now: state=" .. tostring(state_name()) ..
+      " highlighted=" .. #G.hand.highlighted ..
+      " hand=" .. #G.hand.cards ..
+      " mod_num=" .. tostring(con.mod_num) ..
+      " min=" .. tostring(con.min_highlighted) ..
+      " max=" .. tostring(con.max_highlighted) ..
+      " stop_use=" .. tostring(G.GAME.STOP_USE) ..
+      " locked=" .. tostring(G.CONTROLLER.locked) ..
+      " locks=" .. (function()
+        local held = {}
+        for name, on in pairs(G.CONTROLLER.locks or {}) do
+          if on then held[#held + 1] = tostring(name) end
+        end
+        return #held > 0 and table.concat(held, ",") or "none"
+      end)() ..
+      " consumables=" .. #G.consumeables.cards ..
+      "/" .. tostring(G.consumeables.config.card_limit)
+end
+
+--- Use a consumable once the game will actually accept it.
+---
+--- The check has to happen where the use happens. Checking at request time and
+--- using later is what crashed the game: Death indexes G.hand.highlighted[1]
+--- and [2] unconditionally, so a highlight cleared in between -- by the
+--- previous consumable finishing, or by a pack still dealing its hand -- turns
+--- into an index of nil. Retrying for a second also absorbs the common case,
+--- where the only problem was that the previous use had not finished.
+local function use_when_usable(card, frames)
+  local left = frames or 60
+  BOT_LAST_REFUSAL = nil
+  local function attempt()
+    if card.ability and card.ability.consumeable
+        and not card:can_use_consumeable() then
+      left = left - 1
+      if left <= 0 then
+        BOT_LAST_REFUSAL = why_unusable(card)
+        return true                      -- give up; the client's wait reports it
+      end
+      G.E_MANAGER:add_event(Event({
+        trigger = 'immediate', no_delete = true, func = attempt }))
+      return true
+    end
+    G.FUNCS.use_card({ config = { ref_table = card } }, true)
+    return true
+  end
+  queue(attempt)
+end
+
 function BotAPI.use_consumable(args)
   local card = G.consumeables.cards[tonumber(args[1])]
   if not card then
     error("no consumable at index " .. tostring(args[1]), 0)
   end
-  G.FUNCS.use_card({ config = { ref_table = card } }, true)
+  if card.ability and card.ability.consumeable then
+    use_when_usable(card)
+  else
+    queue(function() G.FUNCS.use_card({ config = { ref_table = card } }, true) end)
+  end
   return { used = true }
 end
 
@@ -876,8 +1018,26 @@ function BotAPI.pick_pack(args)
           " (pack holds " ..
           tostring(G.pack_cards and #G.pack_cards.cards or 0) .. ")", 0)
   end
-  queue(function() G.FUNCS.use_card({ config = { ref_table = card } }, true) end)
+  -- A tarot taken from an Arcana pack is used the moment it is taken, so it
+  -- goes through the same gate as one used from the consumable slots.
+  if card.ability and card.ability.consumeable then
+    if not card:can_use_consumeable() and #G.hand.cards == 0 then
+      error(why_unusable(card), 0)       -- no hand at all: never going to work
+    end
+    use_when_usable(card)
+  else
+    queue(function() G.FUNCS.use_card({ config = { ref_table = card } }, true) end)
+  end
   return { picked = true }
+end
+
+--- Set the bankroll outright. A sandbox lever, not a game action: it makes
+--- setting up a situation to record quick, instead of grinding to it.
+function BotAPI.set_money(args)
+  local amount = tonumber(args[1])
+  if not amount then error("set_money needs a number", 0) end
+  G.GAME.dollars = amount
+  return { dollars = G.GAME.dollars }
 end
 
 function BotAPI.skip_pack()

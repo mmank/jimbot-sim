@@ -66,17 +66,31 @@ def _select(bridge, params):
     Selects by card identity (sort_id) rather than position, so a recording
     still picks the right cards if the hand ended up in a different order.
     Falls back to the recorded positions when identities are unavailable.
+
+    Waits for a hand rather than for the hand-selection phase: cards are also
+    selectable while a pack is open, which is how a tarot from an Arcana pack
+    gets its targets.
     """
-    bridge.wait_until(lambda s: s["state_name"] == "SELECTING_HAND"
-                      and len(s.get("hand") or []) > 0, timeout=30)
+    bridge.wait_hand_dealt()
     bridge.command("clear")
     ids = params.get("card_ids")
+    wanted = list(ids) if ids else list(params.get("cards") or [])
     if ids:
         for card_id in ids:
             bridge.command("toggle_id", card_id)
     else:
         for index in params.get("cards") or []:
             bridge.toggle(index)
+
+    # Confirm the selection took. A tarot applied to fewer cards than it needs
+    # crashes the game rather than refusing, so a partial selection must be
+    # caught here rather than discovered downstream.
+    got = int(bridge.command("check").get("hand_size") is not None
+              and bridge.state().get("selection_size", 0))
+    if wanted and got != len(wanted):
+        raise BridgeError(
+            f"selected {got} of {len(wanted)} cards -- the hand may not have "
+            f"been dealt yet")
 
 
 def _match_order(bridge, expected_ids, field: str, command: str) -> bool:
@@ -171,12 +185,16 @@ def _discard(bridge, params):
 def _use(bridge, params):
     """use_card covers consumables, vouchers, packs and pack picks."""
     area, index = params.get("area"), params.get("index")
+    # Hand the targets to the client rather than selecting here: the selection
+    # has to happen after the previous consumable has finished resolving (it
+    # holds locks.use and clears the highlight on its way out) and after a
+    # pack's targeting hand has finished being dealt. The client knows how to
+    # wait for both; selecting up front and passing none loses that.
+    targets = params.get("targets") or None
     if area == "consumeables":
-        if params.get("targets"):
-            _select(bridge, {"cards": params["targets"]})
-        return bridge.use_consumable(index)
+        return bridge.use_consumable(index, cards=targets)
     if area == "pack_cards":
-        return bridge.pick_pack(index)
+        return bridge.pick_pack(index, cards=targets)
     if area == "shop_booster":
         return bridge.buy_pack(area, index)
     return bridge.buy(area, index)
@@ -267,9 +285,15 @@ def describe(entry: dict) -> str:
 def do_record(args) -> None:
     bridge = _connect(args)
     print(f"starting a run on seed {args.seed}...")
-    bridge.command("start_run", args.seed,
-                   *([args.deck.replace(" ", "_")] if args.deck else []))
+    # Deck is positional before stake, so a stake with no deck still needs a
+    # deck argument in the slot.
+    deck = (args.deck or "Red Deck").replace(" ", "_")
+    bridge.command("start_run", args.seed, deck,
+                   *([args.stake] if args.stake else []))
     bridge.wait_until(lambda s: s.get("in_run"), timeout=60)
+    if args.money is not None:
+        bridge.command("set_money", args.money)
+        print(f"bankroll set to ${args.money}")
     info = bridge.command("start_recording")
     print(f"\nRECORDING. Play the game in the window -- blinds, hands, shop,")
     print(f"whatever you like. Press Ctrl+C here when you are done.\n")
@@ -310,6 +334,7 @@ def do_record(args) -> None:
         pass
 
     payload = {"seed": info["seed"], "deck": info["deck"],
+               "money": args.money, "stake": args.stake,
                "start": normalise(info["start"]), "actions": actions}
     args.out.write_text(json.dumps(payload, indent=1), encoding="utf-8")
     print(f"saved {len(actions)} actions to {args.out}")
@@ -325,14 +350,26 @@ def do_replay(args) -> None:
     print(f"replaying {len(actions)} actions on seed {payload['seed']} "
           f"({payload['deck']})\n")
     bridge.command("start_run", payload["seed"],
-                   payload["deck"].replace(" ", "_"))
+                   payload["deck"].replace(" ", "_"),
+                   *([payload["stake"]] if payload.get("stake") else []))
     # in_run flips before the blind-select screen exists, and select_blind is
     # a no-op until it does.
     bridge.wait_until(lambda s: s.get("in_run") and s.get("ready"), timeout=60)
+    # Reapply whatever bankroll the recording was made with, before comparing
+    # anything -- otherwise every step diverges on dollars.
+    if payload.get("money") is not None:
+        bridge.command("set_money", payload["money"])
 
     mismatches = 0
     for i, entry in enumerate(actions, start=1):
         action, params = entry["action"], normalise(entry["params"])
+
+        # If the recording had a hand here, let dealing finish before
+        # comparing: an Arcana pack deals its targeting hand over several
+        # frames, and comparing mid-deal reports a divergence that is really
+        # just impatience.
+        if (entry["before"].get("hand_size") or 0) > 0:
+            bridge.wait_hand_dealt(timeout=10.0)
 
         # Reproduce any reordering the player did (dragging, or the sort
         # buttons) before comparing, so a rearranged hand is followed rather
@@ -416,6 +453,14 @@ def main() -> None:
     rec.add_argument("--deck", default=None)
     rec.add_argument("--out", type=Path, default=Path("recording.json"))
     rec.add_argument("--launch", action="store_true")
+    rec.add_argument("--stake", type=int, default=None,
+                     help="1-8: White, Red, Green, Black, Blue, Purple, "
+                          "Orange, Gold. Higher stakes add eternal, "
+                          "perishable and rental jokers")
+    rec.add_argument("--money", type=int, default=None,
+                     help="start with this bankroll, to set a situation up "
+                          "quickly; stored in the recording and reapplied on "
+                          "replay, so it does not itself cause a divergence")
     rec.set_defaults(func=do_record)
 
     rep = sub.add_parser("replay", help="replay a recording and compare")
