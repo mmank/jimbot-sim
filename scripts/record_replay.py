@@ -50,6 +50,8 @@ REPLAY = {
     "discard_cards_from_highlighted": lambda b, p: _discard(b, p),
     "buy_from_shop": lambda b, p: b.buy(p["area"], p["index"]),
     "use_card": lambda b, p: _use(b, p),
+    "buy_and_use": lambda b, p: b.buy_and_use(p["area"], p["index"],
+                                              cards=p.get("targets") or None),
     "sell_card": lambda b, p: b.sell(p["area"], p["index"]),
     "reroll_shop": lambda b, p: b.reroll(),
     "toggle_shop": lambda b, p: b.leave_shop(),
@@ -180,6 +182,33 @@ def _play(bridge, params):
 def _discard(bridge, params):
     _select(bridge, params)
     return bridge.discard()
+
+
+def merge_buy_and_use(actions):
+    """Fold the shop's buy-and-use click back into one action.
+
+    The game routes that button through buy_from_shop, which then calls
+    use_card itself, so recordings made before the recorder knew about it hold
+    two entries for one click: a buy, and a use of a card that by then belongs
+    to no area at all (`area: "?"`). Replaying both buys the card into the
+    consumable slots and then cannot find it to use.
+    """
+    merged, skip = [], False
+    for i, action in enumerate(actions):
+        if skip:
+            skip = False
+            continue
+        params = action.get("params") or {}
+        following = actions[i + 1] if i + 1 < len(actions) else None
+        pair = (action.get("action") == "buy_from_shop" and following
+                and following.get("action") == "use_card"
+                and (following.get("params") or {}).get("area") == "?"
+                and (following.get("params") or {}).get("key") == params.get("key"))
+        if params.get("buy_and_use") or pair:
+            action = dict(action, action="buy_and_use")
+            skip = bool(pair)
+        merged.append(action)
+    return merged
 
 
 def _use(bridge, params):
@@ -344,7 +373,7 @@ def do_record(args) -> None:
 
 def do_replay(args) -> None:
     payload = json.loads(args.recording.read_text(encoding="utf-8"))
-    actions = payload["actions"]
+    actions = merge_buy_and_use(payload["actions"])
     bridge = _connect(args)
 
     print(f"replaying {len(actions)} actions on seed {payload['seed']} "

@@ -106,6 +106,16 @@ class BalatroBridge:
 
     # ------------------------------------------------------------------
 
+    def _pause(self, seconds: float) -> None:
+        """Let the game advance between polls.
+
+        The seam between driving the real game and driving the engine: here
+        time passes on its own and we wait for it, while the headless engine
+        advances only when it is pumped. Every wait below goes through this, so
+        both are driven by exactly the same action code.
+        """
+        time.sleep(seconds)
+
     def hello(self) -> dict:
         return self.command("hello")
 
@@ -119,7 +129,7 @@ class BalatroBridge:
             state = self.state()
             if state.get("ready"):
                 return state
-            time.sleep(poll)
+            self._pause(poll)
         raise NotReady(f"game did not become actionable within {timeout}s "
                        f"(stuck in {self.state().get('state_name')})")
 
@@ -137,7 +147,7 @@ class BalatroBridge:
             last = self.state()
             if last.get("ready") and predicate(last):
                 return last
-            time.sleep(poll)
+            self._pause(poll)
         raise NotReady(f"condition not met within {timeout}s "
                        f"(state {last.get('state_name')})")
 
@@ -156,7 +166,7 @@ class BalatroBridge:
             last = self.state()
             if predicate(last):
                 return last
-            time.sleep(poll)
+            self._pause(poll)
         raise NotReady(f"consequence not observed within {timeout}s "
                        f"(state {last.get('state_name')})")
 
@@ -181,7 +191,7 @@ class BalatroBridge:
             if stable >= 3:
                 return state
             last = size
-            time.sleep(0.1)
+            self._pause(0.1)
         return self.state()
 
     def act(self, cmd: str, *args: Any, until=None,
@@ -235,8 +245,27 @@ class BalatroBridge:
         # box: the payout rows are still being added until the button appears,
         # and cashing out early tears the box out from under them.
         self.wait_until(lambda s: s.get("cash_out_ready"), timeout=30.0)
-        return self.act("cash_out",
-                        until=lambda s: s["state_name"] != "ROUND_EVAL")
+        state = self.act("cash_out",
+                         until=lambda s: s["state_name"] != "ROUND_EVAL")
+        # The payout is not one number: the blind reward, a dollar per unused
+        # hand and the interest each arrive as their own event, and leaving
+        # ROUND_EVAL does not mean they have. Reading the money before they
+        # land reports the round as having paid nothing.
+        return self.wait_money_settled() or state
+
+    def wait_money_settled(self, stable: int = 4, timeout: float = 20.0) -> dict:
+        """Wait for the bankroll to stop moving."""
+        deadline = time.time() + timeout
+        last, run = None, 0
+        while time.time() < deadline:
+            state = self.state()
+            money = state.get("dollars")
+            run = run + 1 if money == last else 0
+            if run >= stable:
+                return state
+            last = money
+            self._pause(0.05)
+        return self.state()
 
     def _shop_size(self) -> int:
         return len(self.state().get("shop") or [])
@@ -268,6 +297,7 @@ class BalatroBridge:
         cost = int(item["cost"])
         jokers = len(before.get("jokers") or [])
         consumables = len(before.get("consumables") or [])
+        deck = before.get("deck_size", 0)
 
         self.command("buy", area, index)
 
@@ -287,8 +317,13 @@ class BalatroBridge:
             # in the joker tray the game will not let it be sold or used --
             # can_sell_card requires area.config.type == 'joker'. Waiting only
             # for payment hands back a card that is still in flight.
+            #
+            # A playing card goes to neither tray. The Magic Trick voucher puts
+            # them in the shop, and buy_from_shop sends them straight to the
+            # deck, so that is where their arrival shows up.
             return (len(state.get("jokers") or []) > jokers
-                    or len(state.get("consumables") or []) > consumables)
+                    or len(state.get("consumables") or []) > consumables
+                    or state.get("deck_size", deck) > deck)
 
         def bought(state):
             if state.get("in_pack") or state["state_name"] != "SHOP":
@@ -305,13 +340,15 @@ class BalatroBridge:
         is still dissolving, so waiting on the balance alone reports a joker
         that is visibly still there.
         """
+        # can_sell_card opens with the same guard as can_use_consumeable, so a
+        # sell issued straight after a buy or a reroll is refused outright.
+        self.wait_idle()
         key = "jokers" if area == "jokers" else "consumables"
         before = self.state()
         money, held = before["dollars"], len(before.get(key) or [])
         self.command("sell", area, index)
-        self.wait_for(
-            lambda s: s["dollars"] != money and len(s.get(key) or []) < held,
-            timeout=30.0)
+        self._await_use(
+            lambda s: s["dollars"] != money and len(s.get(key) or []) < held)
         return self.state()
 
     def buy_pack(self, area: str, index: int) -> dict:
@@ -370,7 +407,7 @@ class BalatroBridge:
                 run += 1
                 if run >= stable:
                     return self.state()
-            time.sleep(0.05)
+            self._pause(0.05)
         return self.state()
 
     def select(self, cards) -> dict:
@@ -391,6 +428,40 @@ class BalatroBridge:
                 f"of a hand of {len(state.get('hand') or [])}")
         return state
 
+    def buy_and_use(self, area: str, index: int, cards=None) -> dict:
+        """Buy a consumable and use it in one click, the shop's second button.
+
+        Not a buy followed by a use: the card never reaches the consumable
+        slots, so this works with them full, and waiting for it to land there
+        would wait forever.
+        """
+        # Same precondition as buy: the item has to be on the shelf, and the
+        # rows fill in over several frames.
+        def offered(state):
+            return any(i["area"] == area and i["index"] == index
+                       for i in (state.get("shop") or []))
+
+        self.wait_until(lambda s: s.get("shop_settled") and offered(s),
+                        timeout=30.0)
+        if cards:
+            self.wait_idle()
+            self.select(cards)
+        before = self.state()
+        money = before["dollars"]
+        cost = int(next(i for i in before["shop"]
+                        if i["area"] == area and i["index"] == index)["cost"])
+        levels = dict(before.get("hand_levels") or {})
+        self.command("buy_and_use", area, index)
+        # The money leaving is the reliable signal that both halves happened.
+        # The effect itself is not: a planet raises a hand level, a Hermit
+        # doubles money, an Emperor deals tarots -- there is no one consequence
+        # to watch. A free card is rare enough to fall back on the levels.
+        self._await_use(lambda s: (s["dollars"] <= money - cost if cost > 0
+                                   else dict(s.get("hand_levels") or {}) != levels))
+        # Then let the use finish before anything else is attempted.
+        self.wait_idle()
+        return self.state()
+
     def use_consumable(self, index: int, cards=None) -> dict:
         """Use a held consumable, optionally on chosen cards.
 
@@ -400,8 +471,8 @@ class BalatroBridge:
         # Wait *before* selecting, not after. A consumable still resolving
         # clears the highlight, so a selection made while busy is silently
         # thrown away and the card is then used on nothing.
+        self.wait_idle()
         if cards:
-            self.wait_idle()
             self.wait_hand_dealt()
             self.select(cards)
         before = len(self.state().get("consumables") or [])
@@ -423,8 +494,11 @@ class BalatroBridge:
         # A tarot taken from an Arcana pack is applied to cards chosen in hand,
         # exactly as one used from the consumable slots is. Without selecting
         # them first the card is taken but lands on nothing.
+        # Idle first, whether or not there are targets: the pack opening leaves
+        # STOP_USE raised for a couple of seconds, and can_use_consumeable
+        # checks that before it checks anything about the card.
+        self.wait_idle()
         if cards:
-            self.wait_idle()
             self.wait_hand_dealt()
             self.select(cards)
         before = self.state()
@@ -455,7 +529,17 @@ class BalatroBridge:
                         until=lambda s: s["state_name"] != "SHOP")
 
     def skip_pack(self) -> dict:
-        return self.act("skip_pack")
+        """Skip a booster, waiting for it to be skippable and then to be gone.
+
+        `act` waits only for the game to be actionable, which it already is
+        while the pack is still opening -- so the skip landed on a pack whose
+        button did not exist yet and did nothing, leaving the replay in a pack
+        it thought it had left.
+        """
+        self.wait_for(lambda s: s.get("in_pack"), timeout=30.0)
+        self.wait_idle()
+        self.command("skip_pack")
+        return self.wait_for(lambda s: not s.get("in_pack"), timeout=30.0)
 
 
 def launch(build: Path = DEFAULT_BUILD, wait: float = 90.0) -> subprocess.Popen:

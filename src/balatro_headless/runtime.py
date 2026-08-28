@@ -107,8 +107,15 @@ class HeadlessBalatro:
         """Install the love stub, load every game module, run start_up()."""
         src = self._lua_path(self.source)
         stub = self._lua_path(self.stub_dir)
+        # The mod the real game runs is on the path too. bot_api.lua touches
+        # neither love nor luasocket, so it loads here unchanged -- and loading
+        # the same file is the point: when the two had separate action tables
+        # they drifted, and headless silently lacked actions the game offers
+        # (the shop's buy-and-use button, for one).
+        mod = self._lua_path(
+            Path(__file__).resolve().parents[1] / "balatro_bridge" / "mod")
         self.lua.execute(f'''
-            package.path = "{src}/?.lua;{stub}/?.lua;" .. package.path
+            package.path = "{src}/?.lua;{stub}/?.lua;{mod}/?.lua;" .. package.path
             LOVE_STUB = require("love_stub")
             love = LOVE_STUB.install({{ root = "{src}" }})
         ''')
@@ -122,6 +129,7 @@ class HeadlessBalatro:
         if self.unlock_all:
             self.lua.execute("HEADLESS.unlock_all()")
         self.lua.execute('api = require("headless_api")')
+        self.lua.execute('BOT = require("bot_api")')
         self._booted = True
         return self
 

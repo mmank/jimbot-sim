@@ -273,6 +273,11 @@ function BotAPI.state()
     won = (in_run and G.GAME.won) and 1 or 0,
     in_pack = in_pack() and 1 or 0,
     selection_size = in_run and #G.hand.highlighted or 0,
+    stop_use = in_run and (G.GAME.STOP_USE or 0) or 0,
+    -- A bought playing card lands in neither tray -- the Magic Trick voucher
+    -- puts them in the shop and buy_from_shop sends them to the deck -- so
+    -- this is the only place its arrival is visible.
+    deck_size = (in_run and G.playing_cards and #G.playing_cards) or 0,
     -- Which stake and deck the run is on. Stake decides whether jokers can
     -- come out eternal, perishable or rental, so it changes what is legal to
     -- do with them.
@@ -612,7 +617,12 @@ local function install_hooks()
     G.FUNCS[name] = function(e, ...)
       if recording then
         local ok, params = pcall(capture, e)
-        note(name, ok and params or {})
+        -- A capture returning false declines: the click is already covered by
+        -- another entry, and recording it twice would make the replay do it
+        -- twice.
+        if not ok or params ~= false then
+          note(name, ok and params or {})
+        end
       end
       return original(e, ...)
     end
@@ -628,15 +638,24 @@ local function install_hooks()
   -- means and which card scores first.
   wrap('sort_hand_value', function() return { by = "rank" } end)
   wrap('sort_hand_suit', function() return { by = "suit" } end)
+  -- The shop's second button on a consumable buys and uses it in one click.
+  -- The game routes it through buy_from_shop with id 'buy_and_use', and
+  -- buy_from_shop then calls use_card itself -- so the click is one action,
+  -- and recording the inner use_card as well would replay it as two.
   wrap('buy_from_shop', function(e)
     local area, index = locate(e.config.ref_table)
     return { area = area, index = index,
+             buy_and_use = (e.config.id == 'buy_and_use') and 1 or 0,
              key = e.config.ref_table.config.center.key } end)
   wrap('sell_card', function(e)
     local area, index = locate(e.config.ref_table)
     return { area = area, index = index,
              key = e.config.ref_table.config.center.key } end)
   wrap('use_card', function(e)
+    -- buy_from_shop passes its own element straight through, so the inner use
+    -- still carries the id. Skip it: the buy_from_shop entry covers both, and
+    -- by now the card has left the shop, so there is no area to record anyway.
+    if e.config and e.config.id == 'buy_and_use' then return false end
     local area, index = locate(e.config.ref_table)
     return { area = area, index = index,
              key = e.config.ref_table.config.center.key,
@@ -915,11 +934,34 @@ function BotAPI.sell(args)
   if not card then
     error("no card at " .. tostring(area) .. "[" .. tostring(index) .. "]", 0)
   end
-  if not card:can_sell_card() then
+  -- Distinguish "never" from "not yet". can_sell_card returns false for both
+  -- an eternal joker and a game that is merely mid-animation, and reporting
+  -- the first when it is the second sends you looking in the wrong place.
+  if card.ability.eternal then
     error("cannot sell " .. tostring(card.config.center.key) ..
-          " (eternal or otherwise locked)", 0)
+          ": it is eternal", 0)
   end
-  G.FUNCS.sell_card({ config = { ref_table = card } })
+  local left = 120
+  local function attempt()
+    if not card:can_sell_card() then
+      left = left - 1
+      if left <= 0 then
+        BOT_LAST_REFUSAL = "cannot sell " .. tostring(card.config.center.key) ..
+            ": stop_use=" .. tostring(G.GAME.STOP_USE) ..
+            " locked=" .. tostring(G.CONTROLLER.locked) ..
+            " area=" .. tostring(card.area and card.area.config.type)
+        return true
+      end
+      G.E_MANAGER:add_event(Event({
+        trigger = 'after', delay = 0.1, blocking = false,
+        no_delete = true, func = attempt }))
+      return true
+    end
+    G.FUNCS.sell_card({ config = { ref_table = card } })
+    return true
+  end
+  BOT_LAST_REFUSAL = nil
+  queue(attempt)
   return { sold = true }
 end
 
@@ -956,7 +998,7 @@ end
 --- into an index of nil. Retrying for a second also absorbs the common case,
 --- where the only problem was that the previous use had not finished.
 local function use_when_usable(card, frames)
-  local left = frames or 60
+  local left = frames or 120
   BOT_LAST_REFUSAL = nil
   local function attempt()
     if card.ability and card.ability.consumeable
@@ -966,8 +1008,12 @@ local function use_when_usable(card, frames)
         BOT_LAST_REFUSAL = why_unusable(card)
         return true                      -- give up; the client's wait reports it
       end
+      -- 'after' with a delay, not 'immediate': immediate events run inside
+      -- the same update, so an immediate retry loop spends its whole budget
+      -- in one frame without any of the in-flight work getting to advance.
       G.E_MANAGER:add_event(Event({
-        trigger = 'immediate', no_delete = true, func = attempt }))
+        trigger = 'after', delay = 0.1, blocking = false,
+        no_delete = true, func = attempt }))
       return true
     end
     G.FUNCS.use_card({ config = { ref_table = card } }, true)
@@ -1038,6 +1084,21 @@ function BotAPI.set_money(args)
   if not amount then error("set_money needs a number", 0) end
   G.GAME.dollars = amount
   return { dollars = G.GAME.dollars }
+end
+
+--- Buy a consumable and use it in the same click, the shop's second button.
+--- Distinct from buy: the card never reaches the consumable slots, so it works
+--- with them full, and the effect lands immediately.
+function BotAPI.buy_and_use(args)
+  local area, index = args[1], tonumber(args[2])
+  local card = G[area] and G[area].cards[index]
+  if not card then
+    error("no shop card at " .. tostring(area) .. "[" .. tostring(index) .. "]", 0)
+  end
+  queue(function()
+    G.FUNCS.buy_from_shop({ config = { ref_table = card, id = 'buy_and_use' } })
+  end)
+  return { bought = true, key = card.config.center.key }
 end
 
 function BotAPI.skip_pack()

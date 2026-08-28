@@ -600,6 +600,43 @@ function api.buy(area, index)
   return G.GAME.dollars
 end
 
+--- Buy a consumable and use it in one click -- the shop's second button.
+---
+--- Not a buy followed by a use. buy_from_shop with id 'buy_and_use' skips both
+--- the space check and the emplace, so this works with the consumable slots
+--- full, and the card never occupies a slot at all. The engine had no way to
+--- express this at all, which meant a policy trained here could not take an
+--- action the shop plainly offers.
+function api.buy_and_use(area, index, card_indices)
+  local card = api.shop_card(area, index)
+  if not card then error('no shop card at ' .. tostring(area) .. '[' .. tostring(index) .. ']') end
+  if not card.ability.consumeable then
+    error('buy_and_use is for consumables; ' ..
+          tostring(card.config.center.key) .. ' is not one')
+  end
+  if card_indices and #card_indices > 0 then
+    api.highlight(card_indices)
+  else
+    api.clear_highlights()
+  end
+  local before = G.GAME.dollars
+  G.FUNCS.buy_from_shop({ config = { ref_table = card, id = 'buy_and_use' } })
+  api.pump_until(function()
+    return G.GAME.dollars ~= before or card.area ~= G[area]
+  end, 900)
+  api.pump(60)
+  return G.GAME.dollars
+end
+
+--- Whether the shop's buy-and-use button would be offered for this card. The
+--- game's own gate: affordable, a consumable, and usable right now.
+function api.can_buy_and_use(area, index)
+  local card = api.shop_card(area, index)
+  if not card or not card.ability.consumeable then return false end
+  if (card.cost or 0) > G.GAME.dollars then return false end
+  return card:can_use_consumeable() and true or false
+end
+
 function api.reroll_cost()
   return G.GAME.current_round.reroll_cost or 0
 end
