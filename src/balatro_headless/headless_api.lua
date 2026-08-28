@@ -499,6 +499,24 @@ function api.move_consumable(from, to)
   return api.consumables()
 end
 
+--- Ask the game whether a card can be bought, without the side effects.
+---
+--- G.FUNCS.check_for_buy_space calls alert_no_space when it fails, which is a
+--- predicate with consequences: it sets G.CONTROLLER.locks.no_space, creates
+--- attention text, juices every card in the area and queues sound events. That
+--- is right for a click and wrong for a state query polled many times a second
+--- -- it spammed "No space!" over the joker area and leaked events every poll.
+---
+--- Swapping the global for a no-op keeps the game's own rule and drops only the
+--- presentation, rather than restating the condition here where it could drift.
+local function buy_space(card)
+  local saved = alert_no_space
+  alert_no_space = function() end
+  local ok, result = pcall(G.FUNCS.check_for_buy_space, card)
+  alert_no_space = saved
+  return ok and result and true or false
+end
+
 -- ---------------------------------------------------------------- shop
 -- The shop's buttons pass the clicked UI element to their callback; all any of
 -- them actually read is e.config, so a table with the right fields stands in.
@@ -530,7 +548,7 @@ function api.shop_contents()
           -- The game's own space check: joker slots for jokers, consumable
           -- slots for consumables and for the packs that yield them.
           buyable = ((card.cost or 0) <= G.GAME.dollars)
-                    and (G.FUNCS.check_for_buy_space(card) and true or false),
+                    and buy_space(card),
         }
       end
     end
@@ -548,7 +566,7 @@ end
 function api.can_buy(area, index)
   local card = api.shop_card(area, index)
   if (card.cost or 0) > G.GAME.dollars then return false end
-  return G.FUNCS.check_for_buy_space(card) and true or false
+  return buy_space(card)
 end
 
 -- The shop's three rows use three different callbacks, and calling the wrong
@@ -879,7 +897,7 @@ function api.env_state()
           set = SET_IDS[card.config.center.set] or 0,
           cost = card.cost or 0,
           buyable = ((card.cost or 0) <= G.GAME.dollars
-                     and G.FUNCS.check_for_buy_space(card)) and 1 or 0,
+                     and buy_space(card)) and 1 or 0,
         }
       end
     end

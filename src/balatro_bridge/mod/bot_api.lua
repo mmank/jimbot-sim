@@ -138,6 +138,24 @@ function BotAPI.configure(args)
   return changed
 end
 
+--- Ask the game whether a card can be bought, without the side effects.
+---
+--- G.FUNCS.check_for_buy_space calls alert_no_space when it fails, which is a
+--- predicate with consequences: it sets G.CONTROLLER.locks.no_space, creates
+--- attention text, juices every card in the area and queues sound events. That
+--- is right for a click and wrong for a state query polled many times a second
+--- -- it spammed "No space!" over the joker area and leaked events every poll.
+---
+--- Swapping the global for a no-op keeps the game's own rule and drops only the
+--- presentation, rather than restating the condition here where it could drift.
+local function buy_space(card)
+  local saved = alert_no_space
+  alert_no_space = function() end
+  local ok, result = pcall(G.FUNCS.check_for_buy_space, card)
+  alert_no_space = saved
+  return ok and result and true or false
+end
+
 -- --------------------------------------------------------------- state
 
 function BotAPI.state()
@@ -176,6 +194,11 @@ function BotAPI.state()
     -- before its screen is up silently does nothing.
     blind_select_up = (G.blind_select ~= nil) and 1 or 0,
     shop_up = (G.shop ~= nil) and 1 or 0,
+    -- Diagnostic: alert_no_space sets this lock and shows "No space!" over the
+    -- joker area. A state read must never raise it -- if this is ever 1 after
+    -- polling, a read-only query has side effects again.
+    no_space_lock = (G.CONTROLLER and G.CONTROLLER.locks
+                     and G.CONTROLLER.locks.no_space) and 1 or 0,
     -- update_shop queues an event that waits for the shop to finish sliding in
     -- (`math.abs(G.shop.T.y - G.shop.VT.y) < 3`). Leaving before that event
     -- runs removes G.shop out from under it and crashes the game -- reachable
@@ -244,7 +267,7 @@ function BotAPI.state()
           set = SET_IDS[card.config.center.set] or 0,
           cost = card.cost or 0,
           buyable = ((card.cost or 0) <= G.GAME.dollars
-                     and G.FUNCS.check_for_buy_space(card)) and 1 or 0,
+                     and buy_space(card)) and 1 or 0,
         }
       end
     end

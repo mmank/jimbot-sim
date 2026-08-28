@@ -392,3 +392,55 @@ def test_joker_slots_and_hand_size_are_not_hardcoded():
     assert run.snapshot()["hand_size"] > 8
     best, score = run.best_play()   # must not blow up on a bigger hand
     assert best and score > 0
+
+
+def test_state_reads_have_no_side_effects():
+    """Regression: a read-only query must not touch the game.
+
+    G.FUNCS.check_for_buy_space calls alert_no_space when it fails, which shows
+    "No space!" over the joker area, sets G.CONTROLLER.locks.no_space and
+    queues sound events. Calling it from a state query -- polled many times a
+    second -- spammed the message on screen and leaked events every poll.
+    """
+    game = start(("j_baseball", "j_duo", "j_trio"))
+    for _ in range(6):
+        if game.eval("G.STATE") != game.eval("G.STATES.SELECTING_HAND"):
+            break
+        count = min(5, game.eval("#G.hand.cards"))
+        game.execute("api.play({%s})" % ",".join(str(i) for i in range(1, count + 1)))
+    game.execute("api.pump(200)")
+    game.execute("api.cash_out()")
+    # No room for anything, so every shop card fails the space check.
+    game.execute("G.jokers.config.card_limit = 0")
+    game.execute("G.consumeables.config.card_limit = 0")
+    game.execute("G.CONTROLLER.locks.no_space = nil")
+
+    before = game.eval("#G.E_MANAGER.queues.base")
+    for _ in range(25):
+        game.eval("api.env_state()")
+    after = game.eval("#G.E_MANAGER.queues.base")
+
+    assert after == before, f"state reads queued {after - before} events"
+    assert not game.eval("G.CONTROLLER.locks.no_space"), \
+        "a state read raised the no_space controller lock"
+
+
+def test_buy_space_check_still_reports_correctly():
+    """Suppressing the alert must not change the answer."""
+    game = start(("j_duo",))
+    for _ in range(6):
+        if game.eval("G.STATE") != game.eval("G.STATES.SELECTING_HAND"):
+            break
+        count = min(5, game.eval("#G.hand.cards"))
+        game.execute("api.play({%s})" % ",".join(str(i) for i in range(1, count + 1)))
+    game.execute("api.pump(200)")
+    game.execute("api.cash_out()")
+    items = [dict(i) for i in game.eval("api.shop_contents()").values()]
+    joker = next((i for i in items if i["set"] == "Joker"), None)
+    if joker is None:
+        pytest.skip("no joker in this shop")
+
+    game.execute("G.jokers.config.card_limit = 5")
+    assert game.eval(f"api.can_buy('{joker['area']}', {joker['index']})") is True
+    game.execute("G.jokers.config.card_limit = 0")
+    assert game.eval(f"api.can_buy('{joker['area']}', {joker['index']})") is False
