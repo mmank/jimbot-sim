@@ -298,6 +298,7 @@ class BalatroBridge:
         jokers = len(before.get("jokers") or [])
         consumables = len(before.get("consumables") or [])
         deck = before.get("deck_size", 0)
+        vouchers = before.get("vouchers", 0)
 
         self.command("buy", area, index)
 
@@ -323,7 +324,8 @@ class BalatroBridge:
             # deck, so that is where their arrival shows up.
             return (len(state.get("jokers") or []) > jokers
                     or len(state.get("consumables") or []) > consumables
-                    or state.get("deck_size", deck) > deck)
+                    or state.get("deck_size", deck) > deck
+                    or state.get("vouchers", vouchers) > vouchers)
 
         def bought(state):
             if state.get("in_pack") or state["state_name"] != "SHOP":
@@ -448,16 +450,18 @@ class BalatroBridge:
             self.select(cards)
         before = self.state()
         money = before["dollars"]
-        cost = int(next(i for i in before["shop"]
-                        if i["area"] == area and i["index"] == index)["cost"])
         levels = dict(before.get("hand_levels") or {})
+        stocked = len(before.get("shop") or [])
         self.command("buy_and_use", area, index)
-        # The money leaving is the reliable signal that both halves happened.
-        # The effect itself is not: a planet raises a hand level, a Hermit
-        # doubles money, an Emperor deals tarots -- there is no one consequence
-        # to watch. A free card is rare enough to fall back on the levels.
-        self._await_use(lambda s: (s["dollars"] <= money - cost if cost > 0
-                                   else dict(s.get("hand_levels") or {}) != levels))
+        # The card leaving the shelf is the signal, not the money. What the
+        # effect does to the balance is not predictable in the right direction:
+        # a Hermit *doubles* it, so waiting for the balance to fall by the cost
+        # waits forever. The real game only ever passed that test because the
+        # payment lands a frame before the effect does -- the engine completes
+        # both before anything can look.
+        self._await_use(lambda s: (len(s.get("shop") or []) < stocked
+                                   or s["dollars"] != money
+                                   or dict(s.get("hand_levels") or {}) != levels))
         # Then let the use finish before anything else is attempted.
         self.wait_idle()
         return self.state()

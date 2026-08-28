@@ -47,6 +47,17 @@ local function state_name()
 end
 
 local PACK_STATES
+--- Whether a screen the client needs is available to act on.
+---
+--- Every readiness signal here is really "has the game built this UIBox yet",
+--- because in the real game the callbacks are guarded on exactly that. The
+--- headless engine never builds them and does not animate, so there is nothing
+--- to wait for: the phase alone says whether an action is legal. Without this,
+--- every wait in the client times out against the engine.
+local function screen_up(box)
+  return BOT_HEADLESS or box ~= nil
+end
+
 local function in_pack()
   PACK_STATES = PACK_STATES or {
     [G.STATES.TAROT_PACK] = true, [G.STATES.PLANET_PACK] = true,
@@ -71,7 +82,20 @@ end
 --- child of it, so asking round_eval for it never finds it. Scanning the UIBox
 --- registry is the way to see what the player can actually click.
 function BotAPI.cash_out_ready()
-  if G.STATE ~= G.STATES.ROUND_EVAL or not G.round_eval then return false end
+  if G.STATE ~= G.STATES.ROUND_EVAL then return false end
+  if BOT_HEADLESS then
+    -- No button to look for, so use what the button waits behind. Defeating a
+    -- blind ends in set_blind(nil, nil, true), which clears its name and chip
+    -- requirement; until that has run, the round is still finishing, and the
+    -- engine would cash out a round the real game had not finished paying.
+    -- Also wait for the evaluation itself. evaluate_round is what asks each
+    -- tag whether it pays -- an Investment Tag's $25 is settled and the tag
+    -- consumed there -- so comparing before it has run shows a tag the real
+    -- game had already spent.
+    return G.round_eval ~= nil
+        and not (G.GAME.blind and (G.GAME.blind.name or "") ~= "")
+  end
+  if not G.round_eval then return false end
   for _, box in pairs((G.I and G.I.UIBOX) or {}) do
     -- Must belong to *this* round's evaluation. A button left in the registry
     -- by the previous round makes the scan succeed immediately, so cash_out
@@ -278,6 +302,17 @@ function BotAPI.state()
     -- puts them in the shop and buy_from_shop sends them to the deck -- so
     -- this is the only place its arrival is visible.
     deck_size = (in_run and G.playing_cards and #G.playing_cards) or 0,
+    -- Redeemed vouchers. A voucher joins no tray and does not touch the deck,
+    -- so this is the only visible consequence of buying one. The real game
+    -- happened to be caught by state_name instead -- use_card flips the state
+    -- to PLAY_TAROT while it redeems -- but the engine completes the whole
+    -- action before anything can look, so that transient is never seen.
+    vouchers = (function()
+      if not in_run then return 0 end
+      local n = 0
+      for _ in pairs(G.GAME.used_vouchers or {}) do n = n + 1 end
+      return n
+    end)(),
     -- Which stake and deck the run is on. Stake decides whether jokers can
     -- come out eternal, perishable or rental, so it changes what is legal to
     -- do with them.
@@ -298,7 +333,8 @@ function BotAPI.state()
     -- The game's own "not now": the first guard in can_use_consumeable. A
     -- consumable used while the previous one is still resolving is refused,
     -- and the redraw clears the highlight, so wait on this before selecting.
-    busy = ((in_run and ((G.play and #G.play.cards > 0)
+    busy = ((in_run and not BOT_HEADLESS
+                    and ((G.play and #G.play.cards > 0)
                          or G.CONTROLLER.locked
                          or (G.GAME.STOP_USE and G.GAME.STOP_USE > 0)
                          -- can_use_consumeable's *other* guard: these three
@@ -326,8 +362,8 @@ function BotAPI.state()
     -- phase is only actionable once the screen is actually up.
     -- Each of these callbacks is guarded by `if <uibox> then`, so calling one
     -- before its screen is up silently does nothing.
-    blind_select_up = (G.blind_select ~= nil) and 1 or 0,
-    shop_up = (G.shop ~= nil) and 1 or 0,
+    blind_select_up = screen_up(G.blind_select) and 1 or 0,
+    shop_up = screen_up(G.shop) and 1 or 0,
     -- Diagnostic: alert_no_space sets this lock and shows "No space!" over the
     -- joker area. A state read must never raise it -- if this is ever 1 after
     -- polling, a read-only query has side effects again.
@@ -337,15 +373,15 @@ function BotAPI.state()
     -- (`math.abs(G.shop.T.y - G.shop.VT.y) < 3`). Leaving before that event
     -- runs removes G.shop out from under it and crashes the game -- reachable
     -- only because a bot can act faster than a player physically can.
-    shop_settled = (G.shop ~= nil and G.shop.T and G.shop.VT
-                    and math.abs(G.shop.T.y - G.shop.VT.y) < 3) and 1 or 0,
+    shop_settled = (BOT_HEADLESS or (G.shop ~= nil and G.shop.T and G.shop.VT
+                    and math.abs(G.shop.T.y - G.shop.VT.y) < 3)) and 1 or 0,
     -- The shop's UIBox finishes animating before its cards are dealt, so
     -- shop_settled alone hands the client an empty shop -- and a buy against
     -- an index that does not exist yet does nothing. The main row always
     -- stocks, so its contents are the real signal.
     shop_stocked = (G.shop_jokers ~= nil and G.shop_jokers.cards ~= nil
                     and #G.shop_jokers.cards > 0) and 1 or 0,
-    round_eval_up = (G.round_eval ~= nil) and 1 or 0,
+    round_eval_up = screen_up(G.round_eval) and 1 or 0,
     -- The round evaluation adds its rows (blind reward, unused hands,
     -- interest, each joker's payout) over several frames, and the Cash Out
     -- button is created last. Cashing out before it exists removes the
@@ -356,13 +392,14 @@ function BotAPI.state()
     -- Every phase where the client may act, plus the terminal one: leaving
     -- GAME_OVER out means any wait after a losing hand hangs until timeout.
     ready = ((not BOT_RUN_PENDING) and (G.STATE == G.STATES.SELECTING_HAND
-              or (G.STATE == G.STATES.BLIND_SELECT and G.blind_select ~= nil)
+              or (G.STATE == G.STATES.BLIND_SELECT and screen_up(G.blind_select))
               -- Deliberately not requiring shop_stocked: a row bought out is
               -- legitimately empty, and the shop is still perfectly usable
               -- (reroll, leave). Stockedness is a precondition for buying, not
               -- for the shop being actionable.
-              or (G.STATE == G.STATES.SHOP and G.shop ~= nil and G.shop.T
-                  and G.shop.VT and math.abs(G.shop.T.y - G.shop.VT.y) < 3)
+              or (G.STATE == G.STATES.SHOP and (BOT_HEADLESS
+                  or (G.shop ~= nil and G.shop.T and G.shop.VT
+                      and math.abs(G.shop.T.y - G.shop.VT.y) < 3)))
               or (G.STATE == G.STATES.ROUND_EVAL and BotAPI.cash_out_ready())
               or G.STATE == G.STATES.GAME_OVER
               or in_pack())) and 1 or 0,

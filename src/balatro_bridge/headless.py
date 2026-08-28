@@ -63,7 +63,7 @@ class HeadlessBridge(BalatroBridge):
         self.pump()
 
     def command(self, cmd: str, *args: Any) -> Any:
-        fn = self.engine.eval(f"BOT.{cmd}")
+        fn = self.engine.eval(f"BOT_CMD.{cmd}")
         if fn is None:
             raise BridgeError(f"unknown command: {cmd}")
         table = self.engine.eval("{}")
@@ -78,4 +78,4 @@ class HeadlessBridge(BalatroBridge):
         return to_python(result)
 
     def state(self) -> dict:
-        return to_python(self.engine.eval("BOT.state()"))
+        return to_python(self.engine.eval("BOT_CMD.state()"))

@@ -129,7 +129,11 @@ class HeadlessBalatro:
         if self.unlock_all:
             self.lua.execute("HEADLESS.unlock_all()")
         self.lua.execute('api = require("headless_api")')
+        # Tells bot_api's readiness signals that there are no UIBoxes to wait
+        # for here. Set before the require so nothing caches the wrong answer.
+        self.lua.execute("BOT_HEADLESS = true")
         self.lua.execute('BOT = require("bot_api")')
+        self.lua.execute('BOT_CMD = require("bot_headless")')
         self._booted = True
         return self
 

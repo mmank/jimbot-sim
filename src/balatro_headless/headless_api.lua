@@ -89,7 +89,19 @@ function api.pump(frames)
                               G.shop_vouchers, G.pack_cards }) do
         -- Leaving the shop removes its areas, but the globals linger a frame;
         -- a removed area has no cards table and updating it throws.
-        if area and area.cards then area:update(DT) end
+        if area and area.cards then
+          area:update(DT)
+          -- And the cards themselves. Game:update walks G.MOVEABLES and calls
+          -- update on every one, cards included; skipping that here is not
+          -- just skipping animation, because Card:update carries logic. It is
+          -- where consumeable.mod_num is derived from max_highlighted, and
+          -- can_use_consumeable compares against mod_num -- so without this
+          -- every targeting tarot in the engine raised "attempt to compare
+          -- number with nil" the moment the game asked whether it was usable.
+          for _, card in ipairs(area.cards) do
+            card:update(DT * G.SPEEDFACTOR)
+          end
+        end
       end
     end
   end
@@ -141,6 +153,16 @@ function api.enter_round_eval()
   end
   G.round_eval.alignment.offset.y = -7.8
   G.FUNCS.evaluate_round()
+
+  -- Take the spent tags out. evaluate_round asks each tag whether it pays and
+  -- marks the ones that did as triggered, but removing them is the tail of an
+  -- animation: Tag:yep hides self.HUD_tag and the chain ends in Tag:remove().
+  -- That HUD element is never built here, so an Investment Tag paid its $25
+  -- and then stayed in the list forever -- visible to a policy as a reward it
+  -- could collect again.
+  for i = #G.GAME.tags, 1, -1 do
+    if G.GAME.tags[i].triggered then table.remove(G.GAME.tags, i) end
+  end
 end
 
 -- G.FUNCS.cash_out expects the button element it was clicked from.

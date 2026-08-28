@@ -311,6 +311,24 @@ def describe(entry: dict) -> str:
     return f"  {entry['n']:3d}  {name:<12} {detail:<34} {state}"
 
 
+def _headless():
+    """Boot the engine and drive it with the same client the real game uses.
+
+    Worth being clear about what this checks and what it does not. The
+    fingerprint being compared is bot_api's own, so a divergence in what the
+    game *did* -- a wrong index, a missing action, money or score that does not
+    add up -- shows here in seconds. Timing divergences cannot: the engine
+    pumps frames to completion, so the whole class of fault that comes from
+    acting while the game is still animating is invisible. This is a filter in
+    front of the real run, not a replacement for it.
+    """
+    from balatro_headless.runtime import HeadlessBalatro
+    from balatro_bridge.headless import HeadlessBridge
+
+    print("booting the headless engine...")
+    return HeadlessBridge(HeadlessBalatro().boot())
+
+
 def do_record(args) -> None:
     bridge = _connect(args)
     print(f"starting a run on seed {args.seed}...")
@@ -374,7 +392,7 @@ def do_record(args) -> None:
 def do_replay(args) -> None:
     payload = json.loads(args.recording.read_text(encoding="utf-8"))
     actions = merge_buy_and_use(payload["actions"])
-    bridge = _connect(args)
+    bridge = _headless() if getattr(args, "headless", False) else _connect(args)
 
     print(f"replaying {len(actions)} actions on seed {payload['seed']} "
           f"({payload['deck']})\n")
@@ -497,6 +515,11 @@ def main() -> None:
     rep.add_argument("--launch", action="store_true")
     rep.add_argument("--verbose", action="store_true")
     rep.add_argument("--stop-on-mismatch", action="store_true")
+    rep.add_argument("--headless", action="store_true",
+                     help="replay against the in-process engine instead of "
+                          "the running game: seconds rather than minutes, and "
+                          "no window. Catches wrong actions and wrong indices; "
+                          "cannot catch timing, because nothing animates")
     rep.set_defaults(func=do_replay)
 
     args = parser.parse_args()
