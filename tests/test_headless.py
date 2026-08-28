@@ -9,11 +9,11 @@ import pytest
 
 pytest.importorskip("lupa")
 
-from balatro_headless.runtime import DEFAULT_INSTALL, HeadlessBalatro  # noqa: E402
+from balatro_headless.runtime import HeadlessBalatro, engine_available  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
-    not DEFAULT_INSTALL.exists(),
-    reason=f"Balatro not installed at {DEFAULT_INSTALL}",
+    not engine_available(),
+    reason="no Balatro engine: need vendor/balatro_src or an installed game",
 )
 
 SEED = "ABCDEFGH"

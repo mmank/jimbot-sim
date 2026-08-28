@@ -20,6 +20,18 @@ from lupa import luajit21
 
 DEFAULT_INSTALL = Path(
     r"C:\Program Files (x86)\Steam\steamapps\common\Balatro\Balatro.exe")
+DEFAULT_SOURCE = Path("vendor/balatro_src")
+
+
+def engine_available(source: Path = DEFAULT_SOURCE,
+                     exe: Path = DEFAULT_INSTALL) -> bool:
+    """Whether the engine can run here.
+
+    Either an already-extracted tree or a game to extract from will do. The
+    extracted Lua is platform-independent, so a Linux training box needs only
+    the tree copied across -- it never needs the Windows binary.
+    """
+    return (Path(source).exists() and any(Path(source).glob("*.lua")))         or Path(exe).exists()
 
 # main.lua's require order, which the game depends on: globals.lua creates the
 # global `G`, and button_callbacks.lua then hangs G.FUNCS off it.

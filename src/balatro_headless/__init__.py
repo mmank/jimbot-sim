@@ -11,6 +11,8 @@ The engine is the shipped game, so every joker, blind, voucher and edition
 behaves exactly as it does when you play it.
 """
 
-from .runtime import DEFAULT_INSTALL, ExtractionError, HeadlessBalatro, extract_source
+from .runtime import (DEFAULT_INSTALL, DEFAULT_SOURCE, ExtractionError,
+                      HeadlessBalatro, engine_available, extract_source)
 
-__all__ = ["DEFAULT_INSTALL", "ExtractionError", "HeadlessBalatro", "extract_source"]
+__all__ = ["DEFAULT_INSTALL", "DEFAULT_SOURCE", "ExtractionError",
+           "HeadlessBalatro", "engine_available", "extract_source"]
