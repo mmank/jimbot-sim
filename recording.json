@@ -1,0 +1,135 @@
+{
+ "seed": "ABCDEFGH",
+ "deck": "Red Deck",
+ "start": {
+  "ante": 1,
+  "best_hand": 0,
+  "blind": "",
+  "blind_chips": 0,
+  "chips": 0,
+  "consumables": [],
+  "deck_size": 52,
+  "discards_left": 4,
+  "dollars": 4,
+  "hand_levels": [],
+  "hand_size": 0,
+  "hands_left": 4,
+  "hands_played": 0,
+  "jokers": [],
+  "last_hand": "",
+  "phase": "BLIND_SELECT",
+  "round": 0
+ },
+ "actions": [
+  {
+   "params": {
+    "blind": "Small"
+   },
+   "action": "skip_blind",
+   "before": {
+    "jokers": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 0,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 0,
+    "phase": "BLIND_SELECT",
+    "last_hand": "",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 0,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 4
+   },
+   "n": 1
+  },
+  {
+   "params": {
+    "blind": "Big"
+   },
+   "action": "select_blind",
+   "before": {
+    "jokers": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 0,
+    "blind": "",
+    "consumables": [],
+    "best_hand": 0,
+    "phase": "BLIND_SELECT",
+    "last_hand": "",
+    "blind_chips": 0,
+    "deck_size": 52,
+    "round": 0,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 0,
+    "dollars": 4
+   },
+   "n": 2
+  },
+  {
+   "params": {
+    "cards": [
+     2,
+     3
+    ]
+   },
+   "action": "play_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 0,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 0,
+    "phase": "SELECTING_HAND",
+    "last_hand": "",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 4,
+    "chips": 0,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 3
+  },
+  {
+   "params": {
+    "cards": [
+     5,
+     6
+    ]
+   },
+   "action": "discard_cards_from_highlighted",
+   "before": {
+    "jokers": [],
+    "hand_levels": [],
+    "discards_left": 4,
+    "hands_played": 1,
+    "blind": "Big Blind",
+    "consumables": [],
+    "best_hand": 13,
+    "phase": "SELECTING_HAND",
+    "last_hand": "High Card",
+    "blind_chips": 450,
+    "deck_size": 52,
+    "round": 1,
+    "ante": 1,
+    "hands_left": 3,
+    "chips": 13,
+    "hand_size": 8,
+    "dollars": 4
+   },
+   "n": 4
+  }
+ ]
+}

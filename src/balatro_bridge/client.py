@@ -89,9 +89,16 @@ class BalatroBridge:
         payload = " ".join([str(request_id), cmd, *(str(a) for a in args)])
         self._sock.sendall(payload.encode("utf-8") + b"\n")
 
-        reply = json.loads(self._readline())
-        if reply.get("id") != request_id:
-            raise BridgeError(f"reply id {reply.get('id')} != {request_id}; "
+        # Ctrl+C landing inside recv leaves an unread reply on the socket, so
+        # the next request would read the previous answer. Skip anything older
+        # than what was just asked for rather than erroring on it.
+        while True:
+            reply = json.loads(self._readline())
+            reply_id = reply.get("id", 0)
+            if reply_id >= request_id:
+                break
+        if reply_id != request_id:
+            raise BridgeError(f"reply id {reply_id} != {request_id}; "
                               "the connection is out of sync")
         if not reply.get("ok"):
             raise BridgeError(reply.get("error") or "the game rejected the command")

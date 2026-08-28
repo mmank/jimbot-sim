@@ -80,6 +80,27 @@ function BotAPI.cash_out_ready()
   return false
 end
 
+--- A card identity that is stable across runs of the same seed.
+---
+--- card.sort_id is a process-global counter, so a second run of the same seed
+--- gives the same cards different ids -- offset by however many cards were
+--- created before. The deck is built in a deterministic order per seed, so
+--- subtracting the run's lowest deck id cancels that offset and yields the
+--- same identity every time.
+local function deck_base()
+  local base = nil
+  for _, card in ipairs(G.playing_cards or {}) do
+    if not base or card.sort_id < base then base = card.sort_id end
+  end
+  return base or 0
+end
+
+local function card_uid(card, base)
+  return card.sort_id - (base or deck_base())
+end
+
+BotAPI.card_uid = card_uid
+
 local function is_highlighted(index)
   local card = G.hand.cards[index]
   if not card then return false end
@@ -245,8 +266,13 @@ function BotAPI.state()
   if not in_run then return state end
 
   state.hand = {}
+  local base = deck_base()
   for i, card in ipairs(G.hand.cards) do
     state.hand[i] = {
+      -- Identity rather than position, so a recording survives the player
+      -- reordering their hand. Normalised against the run's deck so it is the
+      -- same value in a replay of the same seed.
+      id = card_uid(card, base),
       rank = (card.base and RANK_IDS[card.base.value]) or 0,
       suit = (card.base and SUIT_IDS[card.base.suit]) or 0,
       center = key_id(card.config.center.key),
@@ -374,6 +400,12 @@ local function fingerprint()
   for name, data in pairs(G.GAME.hands) do
     if data.level > 1 then levels[name] = data.level end
   end
+  -- The hand in order. Card order is player-visible and player-controlled
+  -- (dragging, and the sort buttons), and it affects which card scores first,
+  -- so a replay that ignored it would not be reproducing the same game.
+  local hand_ids = {}
+  local base = deck_base()
+  for i, card in ipairs(G.hand.cards) do hand_ids[i] = card_uid(card, base) end
   return {
     phase = state_name(),
     dollars = G.GAME.dollars,
@@ -398,6 +430,7 @@ local function fingerprint()
     consumables = consumables,
     hand_levels = levels,
     deck_size = G.playing_cards and #G.playing_cards or 0,
+    hand_ids = hand_ids,
   }
 end
 
@@ -407,6 +440,18 @@ local function selected_indices()
   local out = {}
   for i = 1, #G.hand.cards do
     if is_highlighted(i) then out[#out + 1] = i end
+  end
+  return out
+end
+
+--- The sort_ids of the selected cards, so a replay can pick the same cards
+--- even if the hand is in a different order.
+local function selected_ids()
+  local out, base = {}, deck_base()
+  for i = 1, #G.hand.cards do
+    if is_highlighted(i) then
+      out[#out + 1] = card_uid(G.hand.cards[i], base)
+    end
   end
   return out
 end
@@ -458,9 +503,13 @@ local function install_hooks()
   wrap('select_blind', function() return { blind = blind_on_deck() } end)
   wrap('skip_blind', function() return { blind = blind_on_deck() } end)
   wrap('play_cards_from_highlighted', function()
-    return { cards = selected_indices() } end)
+    return { cards = selected_indices(), card_ids = selected_ids() } end)
   wrap('discard_cards_from_highlighted', function()
-    return { cards = selected_indices() } end)
+    return { cards = selected_indices(), card_ids = selected_ids() } end)
+  -- The sort buttons reorder the hand, which changes what every later index
+  -- means and which card scores first.
+  wrap('sort_hand_value', function() return { by = "rank" } end)
+  wrap('sort_hand_suit', function() return { by = "suit" } end)
   wrap('buy_from_shop', function(e)
     local area, index = locate(e.config.ref_table)
     return { area = area, index = index,
@@ -581,6 +630,59 @@ function BotAPI.toggle(args)
     G.hand:add_to_highlighted(card)
   end
   return { selection = #G.hand.highlighted }
+end
+
+--- Select cards by identity rather than position.
+function BotAPI.toggle_id(args)
+  local want = tonumber(args[1])
+  local base = deck_base()
+  for i, card in ipairs(G.hand.cards) do
+    if card_uid(card, base) == want then return BotAPI.toggle({ i }) end
+  end
+  error("no card with id " .. tostring(want) .. " in hand", 0)
+end
+
+--- The game's own sort buttons.
+function BotAPI.sort_hand(args)
+  if args and args[1] == "suit" then
+    G.FUNCS.sort_hand_suit({ config = {} })
+  else
+    G.FUNCS.sort_hand_value({ config = {} })
+  end
+  return { sorted = (args and args[1]) or "rank" }
+end
+
+--- Put the hand into an explicit order, given as sort_ids.
+---
+--- Dragging a card is not a G.FUNCS call, so it cannot be hooked -- but it is
+--- observable in the resulting order, and reproducible by setting that order
+--- directly. This is what lets a replay follow a hand the player rearranged
+--- by hand.
+function BotAPI.set_hand_order(args)
+  local wanted = {}
+  for _, token in ipairs(args or {}) do
+    wanted[#wanted + 1] = tonumber(token)
+  end
+  local by_id, base = {}, deck_base()
+  for _, card in ipairs(G.hand.cards) do by_id[card_uid(card, base)] = card end
+  local ordered = {}
+  for _, id in ipairs(wanted) do
+    if by_id[id] then
+      ordered[#ordered + 1] = by_id[id]
+      by_id[id] = nil
+    end
+  end
+  -- Anything not named keeps its relative position at the end.
+  for _, card in ipairs(G.hand.cards) do
+    if by_id[card_uid(card, base)] then ordered[#ordered + 1] = card end
+  end
+  if #ordered ~= #G.hand.cards then
+    error("hand order must cover every card", 0)
+  end
+  for i = 1, #ordered do G.hand.cards[i] = ordered[i] end
+  G.hand:set_ranks()
+  G.hand:align_cards()
+  return { ordered = #ordered }
 end
 
 function BotAPI.clear()

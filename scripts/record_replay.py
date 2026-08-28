@@ -31,7 +31,7 @@ from balatro_bridge import (DEFAULT_BUILD, DEFAULT_HOST, DEFAULT_PORT,  # noqa: 
 COMPARED = ("phase", "dollars", "chips", "ante", "round", "hands_left",
             "discards_left", "blind", "blind_chips", "hand_size", "jokers",
             "consumables", "hand_levels", "deck_size", "hands_played",
-            "last_hand")
+            "last_hand", "hand_ids")
 
 # Phases where the round score is a settled number rather than mid-animation.
 # cash_out resets it with ease_chips(0) over several frames, so between the
@@ -55,25 +55,57 @@ REPLAY = {
     "toggle_shop": lambda b, p: b.leave_shop(),
     "cash_out": lambda b, p: b.cash_out(),
     "skip_booster": lambda b, p: b.skip_pack(),
+    "sort_hand_value": lambda b, p: b.command("sort_hand", "rank"),
+    "sort_hand_suit": lambda b, p: b.command("sort_hand", "suit"),
 }
 
 
-def _select(bridge, indices):
-    """Reproduce the human's card selection, waiting for the hand to exist."""
+def _select(bridge, params):
+    """Reproduce the human's card selection.
+
+    Selects by card identity (sort_id) rather than position, so a recording
+    still picks the right cards if the hand ended up in a different order.
+    Falls back to the recorded positions when identities are unavailable.
+    """
     bridge.wait_until(lambda s: s["state_name"] == "SELECTING_HAND"
                       and len(s.get("hand") or []) > 0, timeout=30)
     bridge.command("clear")
-    for index in indices or []:
-        bridge.toggle(index)
+    ids = params.get("card_ids")
+    if ids:
+        for card_id in ids:
+            bridge.command("toggle_id", card_id)
+    else:
+        for index in params.get("cards") or []:
+            bridge.toggle(index)
+
+
+def _match_hand_order(bridge, expected_ids) -> bool:
+    """Put the hand in the recorded order.
+
+    Dragging a card is not a G.FUNCS call so it cannot be hooked, but the order
+    it produces is observable -- and reproducible by setting it directly. This
+    is what lets a replay follow a hand the player rearranged by hand.
+    """
+    if not expected_ids:
+        return True
+    state = bridge.command("check")
+    current = normalise(state.get("hand_ids")) or []
+    expected = list(expected_ids)
+    if current == expected:
+        return True
+    if sorted(current) != sorted(expected):
+        return False          # different cards entirely, not a reorder
+    bridge.command("set_hand_order", *expected)
+    return True
 
 
 def _play(bridge, params):
-    _select(bridge, params.get("cards"))
+    _select(bridge, params)
     return bridge.play()
 
 
 def _discard(bridge, params):
-    _select(bridge, params.get("cards"))
+    _select(bridge, params)
     return bridge.discard()
 
 
@@ -82,7 +114,7 @@ def _use(bridge, params):
     area, index = params.get("area"), params.get("index")
     if area == "consumeables":
         if params.get("targets"):
-            _select(bridge, params["targets"])
+            _select(bridge, {"cards": params["targets"]})
         return bridge.command("use_consumable", index)
     if area == "pack_cards":
         return bridge.command("pick_pack", index)
@@ -197,8 +229,16 @@ def do_record(args) -> None:
     except KeyboardInterrupt:
         print()
 
-    drain(actions)          # anything between the last poll and the interrupt
-    bridge.command("stop_recording")
+    # Anything between the last poll and the interrupt. Never let a failure
+    # here lose a recording the player just spent time making.
+    try:
+        drain(actions)
+    except (BridgeError, OSError) as error:
+        print(f"  (could not fetch the last actions: {error})")
+    try:
+        bridge.command("stop_recording")
+    except (BridgeError, OSError):
+        pass
 
     payload = {"seed": info["seed"], "deck": info["deck"],
                "start": normalise(info["start"]), "actions": actions}
@@ -224,6 +264,11 @@ def do_replay(args) -> None:
     mismatches = 0
     for i, entry in enumerate(actions, start=1):
         action, params = entry["action"], normalise(entry["params"])
+
+        # Reproduce any reordering the player did (dragging, or the sort
+        # buttons) before comparing, so a rearranged hand is followed rather
+        # than reported as a divergence.
+        _match_hand_order(bridge, normalise(entry["before"].get("hand_ids")))
 
         # Compare before acting: the recorded `before` is the state the human
         # was looking at when they made this choice.
