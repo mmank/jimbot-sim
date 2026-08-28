@@ -73,7 +73,12 @@ end
 function BotAPI.cash_out_ready()
   if G.STATE ~= G.STATES.ROUND_EVAL or not G.round_eval then return false end
   for _, box in pairs((G.I and G.I.UIBOX) or {}) do
-    if box.get_UIE_by_ID and box:get_UIE_by_ID('cash_out_button') then
+    -- Must belong to *this* round's evaluation. A button left in the registry
+    -- by the previous round makes the scan succeed immediately, so cash_out
+    -- fires before this round's rows have been added -- and any money still
+    -- to come, such as an Investment Tag's $25, is simply never counted.
+    if box.config and box.config.major == G.round_eval
+        and box.get_UIE_by_ID and box:get_UIE_by_ID('cash_out_button') then
       return true
     end
   end
@@ -225,6 +230,15 @@ function BotAPI.state()
     selection_size = in_run and #G.hand.highlighted or 0,
     blind_on_deck = in_run and blind_on_deck() or "",
     run_pending = BOT_RUN_PENDING and 1 or 0,
+    -- The Investment Tag pays only when the blind just set up was a boss
+    -- (tag.lua checks G.GAME.last_blind.boss during round evaluation).
+    last_blind_boss = (in_run and G.GAME.last_blind
+                       and G.GAME.last_blind.boss) and 1 or 0,
+    tags = (function()
+      local out = {}
+      for i, tag in ipairs((in_run and G.GAME.tags) or {}) do out[i] = tag.key end
+      return out
+    end)(),
     -- The client uses this to know whether it may act at all: mid-animation
     -- the game is in a transient state and inputs are ignored.
     -- G.FUNCS.select_blind is guarded by `if G.blind_select then`, so calling
@@ -245,6 +259,12 @@ function BotAPI.state()
     -- only because a bot can act faster than a player physically can.
     shop_settled = (G.shop ~= nil and G.shop.T and G.shop.VT
                     and math.abs(G.shop.T.y - G.shop.VT.y) < 3) and 1 or 0,
+    -- The shop's UIBox finishes animating before its cards are dealt, so
+    -- shop_settled alone hands the client an empty shop -- and a buy against
+    -- an index that does not exist yet does nothing. The main row always
+    -- stocks, so its contents are the real signal.
+    shop_stocked = (G.shop_jokers ~= nil and G.shop_jokers.cards ~= nil
+                    and #G.shop_jokers.cards > 0) and 1 or 0,
     round_eval_up = (G.round_eval ~= nil) and 1 or 0,
     -- The round evaluation adds its rows (blind reward, unused hands,
     -- interest, each joker's payout) over several frames, and the Cash Out
@@ -257,6 +277,10 @@ function BotAPI.state()
     -- GAME_OVER out means any wait after a losing hand hangs until timeout.
     ready = ((not BOT_RUN_PENDING) and (G.STATE == G.STATES.SELECTING_HAND
               or (G.STATE == G.STATES.BLIND_SELECT and G.blind_select ~= nil)
+              -- Deliberately not requiring shop_stocked: a row bought out is
+              -- legitimately empty, and the shop is still perfectly usable
+              -- (reroll, leave). Stockedness is a precondition for buying, not
+              -- for the shop being actionable.
               or (G.STATE == G.STATES.SHOP and G.shop ~= nil and G.shop.T
                   and G.shop.VT and math.abs(G.shop.T.y - G.shop.VT.y) < 3)
               or (G.STATE == G.STATES.ROUND_EVAL and BotAPI.cash_out_ready())
@@ -403,6 +427,12 @@ local function fingerprint()
   -- The hand in order. Card order is player-visible and player-controlled
   -- (dragging, and the sort buttons), and it affects which card scores first,
   -- so a replay that ignored it would not be reproducing the same game.
+  -- Tags held. Without these, a tag that failed to apply is invisible until
+  -- its payout goes missing much later -- an Investment Tag not granted shows
+  -- up as $25 unaccounted for, 29 actions downstream.
+  local tags = {}
+  for i, tag in ipairs(G.GAME.tags or {}) do tags[i] = tag.key end
+
   local hand_ids = {}
   local base = deck_base()
   for i, card in ipairs(G.hand.cards) do hand_ids[i] = card_uid(card, base) end
@@ -431,6 +461,8 @@ local function fingerprint()
     hand_levels = levels,
     deck_size = G.playing_cards and #G.playing_cards or 0,
     hand_ids = hand_ids,
+    tags = tags,
+    skips = G.GAME.skips or 0,
   }
 end
 
@@ -614,10 +646,24 @@ end
 
 function BotAPI.skip_blind()
   local on_deck = blind_on_deck()
+
+  -- G.FUNCS.skip_blind does everything that matters -- granting the tag and
+  -- advancing the blind states -- inside `if _tag then`, where _tag comes from
+  -- e.UIBox:get_UIE_by_ID('tag_container'). Hand it anything without that
+  -- element and it silently skips the blind without giving the tag, which
+  -- shows up much later as missing money.
   local element = G.blind_select_opts and G.blind_select_opts[on_deck:lower()]
+  if not element or not element.get_UIE_by_ID
+      or not element:get_UIE_by_ID('tag_container') then
+    error("cannot skip: no tag_container for the " .. on_deck ..
+          " blind (is the blind select screen up?)", 0)
+  end
+
+  local before = #(G.GAME.tags or {})
   G.FUNCS.skip_blind({ config = { ref_table = { blind = on_deck } },
                        UIBox = element })
-  return { skipped = on_deck }
+  G.CONTROLLER.locks.skip_blind = nil
+  return { skipped = on_deck, tags_before = before }
 end
 
 function BotAPI.toggle(args)
@@ -723,7 +769,9 @@ end
 function BotAPI.buy(args)
   local area, index = args[1], tonumber(args[2])
   local card = G[area] and G[area].cards[index]
-  if not card then return { ok = false, reason = "no shop card" } end
+  if not card then
+    error("no shop card at " .. tostring(area) .. "[" .. tostring(index) .. "]", 0)
+  end
   local element = { config = { ref_table = card, id = 'buy' } }
   -- Queued for the same reason as leave_shop: the shop's entry animation may
   -- still have work pending that expects the shop to exist.
@@ -740,9 +788,12 @@ end
 function BotAPI.sell(args)
   local area, index = args[1], tonumber(args[2])
   local card = G[area] and G[area].cards[index]
-  if not card then return { ok = false, reason = "no card" } end
+  if not card then
+    error("no card at " .. tostring(area) .. "[" .. tostring(index) .. "]", 0)
+  end
   if not card:can_sell_card() then
-    return { ok = false, reason = "cannot sell (eternal or locked)" }
+    error("cannot sell " .. tostring(card.config.center.key) ..
+          " (eternal or otherwise locked)", 0)
   end
   G.FUNCS.sell_card({ config = { ref_table = card } })
   return { sold = true }
@@ -750,7 +801,9 @@ end
 
 function BotAPI.use_consumable(args)
   local card = G.consumeables.cards[tonumber(args[1])]
-  if not card then return { ok = false, reason = "no consumable" } end
+  if not card then
+    error("no consumable at index " .. tostring(args[1]), 0)
+  end
   G.FUNCS.use_card({ config = { ref_table = card } }, true)
   return { used = true }
 end
@@ -777,7 +830,13 @@ end
 
 function BotAPI.pick_pack(args)
   local card = G.pack_cards and G.pack_cards.cards[tonumber(args[1])]
-  if not card then return { ok = false, reason = "no pack card" } end
+  -- Errors, not a quiet { ok = false } payload: the protocol's own ok flag is
+  -- what the client checks, so a refusal returned in the body is invisible.
+  if not card then
+    error("no pack card at index " .. tostring(args[1]) ..
+          " (pack holds " ..
+          tostring(G.pack_cards and #G.pack_cards.cards or 0) .. ")", 0)
+  end
   queue(function() G.FUNCS.use_card({ config = { ref_table = card } }, true) end)
   return { picked = true }
 end

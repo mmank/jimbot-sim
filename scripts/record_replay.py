@@ -31,7 +31,7 @@ from balatro_bridge import (DEFAULT_BUILD, DEFAULT_HOST, DEFAULT_PORT,  # noqa: 
 COMPARED = ("phase", "dollars", "chips", "ante", "round", "hands_left",
             "discards_left", "blind", "blind_chips", "hand_size", "jokers",
             "consumables", "hand_levels", "deck_size", "hands_played",
-            "last_hand", "hand_ids")
+            "last_hand", "hand_ids", "tags")
 
 # Phases where the round score is a settled number rather than mid-animation.
 # cash_out resets it with ease_chips(0) over several frames, so between the
@@ -50,8 +50,8 @@ REPLAY = {
     "discard_cards_from_highlighted": lambda b, p: _discard(b, p),
     "buy_from_shop": lambda b, p: b.buy(p["area"], p["index"]),
     "use_card": lambda b, p: _use(b, p),
-    "sell_card": lambda b, p: b.command("sell", p["area"], p["index"]),
-    "reroll_shop": lambda b, p: b.command("reroll"),
+    "sell_card": lambda b, p: b.sell(p["area"], p["index"]),
+    "reroll_shop": lambda b, p: b.reroll(),
     "toggle_shop": lambda b, p: b.leave_shop(),
     "cash_out": lambda b, p: b.cash_out(),
     "skip_booster": lambda b, p: b.skip_pack(),
@@ -115,10 +115,12 @@ def _use(bridge, params):
     if area == "consumeables":
         if params.get("targets"):
             _select(bridge, {"cards": params["targets"]})
-        return bridge.command("use_consumable", index)
+        return bridge.use_consumable(index)
     if area == "pack_cards":
-        return bridge.command("pick_pack", index)
-    return bridge.command("buy", area, index)
+        return bridge.pick_pack(index)
+    if area == "shop_booster":
+        return bridge.buy_pack(area, index)
+    return bridge.buy(area, index)
 
 
 def normalise(value):
@@ -137,6 +139,11 @@ def differences(expected: dict, actual: dict) -> list[str]:
     scoring = expected.get("phase") in SCORE_STABLE_PHASES
     for field in COMPARED:
         if field == "chips" and not scoring:
+            continue
+        # A recording made before a field existed simply does not have it;
+        # that is not a divergence, and treating it as one buries the real
+        # ones under noise.
+        if field not in expected:
             continue
         want, got = normalise(expected.get(field)), normalise(actual.get(field))
         if want != got:
@@ -192,6 +199,9 @@ def describe(entry: dict) -> str:
     jokers = normalise(before.get("jokers")) or []
     if jokers:
         state += f"  jokers {len(jokers)}"
+    tags = normalise(before.get("tags")) or []
+    if tags:
+        state += f"  tags {list(tags)}"
     return f"  {entry['n']:3d}  {name:<12} {detail:<34} {state}"
 
 

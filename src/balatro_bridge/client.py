@@ -141,6 +141,25 @@ class BalatroBridge:
         raise NotReady(f"condition not met within {timeout}s "
                        f"(state {last.get('state_name')})")
 
+    def wait_for(self, predicate, timeout: float = 30.0,
+                 poll: float = 0.05) -> dict:
+        """Wait for a consequence, without requiring the game to be actionable.
+
+        wait_until also demands `ready`, which is right for "may I act now" and
+        wrong for "did that land": straight after a purchase the shop is busy
+        restocking and reports not-ready, so a consequence that had already
+        happened would never be observed.
+        """
+        deadline = time.time() + timeout
+        last: dict = {}
+        while time.time() < deadline:
+            last = self.state()
+            if predicate(last):
+                return last
+            time.sleep(poll)
+        raise NotReady(f"consequence not observed within {timeout}s "
+                       f"(state {last.get('state_name')})")
+
     def act(self, cmd: str, *args: Any, until=None,
             settle: float = 30.0) -> dict:
         """Run an action and wait for the change it causes to land."""
@@ -195,9 +214,138 @@ class BalatroBridge:
         return self.act("cash_out",
                         until=lambda s: s["state_name"] != "ROUND_EVAL")
 
+    def _shop_size(self) -> int:
+        return len(self.state().get("shop") or [])
+
     def buy(self, area: str, index: int) -> dict:
-        self.wait_until(lambda s: s.get("shop_settled"), timeout=30.0)
-        return self.act("buy", area, index)
+        """Buy a shop item and wait for it to actually be bought.
+
+        Waiting on `ready` is not enough: in the shop it is already true, and
+        the purchase itself is queued behind whatever animation is in flight,
+        so this returned before anything had happened -- silently, which then
+        derailed every later action in a replay. Wait for a consequence: money
+        spent, or the item off the shelf.
+        """
+        # Wait until the item is actually on the shelf, not merely until the
+        # shop exists: the rows fill in over several frames.
+        def offered(state):
+            return any(i["area"] == area and i["index"] == index
+                       for i in (state.get("shop") or []))
+
+        self.wait_until(lambda s: (s.get("shop_settled") and s.get("shop_stocked")
+                                   and offered(s)), timeout=30.0)
+        before = self.state()
+        money = before["dollars"]
+        item = next(i for i in before["shop"]
+                    if i["area"] == area and i["index"] == index)
+        cost = int(item["cost"])
+        jokers = len(before.get("jokers") or [])
+        consumables = len(before.get("consumables") or [])
+
+        self.command("buy", area, index)
+
+        # Wait for the money to leave. Not for the item to vanish from the
+        # shop listing: that listing is empty for a frame or two while the
+        # rows restock, and "the item is not there" is then trivially true --
+        # which reported purchases that had not happened.
+        def paid(state):
+            if cost > 0:
+                return state["dollars"] <= money - cost
+            shop = state.get("shop") or []
+            return bool(shop) and not any(
+                i["area"] == area and i["index"] == index for i in shop)
+
+        def arrived(state):
+            # The money leaves before the card lands, and until it has landed
+            # in the joker tray the game will not let it be sold or used --
+            # can_sell_card requires area.config.type == 'joker'. Waiting only
+            # for payment hands back a card that is still in flight.
+            return (len(state.get("jokers") or []) > jokers
+                    or len(state.get("consumables") or []) > consumables)
+
+        def bought(state):
+            if state.get("in_pack") or state["state_name"] != "SHOP":
+                return True
+            return paid(state) and arrived(state)
+
+        self.wait_for(bought, timeout=30.0)
+        return self.state()
+
+    def sell(self, area: str, index: int) -> dict:
+        """Sell a card and wait for it to actually leave the tray.
+
+        Money arrives before the card does: ease_dollars lands while the card
+        is still dissolving, so waiting on the balance alone reports a joker
+        that is visibly still there.
+        """
+        key = "jokers" if area == "jokers" else "consumables"
+        before = self.state()
+        money, held = before["dollars"], len(before.get(key) or [])
+        self.command("sell", area, index)
+        self.wait_for(
+            lambda s: s["dollars"] != money and len(s.get(key) or []) < held,
+            timeout=30.0)
+        return self.state()
+
+    def buy_pack(self, area: str, index: int) -> dict:
+        """Buy a booster pack and wait for it to open.
+
+        The purchase and the pack opening are separate steps; returning on the
+        money change leaves the caller acting on a shop that is about to become
+        a pack screen.
+        """
+        self.wait_until(lambda s: s.get("shop_settled") and s.get("shop_stocked"),
+                        timeout=30.0)
+        money = self.state()["dollars"]
+        self.command("buy", area, index)
+        # Wait for the pack to open *and* stock itself, not merely for the
+        # state to flip.
+        self.wait_for(lambda s: (s.get("in_pack") and s["dollars"] != money
+                                 and s.get("pack")), timeout=30.0)
+        return self.state()
+
+    def reroll(self) -> dict:
+        before = self.state()["dollars"]
+        self.command("reroll")
+        self.wait_for(lambda s: s["dollars"] != before, timeout=30.0)
+        return self.state()
+
+    def use_consumable(self, index: int) -> dict:
+        before = len(self.state().get("consumables") or [])
+        self.command("use_consumable", index)
+        self.wait_for(
+            lambda s: len(s.get("consumables") or []) != before
+            or s["state_name"] != "SHOP", timeout=30.0)
+        return self.state()
+
+    def pick_pack(self, index: int) -> dict:
+        """Take a card from a pack and wait for it to arrive.
+
+        The pack closing and the card landing are separate: moving on as soon
+        as the pack shuts leaves the card still flying across the screen, which
+        is visible as a joker drifting over the next screen.
+        """
+        # The pack's cards are dealt a few frames after the pack screen opens,
+        # exactly as the shop's are. Picking before they land addresses an
+        # index that does not exist yet.
+        self.wait_until(lambda s: s.get("pack"), timeout=30.0)
+        before = self.state()
+        jokers = len(before.get("jokers") or [])
+        consumables = len(before.get("consumables") or [])
+        self.command("pick_pack", index)
+        self.wait_for(
+            lambda s: (len(s.get("jokers") or []) != jokers
+                       or len(s.get("consumables") or []) != consumables
+                       or not s.get("in_pack")),
+            timeout=30.0)
+        # Then let the pack finish closing, if it is going to. A Mega pack
+        # allows two picks and legitimately stays open, so this must not be
+        # treated as a failure -- it is a courtesy wait, not a condition.
+        try:
+            self.wait_until(lambda s: not s.get("in_pack"), timeout=8.0)
+        except NotReady:
+            pass
+        return self.state()
 
     def leave_shop(self) -> dict:
         # The shop must have finished animating in before it can be closed.
