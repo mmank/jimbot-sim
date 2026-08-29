@@ -24,12 +24,11 @@ SHOP = "SHOP"
 PACK = "PACK"
 
 # States the driver resolves on its own, without consulting the policy.
-AUTO_STATES = {"DRAW_TO_HAND", "HAND_PLAYED", "NEW_ROUND", "PLAY_TAROT"}
-# Frames to advance per poll while the game resolves a state on its own.
-AUTO_PUMP_STEP = 12
-PACK_STATES = {"TAROT_PACK", "PLANET_PACK", "SPECTRAL_PACK", "STANDARD_PACK",
-               "BUFFOON_PACK"}
-TERMINAL_STATES = {"GAME_OVER", "MENU", "SPLASH"}
+from .driving import (AUTO_PUMP_STEP, AUTO_STATES, PACK_STATES,  # noqa: F401
+                      TERMINAL_STATES, advance, is_over)
+
+# How many phase advances to allow between decisions before calling it stuck.
+MAX_SETTLES = 600
 
 WIN_ANTE = 8
 
@@ -253,6 +252,22 @@ class HeadlessRun:
         else:
             raise ValueError(f"policy returned unknown action {action!r} in {phase}")
 
+    @property
+    def _driver(self):
+        run = self
+
+        class _Driver:
+            def wait(self) -> None:
+                run.pump(AUTO_PUMP_STEP)
+
+            def cash_out(self) -> None:
+                run.cash_out()
+
+            def settle_pack(self) -> None:
+                run._lua("api.settle_pack()")
+
+        return _Driver()
+
     def play_run(self, policy: Policy) -> RunResult:
         """Advance until the run ends, asking `policy` at each decision point."""
         if not self._started:
@@ -265,7 +280,9 @@ class HeadlessRun:
         # forever, so track whether anything actually changes and bail out.
         last_signature = None
         stalled = 0
-        shop_waits = 0
+        # Advancing a phase does not count as a decision, so it needs its own
+        # bound or a game that never settles would spin here forever.
+        settles = 0
         last_funded_round = None
 
         while decisions < self.max_decisions:
@@ -284,18 +301,21 @@ class HeadlessRun:
                 self.note(f"  ante {state['ante']} round {state['round']}: "
                           f"${state['dollars']}, jokers {self.jokers()}")
 
-            if name in AUTO_STATES:
-                # Small steps, re-checking between them. A fixed pump(120) here
-                # burned ~2400 frames a run waiting on transitions that usually
-                # take a handful, and pump frames cost ~145us during live play.
-                self.pump(AUTO_PUMP_STEP)
+            # Phases the policy is never asked about -- the same set the
+            # training environment and the real-game driver use, so a policy
+            # meets the same decision points wherever it runs. Small steps,
+            # re-checking between them: a fixed pump(120) burned ~2400 frames a
+            # run on transitions that usually take a handful.
+            if advance(state, self._driver, settles):
+                settles += 1
+                if settles > MAX_SETTLES:
+                    stopped = "stalled"
+                    break
                 continue
-            if name == "ROUND_EVAL":
-                self.cash_out()
-                continue
+            settles = 0
+
             if name in PACK_STATES:
                 # Packs can also be opened by tags, not only by purchase.
-                self._lua("api.settle_pack()")
                 self._apply(PACK, policy.pack(self, state))
             elif name == "BLIND_SELECT":
                 self._apply(BLIND_SELECT, policy.blind(self, state))
@@ -305,14 +325,6 @@ class HeadlessRun:
                 if self.money_per_shop and state["round"] != last_funded_round:
                     last_funded_round = state["round"]
                     self._exec(f"ease_dollars({self.money_per_shop}, true)")
-                # Cards arrive a few frames after the state flips. Bounded:
-                # an unbounded wait here does not increment the decision count
-                # and so would hang the run if the shop never stocks.
-                if not self._lua("api.shop_ready()") and shop_waits < 60:
-                    shop_waits += 1
-                    self.pump(AUTO_PUMP_STEP)
-                    continue
-                shop_waits = 0
                 self._apply(SHOP, policy.shop(self, state))
             else:
                 # Unknown state: pump and let the game settle rather than guess.

@@ -487,6 +487,10 @@ function api.snapshot()
     consumable_limit = G.consumeables.config.card_limit,
     reroll_cost = G.GAME.current_round.reroll_cost or 0,
     won = G.GAME.won and true or false,
+    -- Whether the shop has its cards yet, not merely whether it is open.
+    -- Its absence here is why the scripted runner carried its own wait for
+    -- this; the shared phase logic asks every state the same question.
+    shop_ready = api.shop_ready() and true or false,
   }
 end
 
