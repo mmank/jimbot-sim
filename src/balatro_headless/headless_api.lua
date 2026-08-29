@@ -118,12 +118,43 @@ function api.pump_until(predicate, max_frames)
   return predicate(), max_frames
 end
 
+--- What create_UIBox_blind_choice settles while it builds the blind select
+--- screen: which poker hand an Orbital Tag would level.
+---
+--- It is decided in UI construction, and the engine never constructs that UI,
+--- so it was never decided here. An Orbital Tag created afterwards has a nil
+--- orbital_hand, and applying it reads G.GAME.hands[nil] -- which is not a
+--- misbehaving agent but a dead worker, and with it the whole run.
+---
+--- Same blinds and same order as the real game, which builds a choice for each
+--- blind it is not hiding, so the draws come off the seed stream in step.
+local function ensure_orbital_choices()
+  if not (G.GAME and G.GAME.round_resets and G.GAME.hands) then return end
+  local ante = G.GAME.round_resets.ante
+  G.GAME.orbital_choices = G.GAME.orbital_choices or {}
+  G.GAME.orbital_choices[ante] = G.GAME.orbital_choices[ante] or {}
+  for _, kind in ipairs({ 'Small', 'Big', 'Boss' }) do
+    local states = G.GAME.round_resets.blind_states or {}
+    if states[kind] ~= 'Hide' and not G.GAME.orbital_choices[ante][kind] then
+      local hands = {}
+      for name, data in pairs(G.GAME.hands) do
+        if data.visible then hands[#hands + 1] = name end
+      end
+      if #hands > 0 then
+        G.GAME.orbital_choices[ante][kind] =
+          pseudorandom_element(hands, pseudoseed('orbital'))
+      end
+    end
+  end
+end
+
 -- The logic tail of Game:update_blind_select, without the UIBox: pending tags
 -- fire here (Investment pays out, Charm opens a pack, Voucher stocks the shop),
 -- so skipping the state entirely would silently drop them.
 function api.enter_blind_select()
   if G.STATE_COMPLETE then return end
   G.STATE_COMPLETE = true
+  ensure_orbital_choices()
   if G.buttons then G.buttons:remove(); G.buttons = nil end
   if G.shop then G.shop:remove(); G.shop = nil end
   for i = 1, #G.GAME.tags do
