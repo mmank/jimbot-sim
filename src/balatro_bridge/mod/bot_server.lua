@@ -249,6 +249,16 @@ function BotServer.install()
       return original_main_menu(self, ...)
     end
 
+    -- Silence the music. A bot-driven game is something you leave running in
+    -- a window while working, and the soundtrack loops. Game sounds are left
+    -- alone -- they mark what the agent is doing, which is useful to hear.
+    --
+    -- Override without rebuilding: BALATRO_BOT_MUSIC=on in the environment.
+    G.SETTINGS.SOUND = G.SETTINGS.SOUND or {}
+    if os.getenv("BALATRO_BOT_MUSIC") ~= "on" then
+      G.SETTINGS.SOUND.music_volume = 0
+    end
+
     -- The splash is ~7 seconds of logo animation before the menu appears.
     G.SETTINGS.skip_splash = "Yes"
     -- 4 is the maximum the options screen offers; it shortens animation only.
@@ -269,7 +279,8 @@ function BotServer.install()
     G.SETTINGS.WINDOW = G.SETTINGS.WINDOW or {}
     G.SETTINGS.WINDOW.screenmode = mode
 
-    log("pre-boot: splash skipped, gamespeed 4, screenmode " .. mode)
+    log("pre-boot: splash skipped, gamespeed 4, music "
+        .. tostring(G.SETTINGS.SOUND.music_volume) .. ", screenmode " .. mode)
   end
   if not BotServer.start() then return false end
   -- An error anywhere in the game drops LOVE into its error screen and stops
