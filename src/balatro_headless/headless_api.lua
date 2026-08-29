@@ -896,17 +896,18 @@ function api.is_highlighted(index)
 end
 
 -- Toggle a card in or out of the selection, exactly as clicking it does.
+--- Select or deselect a card, through bot_api so the per-hand tally happens.
+---
+--- Reimplementing it here is what made sort_hand disagree with the real game;
+--- the same would happen to the toggle budget.
 function api.toggle(index)
   local card = G.hand.cards[index]
   if not card then return false end
-  if api.is_highlighted(index) then
-    G.hand:remove_from_highlighted(card)
-  else
-    if #G.hand.highlighted >= (G.hand.config.highlighted_limit or 5) then
-      return false
-    end
-    G.hand:add_to_highlighted(card, true)
+  if not api.is_highlighted(index)
+      and #G.hand.highlighted >= (G.hand.config.highlighted_limit or 5) then
+    return false
   end
+  require("bot_api").toggle({ index })
   return true
 end
 

@@ -135,7 +135,7 @@ end
 --- Keyed on the hand's *contents*, not its order -- sorting permutes the cards
 --- without changing which ones are held, so the key survives a sort and resets
 --- on anything that redraws: playing, discarding, a Death, a pack's targets.
-local SORT_STATE = { key = nil, rank = false, suit = false }
+local SORT_STATE = { key = nil, rank = false, suit = false, toggles = 0 }
 
 local function sort_state()
   local ids = {}
@@ -146,6 +146,7 @@ local function sort_state()
   local key = table.concat(ids, ",")
   if key ~= SORT_STATE.key then
     SORT_STATE.key, SORT_STATE.rank, SORT_STATE.suit = key, false, false
+    SORT_STATE.toggles = 0
   end
   return SORT_STATE
 end
@@ -415,6 +416,10 @@ function BotAPI.state()
     -- nothing, and an agent with nothing better to do will press it forever.
     sorted_rank = (in_run and sort_state().rank) and 1 or 0,
     sorted_suit = (in_run and sort_state().suit) and 1 or 0,
+    -- How much picking has been done at this hand. Selecting five of eight
+    -- takes five; an agent with nothing better to do takes hundreds, which is
+    -- how episodes reached 636 steps while achieving nothing.
+    toggles_used = (in_run and sort_state().toggles) or 0,
     boss = (blind and blind.boss) and 1 or 0,
     skippable = (in_run and blind_on_deck() ~= "Boss") and 1 or 0,
     -- The tag on offer for the blind on deck. Skipping is a trade -- no money
@@ -979,12 +984,14 @@ function BotAPI.toggle(args)
   local index = tonumber(args[1])
   local card = G.hand.cards[index]
   if not card then return { ok = false, reason = "no card at " .. tostring(index) } end
+  local state = sort_state()
   if is_highlighted(index) then
     G.hand:remove_from_highlighted(card)
   else
     G.hand:add_to_highlighted(card)
   end
-  return { selection = #G.hand.highlighted }
+  state.toggles = state.toggles + 1
+  return { selection = #G.hand.highlighted, toggles = state.toggles }
 end
 
 --- Select cards by identity rather than position.
