@@ -89,6 +89,12 @@ function BotServer.handlers.hello()
                   and G.SETTINGS.WINDOW.screenmode) or "?",
     fullscreen = (love.window.getFullscreen and love.window.getFullscreen())
                  and 1 or 0,
+    -- Read live rather than reported from configure: the point of asking is
+    -- to know what the running game has, not what something tried to set.
+    music_volume = (G and G.SETTINGS and G.SETTINGS.SOUND
+                    and G.SETTINGS.SOUND.music_volume) or -1,
+    sound_volume = (G and G.SETTINGS and G.SETTINGS.SOUND
+                    and G.SETTINGS.SOUND.volume) or -1,
   }
 end
 
@@ -173,6 +179,7 @@ local function configure_once()
   log(ok and ("configured: tutorial_skipped=" .. tostring(changed.tutorial)
               .. " unlocked=" .. tostring(changed.unlocked)
               .. " gamespeed=" .. tostring(changed.gamespeed)
+              .. " music=" .. tostring(changed.music)
               .. " screenmode=" .. tostring(changed.screenmode))
            or ("configure failed: " .. tostring(changed)))
 end
@@ -249,16 +256,6 @@ function BotServer.install()
       return original_main_menu(self, ...)
     end
 
-    -- Silence the music. A bot-driven game is something you leave running in
-    -- a window while working, and the soundtrack loops. Game sounds are left
-    -- alone -- they mark what the agent is doing, which is useful to hear.
-    --
-    -- Override without rebuilding: BALATRO_BOT_MUSIC=on in the environment.
-    G.SETTINGS.SOUND = G.SETTINGS.SOUND or {}
-    if os.getenv("BALATRO_BOT_MUSIC") ~= "on" then
-      G.SETTINGS.SOUND.music_volume = 0
-    end
-
     -- The splash is ~7 seconds of logo animation before the menu appears.
     G.SETTINGS.skip_splash = "Yes"
     -- 4 is the maximum the options screen offers; it shortens animation only.
@@ -279,8 +276,7 @@ function BotServer.install()
     G.SETTINGS.WINDOW = G.SETTINGS.WINDOW or {}
     G.SETTINGS.WINDOW.screenmode = mode
 
-    log("pre-boot: splash skipped, gamespeed 4, music "
-        .. tostring(G.SETTINGS.SOUND.music_volume) .. ", screenmode " .. mode)
+    log("pre-boot: splash skipped, gamespeed 4, screenmode " .. mode)
   end
   if not BotServer.start() then return false end
   -- An error anywhere in the game drops LOVE into its error screen and stops

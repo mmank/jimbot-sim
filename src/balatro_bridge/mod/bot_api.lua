@@ -265,6 +265,25 @@ function BotAPI.configure(args)
   end
   changed.screenmode = mode
 
+  -- Music off. Here rather than pre-boot for the same reason as the window
+  -- mode: Game:start_up loads settings.jkr and replaces G.SETTINGS wholesale,
+  -- so anything written before it is discarded -- which is why setting it
+  -- early looked right in the log and still played.
+  --
+  -- The mixer reads G.SETTINGS.SOUND live every frame (G.ARGS.play_sound
+  -- .sound_settings is a reference to it), so changing the value is enough;
+  -- nothing needs to be restarted. Game sounds are left alone: they mark what
+  -- the agent is doing, which is useful to hear.
+  --
+  -- Override without rebuilding: BALATRO_BOT_MUSIC=on in the environment.
+  G.SETTINGS.SOUND = G.SETTINGS.SOUND or {}
+  if os.getenv("BALATRO_BOT_MUSIC") == "on" then
+    changed.music = G.SETTINGS.SOUND.music_volume
+  else
+    G.SETTINGS.SOUND.music_volume = 0
+    changed.music = 0
+  end
+
   -- The tutorial forces specific shop items, a specific voucher and specific
   -- tags (see G.FUNCS.start_tutorial), so leaving it on quietly corrupts runs.
   -- G.F_SKIP_TUTORIAL is the game's own switch; tutorial_controller acts on it.
