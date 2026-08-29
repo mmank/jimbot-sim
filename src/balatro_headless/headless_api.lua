@@ -615,10 +615,18 @@ end
 local SHOP_AREAS = { 'shop_jokers', 'shop_booster', 'shop_vouchers' }
 
 -- The shop always stocks its main row; empty means the cards have not landed.
+--- Whether the shop has finished dealing -- not whether jokers remain.
+---
+--- Buying the last joker leaves a shop that still sells vouchers and packs and
+--- can be rerolled or left. Reading "ready" as "the joker row has cards" meant
+--- such a shop was never ready again, and a driver waiting on it hung.
 function api.shop_ready()
-  return G.STATE == G.STATES.SHOP
-     and G.shop_jokers ~= nil and G.shop_jokers.cards ~= nil
-     and #G.shop_jokers.cards > 0
+  if G.STATE ~= G.STATES.SHOP then return false end
+  for _, name in ipairs({ 'shop_jokers', 'shop_vouchers', 'shop_booster' }) do
+    local area = G[name]
+    if area and area.cards and #area.cards > 0 then return true end
+  end
+  return false
 end
 
 function api.shop_contents()

@@ -427,9 +427,14 @@ function BotAPI.state()
     -- decision, not after.
     offered_tag = in_run and tag_id(
       G.GAME.round_resets.blind_tags[blind_on_deck()]) or 0,
-    shop_ready = (G.STATE == G.STATES.SHOP and G.shop_jokers ~= nil
-                  and G.shop_jokers.cards ~= nil
-                  and #G.shop_jokers.cards > 0) and 1 or 0,
+    -- "The shop has dealt", not "the joker row is non-empty". Buying the
+    -- last joker leaves a shop that is still perfectly usable -- vouchers,
+    -- packs, rerolling, leaving -- but under the old reading it was never
+    -- ready again, so a driver waiting for it waited forever.
+    shop_ready = (G.STATE == G.STATES.SHOP and (
+                    (G.shop_jokers and #G.shop_jokers.cards > 0) or
+                    (G.shop_vouchers and #G.shop_vouchers.cards > 0) or
+                    (G.shop_booster and #G.shop_booster.cards > 0))) and 1 or 0,
     stop_use = in_run and (G.GAME.STOP_USE or 0) or 0,
     -- The biggest single hand scored so far this run. The game keeps it as a
     -- high score -- check_and_set_high_score only ever raises it -- and clears
