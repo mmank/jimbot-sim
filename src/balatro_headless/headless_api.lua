@@ -148,6 +148,37 @@ local function ensure_orbital_choices()
   end
 end
 
+--- Give an Orbital Tag a hand if it never got one.
+---
+--- set_ability picks the hand when the tag is created, out of the table the
+--- blind-select UI fills in. Deciding that table earlier is not enough on its
+--- own: a tag created in a window where it was not yet populated -- or for a
+--- blind_type with no entry -- keeps a nil hand for the rest of its life, and
+--- applying it indexes G.GAME.hands[nil] and takes the worker with it. So it
+--- is also repaired where it is used, which is the only place the damage
+--- actually shows.
+local function repair_orbital_tags()
+  if not (G.GAME and G.GAME.tags and G.GAME.hands) then return end
+  for _, tag in ipairs(G.GAME.tags) do
+    local hand = tag.ability and tag.ability.orbital_hand
+    if tag.name == 'Orbital Tag' and not (hand and G.GAME.hands[hand]) then
+      local ante = G.GAME.round_resets.ante
+      local chosen = G.GAME.orbital_choices
+        and G.GAME.orbital_choices[ante]
+        and G.GAME.orbital_choices[ante][tag.ability.blind_type]
+      if not (chosen and G.GAME.hands[chosen]) then
+        local hands = {}
+        for name, data in pairs(G.GAME.hands) do
+          if data.visible then hands[#hands + 1] = name end
+        end
+        chosen = #hands > 0 and pseudorandom_element(hands, pseudoseed('orbital'))
+          or nil
+      end
+      tag.ability.orbital_hand = chosen
+    end
+  end
+end
+
 -- The logic tail of Game:update_blind_select, without the UIBox: pending tags
 -- fire here (Investment pays out, Charm opens a pack, Voucher stocks the shop),
 -- so skipping the state entirely would silently drop them.
@@ -155,6 +186,7 @@ function api.enter_blind_select()
   if G.STATE_COMPLETE then return end
   G.STATE_COMPLETE = true
   ensure_orbital_choices()
+  repair_orbital_tags()
   if G.buttons then G.buttons:remove(); G.buttons = nil end
   if G.shop then G.shop:remove(); G.shop = nil end
   for i = 1, #G.GAME.tags do
