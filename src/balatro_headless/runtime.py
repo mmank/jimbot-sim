@@ -134,6 +134,8 @@ class HeadlessBalatro:
         self.lua.execute("BOT_HEADLESS = true")
         self.lua.execute('BOT = require("bot_api")')
         self.lua.execute('BOT_CMD = require("bot_headless")')
+        # Available on demand; starting it is what costs, not loading it.
+        self.lua.execute('PROFILER = require("profiler")')
         self._booted = True
         return self
 
