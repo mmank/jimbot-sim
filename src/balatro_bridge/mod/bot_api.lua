@@ -996,6 +996,28 @@ function BotAPI.set_hand_order(args)
   return { ordered = #ordered }
 end
 
+--- Move one card left in the hand.
+---
+--- Hand order is scoring order -- a card area is sorted by x position, and
+--- align_cards derives x from the array -- so this is not cosmetic. With a
+--- +4 mult card and a x1.5 card in the same played hand, taking them in one
+--- order scores 288 and the other 224.
+---
+--- Left-swaps rather than a from/to pair, for the same reason the joker
+--- version does: it keeps the action space linear in hand size while still
+--- reaching every permutation.
+function BotAPI.swap_card_left(args)
+  local index = tonumber(args and args[1])
+  if not index or index <= 1 or not G.hand.cards[index] then
+    return { swapped = false }
+  end
+  local card = table.remove(G.hand.cards, index)
+  table.insert(G.hand.cards, index - 1, card)
+  G.hand:set_ranks()
+  G.hand:align_cards()
+  return { swapped = true }
+end
+
 function BotAPI.clear()
   G.hand:unhighlight_all()
   return { selection = 0 }
