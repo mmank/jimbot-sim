@@ -14,11 +14,15 @@ local M = { counts = {}, total = 0, running = false }
 
 --- Start sampling. `format` follows LuaJIT's dumpstack: "F" function, "l"
 --- line, "p" path. `interval` is milliseconds between samples.
-function M.start(format, interval)
+--- `depth` is how many frames of the stack to key on. One says which function
+--- is hot; several say who is calling it, which is the question that matters
+--- once the hot function is shared library code.
+function M.start(format, interval, depth)
   M.counts, M.total, M.running = {}, 0, true
   M.format = format or "F"
+  M.depth = depth or 1
   profile.start("i" .. tostring(interval or 1), function(thread, samples, _)
-    local key = profile.dumpstack(thread, M.format, 1)
+    local key = profile.dumpstack(thread, M.format, M.depth)
     key = key:gsub("%s+$", "")
     if key ~= "" then
       M.counts[key] = (M.counts[key] or 0) + samples

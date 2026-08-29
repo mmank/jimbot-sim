@@ -118,6 +118,23 @@ function patch.override_ui_functions()
       if G.GAME.tags[i]:apply_to_run({ type = 'new_blind_choice' }) then break end
     end
   end
+  -- Overlay menus are built and never looked at. The game-over screen is one
+  -- per episode at 15.5ms, which at a hundred episodes a run is most of a
+  -- second in twenty -- and headless nothing reads it: the run ends because
+  -- the state says GAME_OVER, not because anyone clicks a button on it.
+  --
+  -- The machinery is kept rather than bypassed: G.OVERLAY_MENU is still a real
+  -- UIBox that can be removed and tested for, it just has nothing in it. That
+  -- matters because code elsewhere checks whether an overlay is up.
+  local overlay_menu = G.FUNCS.overlay_menu
+  G.FUNCS.overlay_menu = function(args)
+    args = args or {}
+    args.definition = { n = G.UIT.ROOT,
+                        config = { align = "cm", colour = G.C.CLEAR },
+                        nodes = {} }
+    return overlay_menu(args)
+  end
+
   return patch
 end
 
