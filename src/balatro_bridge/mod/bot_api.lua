@@ -379,6 +379,12 @@ function BotAPI.state()
                   and G.shop_jokers.cards ~= nil
                   and #G.shop_jokers.cards > 0) and 1 or 0,
     stop_use = in_run and (G.GAME.STOP_USE or 0) or 0,
+    -- The biggest single hand scored so far this run. The game keeps it as a
+    -- high score -- check_and_set_high_score only ever raises it -- and clears
+    -- it when a run starts, so it is a per-run measure of how strong the build
+    -- has become, which nothing else in the state says.
+    best_hand = (in_run and G.GAME.round_scores and G.GAME.round_scores.hand
+                 and math.floor(G.GAME.round_scores.hand.amt or 0)) or 0,
     -- A bought playing card lands in neither tray -- the Magic Trick voucher
     -- puts them in the shop and buy_from_shop sends them to the deck -- so
     -- this is the only place its arrival is visible.
