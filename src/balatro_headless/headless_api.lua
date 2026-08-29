@@ -564,12 +564,14 @@ function api.reorder_jokers(order)
 end
 
 -- The game's own sort buttons.
+--- Sort the hand, through bot_api so the once-per-hand bookkeeping happens.
+---
+--- This used to call G.FUNCS directly, which sorted correctly and left the
+--- flag that says the button has been used unset -- so the engine offered the
+--- sort forever while the real game offered it once. Two implementations of
+--- one action is exactly the split that keeps producing these.
 function api.sort_hand(by)
-  if by == 'suit' then
-    G.FUNCS.sort_hand_suit({ config = {} })
-  else
-    G.FUNCS.sort_hand_value({ config = {} })
-  end
+  require("bot_api").sort_hand({ by == 'suit' and 'suit' or 'rank' })
   api.pump(30)
   return api.hand_cards()
 end

@@ -126,6 +126,30 @@ local function screen_up(box)
   return BOT_HEADLESS or box ~= nil
 end
 
+--- Which sort buttons have been used on the hand currently held.
+---
+--- Tracked here rather than in the client so that every client agrees without
+--- keeping its own copy: the training environment and a policy driving the
+--- real game ask the same question and must get the same answer.
+---
+--- Keyed on the hand's *contents*, not its order -- sorting permutes the cards
+--- without changing which ones are held, so the key survives a sort and resets
+--- on anything that redraws: playing, discarding, a Death, a pack's targets.
+local SORT_STATE = { key = nil, rank = false, suit = false }
+
+local function sort_state()
+  local ids = {}
+  for _, card in ipairs((G.hand and G.hand.cards) or {}) do
+    ids[#ids + 1] = card.sort_id
+  end
+  table.sort(ids)
+  local key = table.concat(ids, ",")
+  if key ~= SORT_STATE.key then
+    SORT_STATE.key, SORT_STATE.rank, SORT_STATE.suit = key, false, false
+  end
+  return SORT_STATE
+end
+
 local function in_pack()
   PACK_STATES = PACK_STATES or {
     [G.STATES.TAROT_PACK] = true, [G.STATES.PLANET_PACK] = true,
@@ -387,6 +411,10 @@ function BotAPI.state()
     -- How many cards may be selected at once. Not always five: a Serpent-style
     -- hand or a joker can change it, so it cannot be a constant on the client.
     highlight_limit = in_run and (G.hand.config.highlighted_limit or 5) or 0,
+    -- Each sort button is worth one press per hand: pressing it again does
+    -- nothing, and an agent with nothing better to do will press it forever.
+    sorted_rank = (in_run and sort_state().rank) and 1 or 0,
+    sorted_suit = (in_run and sort_state().suit) and 1 or 0,
     boss = (blind and blind.boss) and 1 or 0,
     skippable = (in_run and blind_on_deck() ~= "Boss") and 1 or 0,
     -- The tag on offer for the blind on deck. Skipping is a trade -- no money
@@ -971,10 +999,13 @@ end
 
 --- The game's own sort buttons.
 function BotAPI.sort_hand(args)
+  local state = sort_state()
   if args and args[1] == "suit" then
     G.FUNCS.sort_hand_suit({ config = {} })
+    state.suit = true
   else
     G.FUNCS.sort_hand_value({ config = {} })
+    state.rank = true
   end
   return { sorted = (args and args[1]) or "rank" }
 end
