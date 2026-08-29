@@ -952,9 +952,14 @@ end
 
 -- Swap a joker with its left neighbour. Repeated swaps reach any ordering,
 -- which keeps the action space linear in joker count rather than quadratic.
+--- Move a joker one place left, through bot_api so the per-set budget counts.
+---
+--- Reimplementing it here is what let sort_hand and toggle disagree with the
+--- real game; the same would happen to this.
 function api.swap_joker_left(index)
   if index <= 1 or not G.jokers.cards[index] then return false end
-  api.move_joker(index, index - 1)
+  require("bot_api").move_joker({ index, index - 1 })
+  api.pump(30)
   return true
 end
 

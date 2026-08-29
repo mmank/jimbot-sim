@@ -137,6 +137,28 @@ end
 --- on anything that redraws: playing, discarding, a Death, a pack's targets.
 local SORT_STATE = { key = nil, rank = false, suit = false, toggles = 0 }
 
+--- How much the jokers have been rearranged since the set last changed.
+---
+--- Joker order is scoring order, so rearranging is a real move -- but only
+--- until they are arranged. Left ungated it was two thirds of every episode:
+--- 333 swaps a run against 9 hands played. Keyed on which jokers are held, so
+--- the budget refreshes exactly when the decision comes back, which is when
+--- one is bought or sold.
+local JOKER_STATE = { key = nil, swaps = 0 }
+
+local function joker_state()
+  local keys = {}
+  for _, card in ipairs((G.jokers and G.jokers.cards) or {}) do
+    keys[#keys + 1] = card.config.center.key
+  end
+  table.sort(keys)
+  local key = table.concat(keys, ",")
+  if key ~= JOKER_STATE.key then
+    JOKER_STATE.key, JOKER_STATE.swaps = key, 0
+  end
+  return JOKER_STATE
+end
+
 local function sort_state()
   local ids = {}
   for _, card in ipairs((G.hand and G.hand.cards) or {}) do
@@ -420,6 +442,7 @@ function BotAPI.state()
     -- takes five; an agent with nothing better to do takes hundreds, which is
     -- how episodes reached 636 steps while achieving nothing.
     toggles_used = (in_run and sort_state().toggles) or 0,
+    joker_swaps_used = (in_run and joker_state().swaps) or 0,
     boss = (blind and blind.boss) and 1 or 0,
     skippable = (in_run and blind_on_deck() ~= "Boss") and 1 or 0,
     -- The tag on offer for the blind on deck. Skipping is a trade -- no money
@@ -1384,6 +1407,7 @@ function BotAPI.skip_pack()
 end
 
 function BotAPI.move_joker(args)
+  joker_state().swaps = joker_state().swaps + 1
   local from, to = tonumber(args[1]), tonumber(args[2])
   local cards = G.jokers.cards
   if not cards[from] then return { ok = false, reason = "no joker" } end
