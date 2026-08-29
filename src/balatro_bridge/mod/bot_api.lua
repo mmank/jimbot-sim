@@ -30,6 +30,26 @@ local TAG_INDEX, TAG_ORDER
 local EDITION_IDS = { foil = 1, holo = 2, polychrome = 3, negative = 4 }
 local SEAL_IDS = { Gold = 1, Red = 2, Blue = 3, Purple = 4 }
 
+--- can_use_consumeable, safe on a card the game has not updated yet.
+---
+--- The gate compares #G.hand.highlighted against ability.consumeable.mod_num,
+--- and mod_num is not set when the card is built -- Card:update derives it
+--- from max_highlighted, once a frame. So a card created this frame has none,
+--- and the comparison is against nil. Reading the state of a freshly dealt
+--- pack raised "attempt to compare number with nil" from inside the
+--- observation, which is the one place that must never throw.
+---
+--- Derived here with the game's own formula rather than guarded around,
+--- because the answer is not "unusable" -- it is the value the game is about
+--- to fill in anyway.
+local function can_use(card)
+  local con = card.ability and card.ability.consumeable
+  if con and con.max_highlighted and not con.mod_num then
+    con.mod_num = math.min(5, con.max_highlighted)
+  end
+  return card:can_use_consumeable()
+end
+
 local function edition_id(card)
   local e = card.edition
   return (e and e.type and EDITION_IDS[e.type]) or 0
@@ -517,7 +537,7 @@ function BotAPI.state()
       -- The game's own gate. A Death with one card selected is not usable,
       -- and using it anyway spends it for nothing -- or, in the real game,
       -- crashes on highlighted[2].
-      usable = card:can_use_consumeable() and 1 or 0,
+      usable = can_use(card) and 1 or 0,
     }
   end
 
@@ -539,7 +559,7 @@ function BotAPI.state()
           -- card is used rather than stored, so it needs no free slot.
           buy_and_usable = (card.ability.consumeable
                             and (card.cost or 0) <= G.GAME.dollars
-                            and card:can_use_consumeable()) and 1 or 0,
+                            and can_use(card)) and 1 or 0,
         }
       end
     end
@@ -556,7 +576,7 @@ function BotAPI.state()
                         -- faces the same gate. Anything else is always
                         -- takeable.
                         usable = ((not card.ability.consumeable)
-                                  or card:can_use_consumeable()) and 1 or 0 }
+                                  or can_use(card)) and 1 or 0 }
     end
   end
 
