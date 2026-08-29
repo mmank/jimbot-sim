@@ -268,6 +268,29 @@ class HeadlessRun:
 
         return _Driver()
 
+    def freeze(self) -> str:
+        """Freeze this run, in the game's own save format.
+
+        Not `snapshot`, which already means the current observation.
+
+        Take these at BLIND_SELECT. The shop's card areas are built by the UI,
+        which the engine never builds, so a snapshot taken in a shop restores
+        without its shelves and the game says so loudly.
+        """
+        return self._lua("BOT.snapshot_run()")
+
+    def restore(self, packed: str) -> "HeadlessRun":
+        """Begin from a snapshot rather than from ante one.
+
+        Passed through a global rather than interpolated into the chunk: it is
+        tens of kilobytes of Lua source with quotes and newlines in it.
+        """
+        self.game.lua.globals().BOT_SNAPSHOT = packed
+        self._exec("BOT.restore_run(BOT_SNAPSHOT)")
+        self.pump(200)
+        self._started = True
+        return self
+
     def play_run(self, policy: Policy) -> RunResult:
         """Advance until the run ends, asking `policy` at each decision point."""
         if not self._started:

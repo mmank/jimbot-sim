@@ -1328,6 +1328,51 @@ function BotAPI.buy_and_use(args)
   return { bought = true, key = card.config.center.key }
 end
 
+--- Freeze the run as the game's own save format, returned as a string.
+---
+--- This is what the game writes when it saves a run in progress, built by
+--- save_run into G.ARGS.save_run: card areas, jokers, consumables, the deck,
+--- tags, G.GAME and the blind. The write itself is a file handler that never
+--- runs headless, so calling it just leaves the table in memory for us.
+---
+--- The point is training that does not only ever see ante one. Play to a
+--- position once, keep it, and start episodes from there.
+function BotAPI.snapshot_run()
+  if G.STAGE ~= G.STAGES.RUN then error("not in a run", 0) end
+  save_run()
+  if not G.ARGS.save_run then error("the game produced no save table", 0) end
+
+  -- Drop the menu's card areas. save_run stores every CardArea hanging off G,
+  -- including the title screen's, and the loader complains once per area it
+  -- cannot find -- which headless it never can, since it builds no menu. They
+  -- have nothing to do with the run.
+  local areas = G.ARGS.save_run.cardAreas
+  if areas then
+    for key in pairs(areas) do
+      if key:match("^title") then areas[key] = nil end
+    end
+  end
+  return STR_PACK(G.ARGS.save_run)
+end
+
+--- Start a run from a snapshot taken by snapshot_run.
+---
+--- Not over the socket: the payload is tens of kilobytes with newlines in it,
+--- and the protocol is one line per request. Called in-process, which is where
+--- training runs anyway.
+function BotAPI.restore_run(packed)
+  if type(packed) ~= "string" then
+    error("restore_run wants the string snapshot_run returned", 0)
+  end
+  local saved = STR_UNPACK(packed)
+  if type(saved) ~= "table" then error("snapshot did not unpack", 0) end
+  if G.STAGE == G.STAGES.RUN then G:delete_run() end
+  BOT_RUN_PENDING = true
+  G:start_run({ savetext = saved })
+  BOT_RUN_PENDING = false
+  return { restored = true, ante = G.GAME.round_resets.ante }
+end
+
 function BotAPI.skip_pack()
   queue(function() G.FUNCS.skip_booster({ config = {} }) end)
   return { skipped = true }
