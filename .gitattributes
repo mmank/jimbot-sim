@@ -1,0 +1,5 @@
+# These run on the Linux training box. Checked out with CRLF they fail at the
+# first line -- bash reads `set -u\r` and reports "invalid option" -- which
+# shows up as the box quietly not restarting training after a reboot.
+*.sh text eol=lf
+ops/*.py text eol=lf
