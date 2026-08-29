@@ -15,6 +15,13 @@ local DT = 1 / 60
 
 -- See api.pump: animation-only, but game code may read card state.
 api.update_card_areas = true
+-- Updating every card every frame is what Game:update does, and it is not
+-- only animation: Card:update derives consumeable.mod_num, which
+-- can_use_consumeable compares against. bot_api's can_use now derives that on
+-- demand, so this is here for anything else per-frame card logic does -- and
+-- it is a large share of a frame, so it is worth being able to measure
+-- without.
+api.update_cards = false
 
 -- Game:update dispatches to a per-state update function, and those carry real
 -- logic: update_draw_to_hand deals cards, update_hand_played scores them,
@@ -98,8 +105,10 @@ function api.pump(frames)
           -- can_use_consumeable compares against mod_num -- so without this
           -- every targeting tarot in the engine raised "attempt to compare
           -- number with nil" the moment the game asked whether it was usable.
-          for _, card in ipairs(area.cards) do
-            card:update(DT * G.SPEEDFACTOR)
+          if api.update_cards then
+            for _, card in ipairs(area.cards) do
+              card:update(DT * G.SPEEDFACTOR)
+            end
           end
         end
       end

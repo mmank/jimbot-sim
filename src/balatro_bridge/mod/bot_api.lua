@@ -47,6 +47,29 @@ local function can_use(card)
   if con and con.max_highlighted and not con.mod_num then
     con.mod_num = math.min(5, con.max_highlighted)
   end
+
+  -- The other things can_use_consumeable reads that Card:update computes.
+  --
+  -- Three cards are gated on a list of eligible jokers rebuilt every frame
+  -- inside Card:update -- next to the sprite flipping and the focus handling.
+  -- Skip those updates and can_use_consumeable calls next(nil) and takes the
+  -- run down. Derived here instead, with the game's own condition, so the
+  -- answer does not depend on how recently a frame ran.
+  local name = card.ability and card.ability.name
+  if name == 'The Wheel of Fortune' or name == 'Ectoplasm' or name == 'Hex' then
+    local eligible = {}
+    for _, joker in pairs(G.jokers.cards) do
+      if joker.ability.set == 'Joker' and (not joker.edition) then
+        eligible[#eligible + 1] = joker
+      end
+    end
+    if name == 'The Wheel of Fortune' then
+      card.eligible_strength_jokers = eligible
+    else
+      card.eligible_editionless_jokers = eligible
+    end
+  end
+
   return card:can_use_consumeable()
 end
 
