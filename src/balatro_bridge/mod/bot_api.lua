@@ -1395,6 +1395,26 @@ function BotAPI.restore_run(packed)
   local saved = STR_UNPACK(packed)
   if type(saved) ~= "table" then error("snapshot did not unpack", 0) end
   if G.STAGE == G.STAGES.RUN then G:delete_run() end
+
+  -- Build the shop's card areas if the snapshot has them. They are created in
+  -- G.UIDEF.shop(), a UI function the engine never runs, so without this the
+  -- loader finds nothing to load them into and drops the shelves -- which
+  -- makes a shop position impossible to restore, and the shop is where the
+  -- interesting decisions are.
+  local areas = saved.cardAreas or {}
+  if areas.shop_jokers and not G.shop_jokers then
+    G.shop_jokers = CardArea(0, 0, 1, 1,
+      { card_limit = 4, type = 'shop', highlight_limit = 1 })
+  end
+  if areas.shop_vouchers and not G.shop_vouchers then
+    G.shop_vouchers = CardArea(0, 0, 1, 1,
+      { card_limit = 2, type = 'shop', highlight_limit = 1 })
+  end
+  if areas.shop_booster and not G.shop_booster then
+    G.shop_booster = CardArea(0, 0, 1, 1,
+      { card_limit = 2, type = 'shop', highlight_limit = 1 })
+  end
+
   BOT_RUN_PENDING = true
   G:start_run({ savetext = saved })
   BOT_RUN_PENDING = false
