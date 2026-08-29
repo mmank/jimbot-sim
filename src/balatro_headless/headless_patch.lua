@@ -118,6 +118,16 @@ function patch.override_ui_functions()
       if G.GAME.tags[i]:apply_to_run({ type = 'new_blind_choice' }) then break end
     end
   end
+  -- The game saves the run after most actions -- buying, cashing out, taking
+  -- a blind. save_run culls a copy of the entire game state to do it, 2ms a
+  -- call and 3% of wall clock, and headless nothing ever reads the file: the
+  -- write itself is a file handler that never runs.
+  --
+  -- G.F_NO_SAVING is the game's own switch for this, checked on the first line
+  -- of save_run, so nothing needs wrapping. bot_api lifts it while taking a
+  -- snapshot, which is the one time the save table is actually wanted.
+  G.F_NO_SAVING = true
+
   -- Overlay menus are built and never looked at. The game-over screen is one
   -- per episode at 15.5ms, which at a hundred episodes a run is most of a
   -- second in twenty -- and headless nothing reads it: the run ends because

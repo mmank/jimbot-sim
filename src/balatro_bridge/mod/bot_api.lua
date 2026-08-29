@@ -1390,7 +1390,14 @@ end
 --- position once, keep it, and start episodes from there.
 function BotAPI.snapshot_run()
   if G.STAGE ~= G.STAGES.RUN then error("not in a run", 0) end
-  save_run()
+  -- Headless the engine turns saving off wholesale (G.F_NO_SAVING), since the
+  -- game writes a save after most actions and nothing here reads it. This is
+  -- the one place the save table is genuinely wanted, so lift it just here.
+  local no_saving = G.F_NO_SAVING
+  G.F_NO_SAVING = false
+  local ok, err = pcall(save_run)
+  G.F_NO_SAVING = no_saving
+  if not ok then error("save_run failed: " .. tostring(err), 0) end
   if not G.ARGS.save_run then error("the game produced no save table", 0) end
 
   -- Drop the menu's card areas. save_run stores every CardArea hanging off G,
