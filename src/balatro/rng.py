@@ -90,8 +90,9 @@ class TW223:
 class RunRng:
     """The pools for one run, keyed by the run's seed string."""
 
-    def __init__(self, seed: str) -> None:
-        self.seed = seed
+    def __init__(self, seed: str | int) -> None:
+        self.seed = seed if isinstance(seed, str) else str(seed)
+        seed = self.seed
         self.hashed_seed = pseudohash(seed)
         self.pools: dict[str, float] = {}
 
@@ -138,6 +139,33 @@ class RunRng:
 
     def state(self) -> dict[str, float]:
         return dict(self.pools)
+
+    # -- bridges for the simulator's call sites ------------------------------
+    #
+    # These name a pool first, matching the game, so a caller that rolls more
+    # often cannot shift another subsystem's draws.
+
+    def choice(self, key: str, items: Sequence):
+        return self.random_element(list(items), key)
+
+    def randint(self, key: str, low: int, high: int) -> int:
+        return int(self.pseudorandom(key, low, high))
+
+    def sample(self, key: str, items: Iterable, count: int) -> list:
+        """Draw `count` distinct items.
+
+        Not yet matched to the engine. The game has no single "sample": each
+        call site draws its own way, and shop slots in particular re-roll
+        against a pool that changes as cards are taken. Faithful sampling has
+        to be done per call site, so anything relying on this is unverified.
+        """
+        pool = list(items)
+        out = []
+        for _ in range(min(count, len(pool))):
+            pick = self.random_element(pool, key)
+            pool.remove(pick)
+            out.append(pick)
+        return out
 
 
 def random_string(length: int, rng: TW223) -> str:
