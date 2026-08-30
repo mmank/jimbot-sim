@@ -54,6 +54,19 @@ class Scenario:
         self.game.execute("api.pump(30)")
         return self
 
+    def boss(self, key: str) -> "Scenario":
+        """Play against a specific boss blind.
+
+        Nothing else in the harness reaches a boss: a scenario forces a huge
+        chip target on whatever blind the run opens with, which is always a
+        small blind, so all twenty-eight boss effects -- and the jokers that
+        answer them, Chicot and Luchador -- sat untested.
+        """
+        self.game.execute(
+            f'G.GAME.blind:set_blind(G.P_BLINDS["{key}"], nil, nil); '
+            f'G.GAME.blind.chips = 999999999; api.pump(90)')
+        return self
+
     def enhance(self, index: int, enhancement: str | None = None,
                 seal: str | None = None, edition: str | None = None
                 ) -> "Scenario":
@@ -94,11 +107,24 @@ class Scenario:
 
     # -- measurement ---------------------------------------------------------
 
-    def play(self, indices: Iterable[int]) -> int:
-        """Play these held cards and return exactly what they scored."""
+    def select(self, indices: Iterable[int]) -> "Scenario":
+        """Highlight these held cards without playing them.
+
+        Worth doing separately: the game only fills in
+        current_round.current_hand once cards are selected, so anything that
+        wants to know which poker hand is about to be played -- or read run
+        state as it will be when the jokers score -- has to select first.
+        """
         picks = ",".join(str(i) for i in indices)
         self.game.execute("api.clear_highlights()")
         self.game.execute(f"api.highlight({{{picks}}})")
+        self.game.execute("api.pump(10)")
+        return self
+
+    def play(self, indices: Iterable[int] | None = None) -> int:
+        """Play the selected cards and return exactly what they scored."""
+        if indices is not None:
+            self.select(indices)
         before = int(self.game.eval("G.GAME.chips"))
         self.game.execute("api.play_selected(); api.pump(900)")
         return int(self.game.eval("G.GAME.chips")) - before

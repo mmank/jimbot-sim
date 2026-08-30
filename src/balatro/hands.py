@@ -186,7 +186,12 @@ def evaluate(
     if straight and flush:
         both = [c for c in straight if c in flush]
         if len(both) >= needed:
-            return result(HandType.STRAIGHT_FLUSH, both)
+            # Every card in either part scores, not only the overlap. With
+            # Four Fingers a four-card flush can sit inside a five-card
+            # straight, and the game scores all five: A 3 5 7 9 with the 5 off
+            # suit is a Straight Flush worth (100 + 35) x 8, not (100 + 30).
+            union = straight + [c for c in flush if c not in straight]
+            return result(HandType.STRAIGHT_FLUSH, union)
     if four:
         return result(HandType.FOUR_OF_A_KIND, four)
     if full_house:

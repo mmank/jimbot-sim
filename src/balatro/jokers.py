@@ -50,7 +50,7 @@ class JokerSpec:
     # hand: Ice Cream, Runner and Square Joker grow under context.after, so
     # they score their old value, while Green Joker increments while the last
     # played card is scoring and so pays its new one immediately.
-    update_before_scoring: bool = False
+    update_before_scoring: bool = False   # most scaling jokers want True
     scored: ScoredHook | None = None
     held: HeldHook | None = None
     independent: IndepHook | None = None
@@ -241,7 +241,12 @@ register("Bootstraps", Rarity.UNCOMMON, "+2 Mult per $5 held", cost=7,
 
 
 def _ride_update(j: JokerInstance, ctx: ScoreContext) -> None:
-    if any(c.rank.is_face and not c.is_stone for c in ctx.scoring):
+    # A debuffed face card does not score, so it does not break the streak --
+    # against The Club a debuffed King leaves the counter climbing. Missing
+    # this only shows up on a boss blind, which is why it survived until the
+    # scenario matrix reached one.
+    if any(c.rank.is_face and not c.is_stone and not c.debuffed
+           for c in ctx.scoring):
         j.counter = 0.0
     else:
         j.counter += 1
@@ -254,7 +259,7 @@ def _bump(j: JokerInstance, amount: float, floor: float | None = None) -> None:
 
 register("Ride the Bus", Rarity.COMMON,
          "+1 Mult per consecutive hand without a scored face card", cost=6,
-         update=_ride_update,
+         update=_ride_update, update_before_scoring=True,
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
 
 register("Green Joker", Rarity.COMMON, "+1 Mult per hand played, -1 per discard", cost=4,
@@ -265,6 +270,7 @@ register("Green Joker", Rarity.COMMON, "+1 Mult per hand played, -1 per discard"
 register("Runner", Rarity.COMMON, "+15 Chips, gains +15 Chips per Straight played",
          cost=5, init_counter=0.0,   # the game starts extra.chips at 0
          update=lambda j, ctx: _bump(j, 15) if ctx.hand in CONTAINS_STRAIGHT else None,
+         update_before_scoring=True,
          independent=lambda j, ctx: ctx.add_chips(j.counter, j.name))
 
 register("Ice Cream", Rarity.COMMON, "+100 Chips, -5 Chips per hand played",
@@ -275,6 +281,7 @@ register("Ice Cream", Rarity.COMMON, "+100 Chips, -5 Chips per hand played",
 register("Square Joker", Rarity.COMMON, "+4 Chips per hand played with exactly 4 cards",
          cost=4,
          update=lambda j, ctx: _bump(j, 4) if len(ctx.played) == 4 else None,
+         update_before_scoring=True,
          independent=lambda j, ctx: ctx.add_chips(j.counter, j.name))
 
 register("Supernova", Rarity.COMMON, "+Mult equal to times this hand has been played",
@@ -400,9 +407,14 @@ register("Baseball Card", Rarity.RARE, "Uncommon Jokers each give X1.5 Mult", co
                         if o.spec.rarity is Rarity.UNCOMMON), j.name))
 
 # --------------------------------------------------------------------------
+_HACK_RANKS = {Rank.TWO, Rank.THREE, Rank.FOUR, Rank.FIVE}
+
 # retrigger and copy jokers
 # --------------------------------------------------------------------------
 
+register("Hack", Rarity.UNCOMMON, "Retrigger each played 2, 3, 4 or 5", cost=6,
+         retrigger_scored=lambda j, c, ctx: 1
+         if not c.is_stone and c.rank in _HACK_RANKS else 0)
 register("Sock and Buskin", Rarity.UNCOMMON, "Retrigger all scored face cards", cost=6,
          retrigger_scored=lambda j, c, ctx: 1 if c.rank.is_face and not c.is_stone else 0)
 register("Hanging Chad", Rarity.COMMON, "Retrigger the first scored card 2 extra times",
@@ -413,6 +425,15 @@ register("Dusk", Rarity.UNCOMMON,
          retrigger_scored=lambda j, c, ctx: 1 if ctx.game.hands_left == 0 else 0)
 register("Mime", Rarity.UNCOMMON, "Retrigger all card abilities held in hand", cost=5,
          retrigger_held=lambda j, c, ctx: 1)
+
+# Hand-shape jokers. These score nothing themselves; they change what the
+# played cards *are*, which the evaluator asks the game about. Together they
+# make A 3 5 7 9 of mostly one suit a straight flush -- four cards is enough
+# for the flush, and one-rank gaps are enough for the straight.
+register("Four Fingers", Rarity.UNCOMMON,
+         "Flushes and Straights need only 4 cards", cost=7)
+register("Shortcut", Rarity.UNCOMMON,
+         "Straights can be made with gaps of 1 rank", cost=7)
 
 register("Blueprint", Rarity.RARE, "Copies the ability of the Joker to the right", cost=10,
          copier="right")

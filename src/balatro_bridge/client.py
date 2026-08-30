@@ -482,6 +482,12 @@ class BalatroBridge:
         before = len(self.state().get("consumables") or [])
         self.command("use_consumable", index)
         self._await_use(lambda s: len(s.get("consumables") or []) != before)
+        # A consumable that *creates* one moves the count twice: The Fool
+        # removes itself, which satisfies the wait above, and only then does
+        # the copy it made arrive. Returning on the first change leaves the new
+        # card still in flight, so the next action addresses a slot that does
+        # not exist yet and is refused as "the card was never used".
+        self.wait_idle()
         return self.state()
 
     def pick_pack(self, index: int, cards=None) -> dict:
