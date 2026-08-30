@@ -141,11 +141,11 @@ _tarot("Temperance", "Gain the total sell value of your Jokers (max $50)", 0, _t
 
 
 def _high_priestess(game: "GameState", cards: list[Card]) -> None:
-    game.add_consumables(game.random_consumables(ConsumableKind.PLANET, 2))
+    game.add_consumables(game.random_consumables(ConsumableKind.PLANET, 2, "pri"))
 
 
 def _emperor(game: "GameState", cards: list[Card]) -> None:
-    game.add_consumables(game.random_consumables(ConsumableKind.TAROT, 2))
+    game.add_consumables(game.random_consumables(ConsumableKind.TAROT, 2, "emp"))
 
 
 def _judgement(game: "GameState", cards: list[Card]) -> None:

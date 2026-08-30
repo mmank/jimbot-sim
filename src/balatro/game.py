@@ -211,7 +211,6 @@ class GameState:
     # Every centre the run has already produced. The game keeps this as
     # G.GAME.used_jokers and blanks those entries from the pools, so a shop
     # that ignores it offers repeats the real game never would.
-    seen_centers: set = field(default_factory=set)
     # How often each boss has been drawn. The game narrows the eligible set to
     # the least-used before rolling, so this is part of the selection rather
     # than bookkeeping.
@@ -331,9 +330,37 @@ class GameState:
         rank = self.rng.choice("face_card", [Rank.JACK, Rank.QUEEN, Rank.KING])
         return Card(rank, self.rng.choice("face_suit", list(Suit)))
 
-    def random_consumables(self, kind: ConsumableKind, count: int) -> list[ConsumableSpec]:
-        pool = cons.by_kind(kind)
-        return [self.rng.choice(f"consumable_{kind.value}", pool) for _ in range(count)]
+    def random_consumables(self, kind: ConsumableKind, count: int,
+                           append: str = "") -> list[ConsumableSpec]:
+        """Consumables from the game's pool, under the creator's own name.
+
+        This drew uniformly from every card of the kind under a name of its
+        own, which is wrong the same way the packs were: it ignores what the
+        run has already seen and what a Planet is gated on, and it draws from
+        a stream the game does not have. `append` is the key_append of
+        whatever is creating the card -- "8ba" for a purple seal, "emp" for
+        The Emperor, "pri" for The High Priestess -- and each is a separate
+        stream.
+        """
+        card_set = {ConsumableKind.TAROT: "Tarot",
+                    ConsumableKind.PLANET: "Planet",
+                    ConsumableKind.SPECTRAL: "Spectral"}[kind]
+        played = [h.label for h, n in self.hand_levels.plays.items() if n > 0]
+        showman = any(j.name == "Showman" for j in self.jokers)
+        # The game tests for a free slot *before* it creates the card, so a
+        # full row of consumables costs nothing at all. Drawing and then
+        # dropping the card, which is what this did, spends a roll the game
+        # never spends and puts every later draw from that pool one place
+        # along -- which is how a purple seal handed over Strength where the
+        # run was given the Wheel of Fortune.
+        room = self.consumable_slots - len(self.consumables)
+        out = []
+        for _ in range(max(0, min(count, room))):
+            key = shop_pool.draw_consumable(
+                self.rng, card_set, self.ante, played_hands=played,
+                seen=self.seen_centers, showman=showman, append=append)
+            out.append(cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]])
+        return out
 
     def add_consumables(self, specs: list[ConsumableSpec]) -> None:
         for spec in specs:
@@ -358,7 +385,6 @@ class GameState:
             append=append,
             owned_enhancements={"m_%s" % c.enhancement.value
                                 for c in self.full_deck})
-        self.seen_centers.add(key)
         spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
         self.jokers.append(JokerInstance(spec))
         self.log(f"{source}: gained {spec.name}")
@@ -381,6 +407,39 @@ class GameState:
         if any(j.name == "Chicot" for j in self.jokers):
             return None
         return self.blind.boss
+
+    @property
+    def seen_centers(self) -> set:
+        """The centres that currently exist, which is what blanks a pool.
+
+        This was a set that only ever grew -- every card the run had ever
+        drawn -- and that is not what the game keeps. G.GAME.used_jokers is
+        set when a card is built and *cleared* when the last card of that name
+        is removed, so it is closer to an inventory than a history: the shop's
+        current cards count, the shop before the reroll does not, and a Tarot
+        the player used is available again immediately.
+
+        The difference is not small. Twenty-eight actions into a real run the
+        engine had three entries where the simulator had twenty, so the
+        simulator was drawing from a pool with seventeen cards wrongly blanked
+        -- which is how a purple seal handed over Strength where the run was
+        given the Wheel of Fortune.
+        """
+        joker_key = shop_pool.KEY_BY_JOKER_NAME.get
+        cons_key = shop_pool.KEY_BY_CONSUMABLE_NAME.get
+        keys = {joker_key(j.name) for j in self.jokers}
+        keys |= {cons_key(c.name) for c in self.consumables}
+        if self.shop is not None:
+            for slot in self.shop.slots:
+                if slot.joker is not None:
+                    keys.add(joker_key(slot.joker.name))
+                elif slot.consumable is not None:
+                    keys.add(cons_key(slot.consumable.name))
+        for option in self.pack_options:
+            name = getattr(option, "name", None)
+            keys.add(joker_key(name) or cons_key(name))
+        keys.discard(None)
+        return keys
 
     @property
     def consumable_slots(self) -> int:
@@ -747,7 +806,8 @@ class GameState:
                     joker.spec.on_first_discard(joker, cards, self)
         for card in cards:
             if card.seal is Seal.PURPLE:
-                self.add_consumables(self.random_consumables(ConsumableKind.TAROT, 1))
+                self.add_consumables(
+                    self.random_consumables(ConsumableKind.TAROT, 1, "8ba"))
             self.hand.remove(card)
             self.discard_pile.append(card)
         self._draw_to_hand_size()
@@ -874,7 +934,6 @@ class GameState:
             owned_enhancements={"m_%s" % e for e in owned})
 
         if kind == "Joker":
-            self.seen_centers.add(key)
             spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
             edition = _EDITION_BY_NAME[
                 shop_pool.poll_edition(self.rng, "edi" + shop_pool.SHOP_APPEND)]
@@ -882,7 +941,6 @@ class GameState:
             return ShopSlot("joker", self.price(shop_mod.joker_price(spec, edition)),
                             joker=joker)
         if kind in ("Tarot", "Planet", "Spectral"):
-            self.seen_centers.add(key)
             spec = cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]]
             return ShopSlot("consumable", self.price(spec.cost), consumable=spec)
         # A playing card slot, which only appears once a voucher enables it.
@@ -985,7 +1043,6 @@ class GameState:
             key = shop_pool.draw_joker(self.rng, self.ante,
                                        seen_jokers=self.seen_centers,
                                        rarity=rarity, append=append)
-            self.seen_centers.add(key)
             spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
             edition = _EDITION_BY_NAME[
                 shop_pool.poll_edition(self.rng, "edi%s%d" % (append, self.ante))]
@@ -1060,7 +1117,6 @@ class GameState:
 
         self.pack_options = []
         for entry in contents:
-            self.seen_centers.add(entry.get("key", ""))
             self.pack_options.append(self._pack_card(entry))
         self.phase = Phase.PACK
 
@@ -1094,19 +1150,17 @@ class GameState:
         elif isinstance(choice, Card):
             self.add_card(choice)
             self.log(f"Pack: added {choice} to deck")
-        else:  # ConsumableSpec
-            if choice.targets > 0 or choice.kind is ConsumableKind.TAROT:
-                targets = [self.hand[i] for i in card_indices]
-                if choice.apply is not None and choice.accepts(len(targets)):
-                    choice.apply(self, targets)
-                    self.log(f"Pack: used {choice.name}")
-                elif len(self.consumables) < self.consumable_slots:
-                    self.consumables.append(choice)
-            elif len(self.consumables) < self.consumable_slots:
-                self.consumables.append(choice)
-            else:
-                if choice.apply is not None:
-                    choice.apply(self, [])
+        else:
+            # A consumable taken from a pack is used there and then. It never
+            # reaches a slot -- the game's pack screen calls use_card, not
+            # buy -- so a simulator that stores it leaves the run holding a
+            # card the player already spent, and every slot after it numbered
+            # one place out.
+            targets = [self.hand[i] for i in card_indices
+                       if i < len(self.hand)]
+            if choice.apply is not None:
+                choice.apply(self, targets)
+            self.log(f"Pack: used {choice.name}")
         self.pack_options.pop(index)
         self.pack_picks_left -= 1
         if self.pack_picks_left <= 0 or not self.pack_options:

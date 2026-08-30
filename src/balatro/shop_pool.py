@@ -534,3 +534,10 @@ def draw_voucher(rng: RunRng, ante: int, redeemed: Iterable[str] = (),
     pool = _or_fallback(build_voucher_pool(redeemed, on_offer), "Voucher")
     key = "Voucher_fromtag" if from_tag else "Voucher%d" % ante
     return _draw(rng, pool, key)
+
+
+# The reverse of the NAME_BY_* maps: the simulator holds objects with display
+# names and the pools are keyed by centre key.
+KEY_BY_JOKER_NAME = {name: key for key, name in NAME_BY_JOKER_KEY.items()}
+KEY_BY_CONSUMABLE_NAME = {name: key
+                          for key, name in NAME_BY_CONSUMABLE_KEY.items()}

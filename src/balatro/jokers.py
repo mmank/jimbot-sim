@@ -979,7 +979,7 @@ register("Marble Joker", Rarity.UNCOMMON,
 register("Cartomancer", Rarity.UNCOMMON,
          "Create a Tarot card when Blind is selected", cost=6,
          on_blind_select=lambda j, g: g.add_consumables(
-             g.random_consumables(ConsumableKind.TAROT, 1)))
+             g.random_consumables(ConsumableKind.TAROT, 1, "car")))
 def _certificate(j: JokerInstance, game: "GameState") -> None:
     card = Card(game.rng.choice("cert_rank", list(Rank)),
                 game.rng.choice("cert_suit", list(Suit)),
@@ -1003,7 +1003,7 @@ register("8 Ball", Rarity.COMMON,
          "1 in 4 chance for each played 8 to create a Tarot card when scored",
          cost=5,
          scored=lambda j, c, ctx: ctx.game.add_consumables(
-             ctx.game.random_consumables(ConsumableKind.TAROT, 1))
+             ctx.game.random_consumables(ConsumableKind.TAROT, 1, "8ba"))
          if c.rank is Rank.EIGHT and not c.is_stone
          and _chance(ctx, "8ball", 1, 4) else None)
 register("Hallucination", Rarity.COMMON,
@@ -1013,25 +1013,25 @@ register("Superposition", Rarity.COMMON,
          "Create a Tarot card if the poker hand contains an Ace and a Straight",
          cost=4,
          after_hand=lambda j, ctx: ctx.game.add_consumables(
-             ctx.game.random_consumables(ConsumableKind.TAROT, 1))
+             ctx.game.random_consumables(ConsumableKind.TAROT, 1, "sup"))
          if ctx.hand in CONTAINS_STRAIGHT
          and any(c.rank is Rank.ACE for c in ctx.scoring) else None)
 register('Séance', Rarity.UNCOMMON,
          "If the poker hand is a Straight Flush, create a random Spectral card",
          cost=6,
          after_hand=lambda j, ctx: ctx.game.add_consumables(
-             ctx.game.random_consumables(ConsumableKind.SPECTRAL, 1))
+             ctx.game.random_consumables(ConsumableKind.SPECTRAL, 1, "sea"))
          if ctx.hand is HandType.STRAIGHT_FLUSH else None)
 register("Vagabond", Rarity.RARE,
          "Create a Tarot card if a hand is played with $4 or less", cost=8,
          after_hand=lambda j, ctx: ctx.game.add_consumables(
-             ctx.game.random_consumables(ConsumableKind.TAROT, 1))
+             ctx.game.random_consumables(ConsumableKind.TAROT, 1, "vag"))
          if ctx.game.money <= 4 else None)
 def _sixth_sense(j: JokerInstance, played: list, game: "GameState") -> None:
     if len(played) == 1 and played[0].rank is Rank.SIX:
         game.remove_card(played[0])
         game.add_consumables(
-            game.random_consumables(ConsumableKind.SPECTRAL, 1))
+            game.random_consumables(ConsumableKind.SPECTRAL, 1, "sixth"))
 
 
 register("Sixth Sense", Rarity.UNCOMMON,

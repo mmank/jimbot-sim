@@ -533,6 +533,16 @@ def do_replay(args) -> None:
             mismatches += 1
             break
         bridge.wait_until(lambda s: s.get("ready"), timeout=30)
+        if getattr(args, "stop_at", None) and i >= args.stop_at:
+            print(f"  stopped after {i} actions")
+            break
+
+    if getattr(args, "probe", None):
+        # The engine is standing exactly where the recording left it, which is
+        # the only place worth asking it anything.
+        engine = getattr(bridge, "engine", None)
+        print("\nprobe:", engine.eval("(function() %s end)()" % args.probe)
+              if engine is not None else "probe needs --headless")
 
     print("\n" + f"{len(actions)} actions, {mismatches} divergences")
     if not mismatches:
@@ -598,6 +608,13 @@ def main() -> None:
                           "the running game: seconds rather than minutes, and "
                           "no window. Catches wrong actions and wrong indices; "
                           "cannot catch timing, because nothing animates")
+    rep.add_argument("--probe", metavar="LUA",
+                     help="after the last replayed action, evaluate this Lua "
+                          "against the engine and print it. With --stop-at, "
+                          "the way to ask the engine what it holds at the "
+                          "exact step the simulator disagrees about")
+    rep.add_argument("--stop-at", type=int, default=None,
+                     help="replay only this many actions")
     rep.set_defaults(func=do_replay)
 
     args = parser.parse_args()
