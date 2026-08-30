@@ -111,6 +111,15 @@ end
 
 local function tag_id(key) return (key and tag_index()[key]) or 0 end
 
+-- The tags whose reward is a booster pack.
+PACK_TAGS = {
+  tag_charm = true,     -- Arcana
+  tag_meteor = true,    -- Celestial
+  tag_ethereal = true,  -- Spectral
+  tag_standard = true,  -- Standard
+  tag_buffoon = true,   -- Buffoon
+}
+
 --- Blinds have their own table too, G.P_BLINDS, so key_id cannot see them --
 --- the same way it could not see tags. Asking it for a boss returned 0 for
 --- every boss there is, which reads as "no boss" rather than as an error.
@@ -531,6 +540,14 @@ function BotAPI.state()
     end)(),
     offered_tag = in_run and tag_id(
       G.GAME.round_resets.blind_tags[blind_on_deck()]) or 0,
+    -- Whether skipping would hand over a tag that opens a booster pack.
+    -- Those five build their pack from a card belonging to no area, and the
+    -- headless engine opens it empty -- so a policy that skips for one gets a
+    -- pack with nothing in it, which is not a game anybody plays. Named by
+    -- the game's own keys rather than inferred from the tag's config, since
+    -- every one of them shares the same trigger type as tags that are fine.
+    offered_tag_opens_pack = (in_run and PACK_TAGS[
+      G.GAME.round_resets.blind_tags[blind_on_deck()] or ""] and 1) or 0,
     -- "The shop has dealt", not "the joker row is non-empty". Buying the
     -- last joker leaves a shop that is still perfectly usable -- vouchers,
     -- packs, rerolling, leaving -- but under the old reading it was never
