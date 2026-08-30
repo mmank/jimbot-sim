@@ -39,6 +39,14 @@ COMPARED = ("phase", "dollars", "chips", "ante", "round", "hands_left",
 # a race, not a divergence. It is compared exactly everywhere it is meaningful.
 SCORE_STABLE_PHASES = {"SELECTING_HAND", "HAND_PLAYED", "ROUND_EVAL"}
 
+# Phases a recording can be caught in while the game is still
+# resolving the previous action. A player who acts before the
+# animation finishes gets a snapshot with the hand part dealt and
+# the chips part counted; the headless engine resolves instantly
+# and is always settled, so comparing the two measures how fast
+# the human clicked rather than anything about fidelity.
+TRANSIENT_PHASES = {"HAND_PLAYED", "DRAW_TO_HAND"}
+
 # How a recorded G.FUNCS call is re-issued through the bot's API. These use the
 # client's waiting wrappers rather than raw commands: the real game animates,
 # and firing the next action before the last one lands is how a replay ends up
@@ -423,6 +431,14 @@ def do_replay(args) -> None:
         # than reported as a divergence.
         _match_hand_order(bridge, normalise(entry["before"].get("hand_ids")))
         _match_joker_order(bridge, entry["before"])
+
+        if entry["before"].get("phase") in TRANSIENT_PHASES:
+            handler = REPLAY.get(action)
+            if handler:
+                handler(bridge, params)
+            if args.verbose:
+                print(f"  [{i:3d}] --   {action:32s} (mid-animation, skipped)")
+            continue
 
         # Compare before acting: the recorded `before` is the state the human
         # was looking at when they made this choice.

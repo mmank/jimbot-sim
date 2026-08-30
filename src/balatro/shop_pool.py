@@ -31,7 +31,8 @@ from typing import Iterable
 
 from .consumable_data import CONSUMABLE_DATA, EXCLUDED_FROM_POOLS
 from .joker_data import JOKER_DATA, pool_for_rarity
-from .rng import RunRng
+from .pack_data import PACK_DATA
+from .rng import TW223, RunRng
 
 UNAVAILABLE = "UNAVAILABLE"
 
@@ -250,3 +251,41 @@ def poll_edition(rng: RunRng, key: str = "edition_generic", mod: float = 1.0,
     if poll > 1 - 0.04 * edition_rate * mod:
         return "foil"
     return "none"
+
+
+# --------------------------------------------------------------------------
+# booster packs
+# --------------------------------------------------------------------------
+
+def draw_pack(rng: RunRng, ante: int, first_shop: bool = False,
+              key: str = "shop_pack") -> tuple:
+    """One booster pack, as get_pack rolls it.
+
+    Two things here are not obvious from playing. The first shop of a run
+    always offers a Buffoon pack -- the game short-circuits before any roll,
+    so a simulator that rolls normally there gives the player a different
+    opening than the game ever does. And the weights are not uniform across
+    sizes: a mega pack is a quarter as likely as a normal one of the same
+    kind, so treating a pack type as one choice and its size as another gives
+    the right types at the wrong sizes.
+
+    Returns the pool entry: (key, kind, weight, choose, cards, cost).
+    """
+    if first_shop:
+        # p_buffoon_normal_1 or _2, chosen with math.random(1, 2) -- the game
+        # does not use a named pool for this one.
+        index = int(TW223(rng.pseudoseed("buffoon_first")).random(1, 2))
+        wanted = "p_buffoon_normal_%d" % index
+        for entry in PACK_DATA:
+            if entry[0] == wanted:
+                return entry
+
+    total = sum(entry[2] for entry in PACK_DATA)
+    poll = rng.pseudorandom("%s%d" % (key, ante)) * total
+    seen = 0.0
+    for entry in PACK_DATA:
+        weight = entry[2]
+        seen += weight
+        if seen >= poll and seen - weight <= poll:
+            return entry
+    return PACK_DATA[-1]
