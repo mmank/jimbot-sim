@@ -103,11 +103,26 @@ class HandResult:
     scoring: tuple[Card, ...]
 
 
-def _flush_cards(cards: list[Card], needed: int) -> list[Card] | None:
-    """Largest same-suit group (wilds count everywhere), if big enough."""
+_SMEARED_PAIRS = {Suit.HEARTS: Suit.DIAMONDS, Suit.DIAMONDS: Suit.HEARTS,
+                  Suit.SPADES: Suit.CLUBS, Suit.CLUBS: Suit.SPADES}
+
+
+def _flush_cards(cards: list[Card], needed: int,
+                 smeared: bool = False) -> list[Card] | None:
+    """Largest same-suit group (wilds count everywhere), if big enough.
+
+    Smeared Joker collapses four suits into two, which changes what *is* a
+    flush rather than what one scores -- A 3 5 7 9 in mixed spades and clubs
+    is a flush only because of it.
+    """
+    def matches(card: Card, suit: Suit) -> bool:
+        if card.counts_as_suit(suit):
+            return True
+        return smeared and card.counts_as_suit(_SMEARED_PAIRS[suit])
+
     best: list[Card] | None = None
     for suit in Suit:
-        group = [c for c in cards if c.counts_as_suit(suit)]
+        group = [c for c in cards if matches(c, suit)]
         if len(group) >= needed and (best is None or len(group) > len(best)):
             best = group
     return best
@@ -141,6 +156,8 @@ def evaluate(
     *,
     four_fingers: bool = False,
     shortcut: bool = False,
+    splash: bool = False,
+    smeared: bool = False,
 ) -> HandResult:
     """Classify a played hand and return the cards that score."""
     if not cards:
@@ -151,7 +168,7 @@ def evaluate(
     counts = Counter(c.rank for c in ranked)
 
     needed = 4 if four_fingers else 5
-    flush = _flush_cards(cards, needed)
+    flush = _flush_cards(cards, needed, smeared)
     straight = _straight_cards(cards, needed, shortcut)
 
     def of_rank(n: int) -> list[Card] | None:
@@ -174,6 +191,11 @@ def evaluate(
 
     def result(hand: HandType, scoring: list[Card]) -> HandResult:
         # Stone cards always score, and scoring keeps the played order.
+        # Splash widens the set to everything played without changing which
+        # hand it is: a High Card with Splash still scores as a High Card, but
+        # all five cards contribute their chips.
+        if splash:
+            return HandResult(hand, tuple(cards))
         chosen = {c.uid for c in scoring} | {c.uid for c in stones}
         return HandResult(hand, tuple(c for c in cards if c.uid in chosen))
 

@@ -29,7 +29,7 @@ import pytest
 from balatro.blinds import BOSSES, FINISHER_BOSSES, Blind, BlindKind
 from balatro.cards import Card, Enhancement, Rank, Suit, standard_deck
 from balatro.game import GameState
-from balatro.hands import evaluate
+from balatro.hands import HandType, evaluate
 from balatro.jokers import REGISTRY, make
 from balatro.scoring import score_hand
 from balatro_headless.runtime import HeadlessBalatro
@@ -127,6 +127,14 @@ CASES = [
 ]
 
 KNOWN_BAD = {
+    # Every one of these draws from a game RNG pool whose state this harness
+    # does not synchronise, so the two engines roll different numbers while
+    # agreeing about the rule. They are the same blocker as the lucky cards in
+    # test_retriggers.py, and all of them come good once pools are shared.
+    "Bloodstone": "rolls 1 in 2 per Heart from the game's pool",
+    "Business Card": "rolls 1 in 2 per face card from the game's pool",
+    "Reserved Parking": "rolls 1 in 2 per held face card from the game's pool",
+    "Space Joker": "rolls 1 in 4 to upgrade the hand from the game's pool",
     "Misprint": "draws from the game's 'misprint' pool, whose state this "
                 "harness does not yet synchronise -- see test_rng.py",
     "Hanging Chad": "on a five-card flush the engine scores 292 against the "
@@ -140,6 +148,9 @@ KNOWN_BAD = {
 # actually covered, because "inert here" must not be allowed to read as
 # "verified" -- that is exactly the trap the single-hand matrix fell into.
 COVERED_ELSEWHERE = {
+    "Madness": "tests/test_scaling.py, grows on Blind selection",
+    "Red Card": "tests/test_scaling.py, grows on skipped Booster Packs",
+    "Pareidolia": "tests/test_retriggers.py, needs a joker that reads faces",
     # Scaling jokers contribute nothing until they have grown, so they are
     # measured at a grown value in tests/test_scaling.py instead. Leaving them
     # to pass here would count "did nothing, twice" as verification.
@@ -174,6 +185,10 @@ NOT_A_SCORING_EFFECT = {
     "Faceless Joker": "pays money on a discard",
     "Golden Joker": "pays money at the end of a round",
     "Hologram": "grows as playing cards are added to the deck",
+    "Midas Mask": "turns played face cards Gold, which pays at the end of a "
+                  "round rather than on the hand",
+    "Oops! All 6s": "doubles listed probabilities, so it needs both a chance "
+                    "joker and synchronised RNG pools to show anything",
     "Loyalty Card": "fires on every sixth hand; the matrix plays one",
     "Perkeo": "creates a Negative consumable when a shop is left",
     "Vampire": "grows by stripping enhancements from scored cards",
@@ -227,6 +242,25 @@ def _engine_state(engine):
         "hands_played": read("G.GAME.hands_played"),
         "boss": engine.eval(
             "(function() return tostring(G.GAME.blind.name) end)()"),
+        # The game picks a card and a suit fresh each round, and The Idol,
+        # Ancient Joker, Castle and Mail-In Rebate all read them off the
+        # round. A simulator left at None simply never fires and looks like a
+        # rule bug.
+        "idol_rank": engine.eval(
+            "(function() return tostring("
+            "G.GAME.current_round.idol_card.rank) end)()"),
+        "idol_suit": engine.eval(
+            "(function() return tostring("
+            "G.GAME.current_round.idol_card.suit) end)()"),
+        "ancient_suit": engine.eval(
+            "(function() return tostring("
+            "G.GAME.current_round.ancient_card.suit) end)()"),
+        "todo_hand": engine.eval(
+            "(function() return tostring(G.jokers.cards[1] and "
+            "G.jokers.cards[1].ability.to_do_poker_hand or '') end)()"),
+        "castle_suit": engine.eval(
+            "(function() return tostring("
+            "G.GAME.current_round.castle_card.suit) end)()"),
     }
 
 
@@ -250,6 +284,16 @@ def _engine_score(engine, case, key):
     for index in case.gold_cards:
         scene.enhance(index, enhancement="m_gold")
     engine.execute("api.pump(30)")
+    # Pin the targets the game rerolls each round, so a joker that names a
+    # card or a hand actually fires on these fixtures instead of waiting for a
+    # roll that never comes. The Idol reads the round; To Do List keeps its
+    # hand on the joker itself.
+    engine.execute('G.GAME.current_round.idol_card = '
+                   '{rank = "Ace", suit = "Spades", id = 14}')
+    engine.execute('if G.jokers.cards[1] and '
+                   'G.jokers.cards[1].ability.to_do_poker_hand then '
+                   'G.jokers.cards[1].ability.to_do_poker_hand = "Pair" end')
+    engine.execute("api.pump(20)")
     scene.select(case.play)
     state = _engine_state(engine)
     before = int(engine.eval("(function() return G.GAME.dollars end)()"))
@@ -260,10 +304,25 @@ def _engine_score(engine, case, key):
 
 _BOSS_BY_NAME = {b.name: b for b in BOSSES + FINISHER_BOSSES}
 
+# The game names ranks and suits its own way; map them once, loudly.
+_RANK_BY_GAME_NAME = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR,
+                      "5": Rank.FIVE, "6": Rank.SIX, "7": Rank.SEVEN,
+                      "8": Rank.EIGHT, "9": Rank.NINE, "10": Rank.TEN,
+                      "Jack": Rank.JACK, "Queen": Rank.QUEEN,
+                      "King": Rank.KING, "Ace": Rank.ACE}
+_SUIT_BY_GAME_NAME = {"Spades": Suit.SPADES, "Hearts": Suit.HEARTS,
+                      "Diamonds": Suit.DIAMONDS, "Clubs": Suit.CLUBS}
+_HAND_BY_GAME_NAME = {h.label: h for h in HandType}
+
 
 def _sim_score(name, case, state):
     game = GameState(seed=0)
     game.jokers = [make(name)] if name else []
+    game.idol_rank = _RANK_BY_GAME_NAME.get(state["idol_rank"])
+    game.idol_suit = _SUIT_BY_GAME_NAME.get(state["idol_suit"])
+    game.ancient_suit = _SUIT_BY_GAME_NAME.get(state["ancient_suit"])
+    game.castle_suit = _SUIT_BY_GAME_NAME.get(state["castle_suit"])
+    game.todo_hand = _HAND_BY_GAME_NAME.get(state["todo_hand"])
     if case.boss:
         # Match the engine on which boss is in play. The simulator resolves
         # Chicot itself, so handing it the blind rather than the effect keeps
@@ -277,12 +336,19 @@ def _sim_score(name, case, state):
     game.hands_left = state["hands_left"]
     game.money = state["money"]
     game.hands_played = state["hands_played"]
+    game.idol_rank = _RANK_BY_GAME_NAME.get(state["idol_rank"])
+    game.idol_suit = _SUIT_BY_GAME_NAME.get(state["idol_suit"])
+    game.ancient_suit = _SUIT_BY_GAME_NAME.get(state["ancient_suit"])
+    game.castle_suit = _SUIT_BY_GAME_NAME.get(state["castle_suit"])
+    game.todo_hand = _HAND_BY_GAME_NAME.get(state["todo_hand"])
     game.draw_pile = standard_deck()[:state["draw_pile"]]
     # _apply_debuffs walks full_deck, so the cards under test have to be in it
     # or a boss that debuffs a suit silently debuffs nothing.
     game.full_deck = game.hand + game.draw_pile
     game._apply_debuffs()
-    result = evaluate(played, four_fingers=game._four_fingers(),
+    result = evaluate(played, splash=game._splash(),
+                      smeared=game.has_smeared(),
+                      four_fingers=game._four_fingers(),
                       shortcut=game._shortcut())
     game.hand_levels.plays[result.hand] = state["plays"]
     ctx = score_hand(game, result, played, held)

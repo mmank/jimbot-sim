@@ -121,6 +121,16 @@ class GameState:
     # Run totals that jokers scale on. The game keeps these on G.GAME, and a
     # joker that counts them scores zero without them -- which looks like
     # agreement in any test where both sides are at zero.
+    # Targets the game rerolls each round, which the jokers that name a card
+    # or a suit read. Kept on the run because that is where the game keeps
+    # them -- two Idols name the same card.
+    idol_rank: object = None
+    idol_suit: object = None
+    ancient_suit: object = None
+    todo_hand: object = None
+    mail_rank: object = None
+    castle_suit: object = None
+
     tarots_used: int = 0
     planets_used: int = 0
     unique_planets: set = field(default_factory=set)
@@ -328,11 +338,28 @@ class GameState:
     def _four_fingers(self) -> bool:
         return any(j.name == "Four Fingers" for j in self.jokers)
 
+    def _splash(self) -> bool:
+        return any(j.name == "Splash" for j in self.jokers)
+
+    def has_pareidolia(self) -> bool:
+        """Every card counts as a face card."""
+        return any(j.name == "Pareidolia" for j in self.jokers)
+
+    def has_smeared(self) -> bool:
+        """Hearts count as Diamonds and Spades as Clubs, both ways."""
+        return any(j.name == "Smeared Joker" for j in self.jokers)
+
+    def probability_scale(self) -> int:
+        """Oops! All 6s doubles every listed probability, and stacks."""
+        return 2 ** sum(1 for j in self.jokers if j.name == "Oops! All 6s")
+
     def _shortcut(self) -> bool:
         return any(j.name == "Shortcut" for j in self.jokers)
 
     def evaluate_selection(self, cards: list[Card]):
-        return evaluate(cards, four_fingers=self._four_fingers(),
+        return evaluate(cards, splash=self._splash(),
+                        smeared=self.has_smeared(),
+                        four_fingers=self._four_fingers(),
                         shortcut=self._shortcut())
 
     def preview_score(self, indices: tuple[int, ...]) -> int:

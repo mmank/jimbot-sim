@@ -116,9 +116,34 @@ def make(name: str, **kwargs) -> JokerInstance:
 # helpers
 # --------------------------------------------------------------------------
 
+_SMEARED_PAIRS = {Suit.HEARTS: Suit.DIAMONDS, Suit.DIAMONDS: Suit.HEARTS,
+                  Suit.SPADES: Suit.CLUBS, Suit.CLUBS: Suit.SPADES}
+
+
+def suit_matches(card: Card, suit: Suit, ctx: ScoreContext) -> bool:
+    """Does this card count as that suit, for this run?
+
+    Smeared Joker makes Hearts and Diamonds one suit and Spades and Clubs
+    another, which no property on the card can know about -- so every suit
+    test a joker makes has to come through here.
+    """
+    if card.counts_as_suit(suit):
+        return True
+    if ctx.game.has_smeared():
+        return card.counts_as_suit(_SMEARED_PAIRS[suit])
+    return False
+
+
+def is_face(card: Card, ctx: ScoreContext) -> bool:
+    """Pareidolia makes every card a face card, stone cards excepted."""
+    if card.is_stone:
+        return False
+    return ctx.game.has_pareidolia() or card.rank.is_face
+
+
 def _suit_scorer(suit: Suit, amount: int) -> ScoredHook:
     def hook(j: JokerInstance, card: Card, ctx: ScoreContext) -> None:
-        if card.counts_as_suit(suit):
+        if suit_matches(card, suit, ctx):
             ctx.add_mult(amount, j.name)
     return hook
 
@@ -155,7 +180,7 @@ def _rank_scorer(ranks: set[Rank], chips: int = 0, mult: int = 0) -> ScoredHook:
 
 def _face_scorer(chips: int = 0, mult: int = 0) -> ScoredHook:
     def hook(j: JokerInstance, card: Card, ctx: ScoreContext) -> None:
-        if card.is_stone or not card.rank.is_face:
+        if not is_face(card, ctx):
             return
         ctx.add_chips(chips, j.name)
         ctx.add_mult(mult, j.name)
@@ -422,7 +447,7 @@ register("Hack", Rarity.UNCOMMON, "Retrigger each played 2, 3, 4 or 5", cost=6,
          retrigger_scored=lambda j, c, ctx: 1
          if not c.is_stone and c.rank in _HACK_RANKS else 0)
 register("Sock and Buskin", Rarity.UNCOMMON, "Retrigger all scored face cards", cost=6,
-         retrigger_scored=lambda j, c, ctx: 1 if c.rank.is_face and not c.is_stone else 0)
+         retrigger_scored=lambda j, c, ctx: 1 if is_face(c, ctx) else 0)
 register("Hanging Chad", Rarity.COMMON, "Retrigger the first scored card 2 extra times",
          cost=4,
          retrigger_scored=lambda j, c, ctx: 2 if ctx.scoring and c is ctx.scoring[0] else 0)
@@ -478,14 +503,14 @@ def by_rarity(rarity: Rarity) -> list[JokerSpec]:
 
 def _suit_chips(suit: Suit, amount: int) -> ScoredHook:
     def hook(j: JokerInstance, card: Card, ctx: ScoreContext) -> None:
-        if card.counts_as_suit(suit):
+        if suit_matches(card, suit, ctx):
             ctx.add_chips(amount, j.name)
     return hook
 
 
 def _suit_money(suit: Suit, amount: int) -> ScoredHook:
     def hook(j: JokerInstance, card: Card, ctx: ScoreContext) -> None:
-        if card.counts_as_suit(suit):
+        if suit_matches(card, suit, ctx):
             ctx.money_gained += amount
     return hook
 
@@ -493,7 +518,7 @@ def _suit_money(suit: Suit, amount: int) -> ScoredHook:
 def _first_face(ctx: ScoreContext) -> Card | None:
     """The first scoring face card, which Photograph multiplies."""
     for card in ctx.scoring:
-        if card.rank.is_face and not card.is_stone and not card.debuffed:
+        if is_face(card, ctx) and not card.debuffed:
             return card
     return None
 
@@ -669,4 +694,100 @@ register("Obelisk", Rarity.RARE,
 register("Hit the Road", Rarity.RARE,
          "Gains X0.5 Mult for every Jack discarded this round", cost=8,
          init_counter=1.0,
+         independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+
+
+# --------------------------------------------------------------------------
+# jokers that change what the cards are
+# --------------------------------------------------------------------------
+#
+# These four score nothing themselves. They rewrite the rules the other hooks
+# read -- which suit a card counts as, whether it is a face card, which cards
+# score at all, how likely a listed chance is -- so the run is asked, not the
+# card. See suit_matches, is_face, GameState._splash and probability_scale.
+
+register("Splash", Rarity.COMMON, "Every played card counts in scoring",
+         cost=3)
+register("Pareidolia", Rarity.UNCOMMON, "All cards are considered face cards",
+         cost=5)
+register("Smeared Joker", Rarity.UNCOMMON,
+         "Hearts and Diamonds count as the same suit, as do Spades and Clubs",
+         cost=7)
+register("Oops! All 6s", Rarity.UNCOMMON, "Doubles all listed probabilities",
+         cost=4)
+
+
+# -- chance-based scoring ---------------------------------------------------
+
+def _chance(ctx: ScoreContext, key: str, numerator: int, denominator: int
+            ) -> bool:
+    """A listed probability, scaled by any Oops! All 6s in play."""
+    scale = ctx.game.probability_scale()
+    return ctx.game.rng.chance(key, numerator * scale, denominator)
+
+
+register("Bloodstone", Rarity.UNCOMMON,
+         "1 in 2 chance for played Hearts to give X1.5 Mult", cost=7,
+         scored=lambda j, c, ctx: ctx.times_mult(1.5, j.name)
+         if suit_matches(c, Suit.HEARTS, ctx)
+         and _chance(ctx, "bloodstone", 1, 2) else None)
+register("Business Card", Rarity.COMMON,
+         "Played face cards have a 1 in 2 chance to give $2", cost=4,
+         scored=lambda j, c, ctx: ctx.__setattr__(
+             "money_gained", ctx.money_gained + 2)
+         if is_face(c, ctx) and _chance(ctx, "business", 1, 2) else None)
+register("Reserved Parking", Rarity.COMMON,
+         "Each face card held in hand has a 1 in 2 chance to give $1", cost=6,
+         held=lambda j, c, ctx: ctx.__setattr__(
+             "money_gained", ctx.money_gained + 1)
+         if is_face(c, ctx) and _chance(ctx, "parking", 1, 2) else None)
+register("Space Joker", Rarity.UNCOMMON,
+         "1 in 4 chance to upgrade the level of the played poker hand", cost=5,
+         update=lambda j, ctx: ctx.game.hand_levels.level_up(ctx.hand)
+         if _chance(ctx, "space", 1, 4) else None,
+         update_before_scoring=True)
+
+
+# -- jokers that name a card or hand the round chose ------------------------
+
+register("The Idol", Rarity.UNCOMMON,
+         "Each played card of a rank and suit that changes each round gives "
+         "X2 Mult", cost=6,
+         scored=lambda j, c, ctx: ctx.times_mult(2.0, j.name)
+         if ctx.game.idol_rank is not None and c.rank is ctx.game.idol_rank
+         and suit_matches(c, ctx.game.idol_suit, ctx) else None)
+register("Ancient Joker", Rarity.RARE,
+         "Each played card of a suit that changes each round gives X1.5 Mult",
+         cost=8,
+         scored=lambda j, c, ctx: ctx.times_mult(1.5, j.name)
+         if ctx.game.ancient_suit is not None
+         and suit_matches(c, ctx.game.ancient_suit, ctx) else None)
+register("To Do List", Rarity.COMMON,
+         "Earn $4 if the poker hand is one that changes each round", cost=4,
+         independent=lambda j, ctx: ctx.__setattr__(
+             "money_gained", ctx.money_gained + 4)
+         if ctx.hand is ctx.game.todo_hand else None)
+
+
+# -- the rest of the scoring batch ------------------------------------------
+
+register("Midas Mask", Rarity.UNCOMMON,
+         "All played face cards become Gold cards when scored", cost=7,
+         scored=lambda j, c, ctx: setattr(c, "enhancement", Enhancement.GOLD)
+         if is_face(c, ctx) else None)
+register("Seltzer", Rarity.UNCOMMON,
+         "Retrigger all played cards for the next 10 hands", cost=6,
+         init_counter=10.0,
+         retrigger_scored=lambda j, c, ctx: 1 if j.counter > 0 else 0)
+register("Matador", Rarity.UNCOMMON,
+         "Earn $8 if the played hand triggers the Boss Blind ability", cost=7,
+         independent=lambda j, ctx: ctx.__setattr__(
+             "money_gained", ctx.money_gained + 8)
+         if ctx.game.boss is not None else None)
+register("Red Card", Rarity.COMMON,
+         "Gains +3 Mult when any Booster Pack is skipped", cost=5,
+         independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
+register("Madness", Rarity.UNCOMMON,
+         "Gains X0.5 Mult when a Small or Big Blind is selected, and destroys "
+         "a random Joker", cost=7, init_counter=1.0,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))

@@ -96,6 +96,8 @@ CASES = [
            sim_setup=lambda g: g.hand_levels.plays.__setitem__(
                HandType.FLUSH, 5)),
     Scaled("Vampire", "j_vampire", "x_mult", 1.6),
+    Scaled("Madness", "j_madness", "x_mult", 2.5),
+    Scaled("Red Card", "j_red_card", "mult", 9),
 ]
 
 
@@ -147,7 +149,10 @@ def _sim_score(case, state):
     game.hands_played = state["hands_played"]
     game.draw_pile = standard_deck()[:state["draw_pile"]]
     game.full_deck = game.hand + game.draw_pile
-    result = evaluate(played)
+    result = evaluate(played, splash=game._splash(),
+                    smeared=game.has_smeared(),
+                    four_fingers=game._four_fingers(),
+                    shortcut=game._shortcut())
     game.hand_levels.plays[result.hand] = state["plays"]
     if case.sim_setup is not None:
         case.sim_setup(game)

@@ -151,6 +151,15 @@ COMBOS = [
     Combo("shortcut alone is only a straight",
           (C("S_A"), C("S_3"), C("C_5"), C("S_7"), C("S_9")), (1, 2, 3, 4, 5),
           ("Shortcut",)),
+    # Pareidolia changes nothing by itself; it makes every card a face card,
+    # which only shows through a joker that cares about faces. Sock and Buskin
+    # then retriggers the whole hand rather than the two kings.
+    Combo("Pareidolia makes every card a face card",
+          (C("S_K"), C("H_K"), C("D_2"), C("C_5"), C("H_7")), (1, 2, 3, 4, 5),
+          ("Pareidolia", "Sock and Buskin")),
+    Combo("Sock and Buskin alone sees only the kings",
+          (C("S_K"), C("H_K"), C("D_2"), C("C_5"), C("H_7")), (1, 2, 3, 4, 5),
+          ("Sock and Buskin",)),
     Combo("lucky cards roll their own stream",
           (C("S_K", enhancement="m_lucky"), C("H_K", enhancement="m_lucky"))
           + PLAIN, (1, 2), (), True),
@@ -215,7 +224,9 @@ def _sim_score(combo, state):
     game.money = state["money"]
     game.hands_played = state["hands_played"]
     game.draw_pile = standard_deck()[:state["draw_pile"]]
-    result = evaluate(played, four_fingers=game._four_fingers(),
+    result = evaluate(played, splash=game._splash(),
+                      smeared=game.has_smeared(),
+                      four_fingers=game._four_fingers(),
                       shortcut=game._shortcut())
     game.hand_levels.plays[result.hand] = 1
     return score_hand(game, result, played, held).score
