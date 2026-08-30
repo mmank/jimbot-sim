@@ -32,6 +32,7 @@ from typing import Iterable
 from .consumable_data import CONSUMABLE_DATA, EXCLUDED_FROM_POOLS
 from .joker_data import JOKER_DATA, pool_for_rarity
 from .pack_data import PACK_DATA
+from .tag_data import TAG_DATA
 from .rng import TW223, RunRng
 
 UNAVAILABLE = "UNAVAILABLE"
@@ -289,3 +290,51 @@ def draw_pack(rng: RunRng, ante: int, first_shop: bool = False,
         if seen >= poll and seen - weight <= poll:
             return entry
     return PACK_DATA[-1]
+
+
+# --------------------------------------------------------------------------
+# skip tags
+# --------------------------------------------------------------------------
+
+def build_tag_pool(ante: int, discovered: Iterable[str] | None = None
+                   ) -> list[str]:
+    """Tags on offer at this ante, blanked rather than dropped as ever.
+
+    Five tags name a centre that must have been *discovered* -- Rare Tag wants
+    Blueprint seen, the edition tags want their edition seen. Discovery
+    belongs to the profile rather than the run, and a profile that has played
+    at all has them, which is what the engine reports. So the default is that
+    they are known, and a caller who wants to model a fresh profile passes the
+    set it has. Gating on an empty set instead blanked four tags the engine
+    was offering, and the draw landed elsewhere from there on.
+    """
+    known = None if discovered is None else set(discovered)
+    pool = []
+    for key, _name, min_ante, requires in TAG_DATA:
+        if min_ante and min_ante > ante:
+            pool.append(UNAVAILABLE)
+        elif requires and known is not None and requires not in known:
+            pool.append(UNAVAILABLE)
+        else:
+            pool.append(key)
+    return pool
+
+
+def draw_tag(rng: RunRng, ante: int, discovered: Iterable[str] | None = None,
+             append: str = "") -> str:
+    """The reward for skipping a blind, as get_next_tag_key rolls it.
+
+    Same machinery as every other pool: an index into a list that keeps its
+    length, and a resample from a differently-named pool when the entry is
+    blank. The simulator used to roll from eight tags of its own with its own
+    key, which handed a run a tag it was never offered -- and an Uncommon or
+    Rare tag hands over a joker with it.
+    """
+    pool = build_tag_pool(ante, discovered)
+    key = "Tag%s%d" % (append, ante)
+    tag = rng.random_element(pool, key)
+    attempt = 1
+    while tag == UNAVAILABLE:
+        attempt += 1
+        tag = rng.random_element(pool, "%s_resample%d" % (key, attempt))
+    return tag

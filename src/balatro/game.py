@@ -108,6 +108,23 @@ class Tag(Enum):
 
 TAG_POOL = list(Tag)
 
+# The game's key for each tag this simulator knows how to apply. The pool has
+# twenty-four and these are the eight with an effect here, so a skip can hand
+# over a tag that does nothing yet -- which is the truth, and better than
+# rolling from eight and handing over one the run was never offered. The gap
+# is visible rather than hidden: TAG_BY_KEY.get returns None and nothing
+# happens.
+TAG_BY_KEY = {
+    "tag_uncommon": Tag.UNCOMMON,
+    "tag_rare": Tag.RARE,
+    "tag_charm": Tag.CHARM,
+    "tag_meteor": Tag.METEOR,
+    "tag_buffoon": Tag.BUFFOON,
+    "tag_investment": Tag.INVESTMENT,
+    "tag_economy": Tag.ECONOMY,
+    "tag_juggle": Tag.JUGGLE,
+}
+
 
 @dataclass
 class GameState:
@@ -132,7 +149,10 @@ class GameState:
     consumables: list[ConsumableSpec] = field(default_factory=list)
     vouchers: list[Voucher] = field(default_factory=list)
     tags: list[Tag] = field(default_factory=list)
-    ante_tags: list[Tag] = field(default_factory=list)  # skip rewards, [small, big]
+    ante_tags: list = field(default_factory=list)   # skip rewards [small, big]
+    # The same two as the game's keys, kept because a tag this simulator has
+    # no effect for is still the tag the run was offered.
+    ante_tag_keys: list = field(default_factory=list)
 
     hand_levels: HandLevels = field(default_factory=HandLevels.new)
 
@@ -352,8 +372,14 @@ class GameState:
             # Both skip rewards for the ante are rolled up front, because the
             # real game shows them on the blind select screen -- deciding
             # whether to skip the Small Blind means knowing both tags.
-            self.ante_tags = [self.rng.choice(f"tag_{self.ante}_{i}", TAG_POOL)
-                              for i in range(2)]
+            # The game's own roll, from all twenty-four, through the pool
+            # machinery every other draw uses. Rolling from a pool of eight
+            # with a name of our own handed runs tags they were never
+            # offered -- and an Uncommon or Rare tag hands over a joker with
+            # it, which is how a phantom Duo turned up replaying a real game.
+            self.ante_tag_keys = [shop_pool.draw_tag(self.rng, self.ante)
+                                  for _ in range(2)]
+            self.ante_tags = [TAG_BY_KEY.get(k) for k in self.ante_tag_keys]
         kind = [BlindKind.SMALL, BlindKind.BIG, BlindKind.BOSS][self.blind_index]
         boss = self._pick_boss() if kind is BlindKind.BOSS else None
         self.blind = make_blind(
@@ -1128,7 +1154,8 @@ class GameState:
             self._start_round()
         elif t is ActionType.SKIP_BLIND:
             tag = self.ante_tags[self.blind_index]
-            self.tags.append(tag)
+            if tag is not None:
+                self.tags.append(tag)
             self.log(f"Skipped {self.blind.name}, gained {tag.value}")
             self.blind_index += 1
             self._next_blind()
