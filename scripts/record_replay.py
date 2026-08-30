@@ -39,13 +39,21 @@ COMPARED = ("phase", "dollars", "chips", "ante", "round", "hands_left",
 # a race, not a divergence. It is compared exactly everywhere it is meaningful.
 SCORE_STABLE_PHASES = {"SELECTING_HAND", "HAND_PLAYED", "ROUND_EVAL"}
 
-# Phases a recording can be caught in while the game is still
-# resolving the previous action. A player who acts before the
-# animation finishes gets a snapshot with the hand part dealt and
-# the chips part counted; the headless engine resolves instantly
-# and is always settled, so comparing the two measures how fast
-# the human clicked rather than anything about fidelity.
-TRANSIENT_PHASES = {"HAND_PLAYED", "DRAW_TO_HAND"}
+# The game calls its own action functions, and the recorder cannot tell
+# those apart from the player pressing a button: it hooks G.FUNCS, which
+# is one layer below the distinction.
+#
+# The Hook discards two random cards after every hand played, and that
+# arrives as a discard_cards_from_highlighted naming the two cards the
+# boss took. Replaying it discards two *more*, on top of the two the
+# engine takes unprompted, and every later hand comes off a different
+# deck. The recording proves it was never the player: discards_left reads
+# three before it and three after, so nothing was spent.
+#
+# The tell is the phase. The player cannot press discard while the hand is
+# still resolving -- the button is not there -- so an action recorded in
+# one of these came from the game.
+GAME_DRIVEN_PHASES = {"HAND_PLAYED", "DRAW_TO_HAND"}
 
 # How a recorded G.FUNCS call is re-issued through the bot's API. These use the
 # client's waiting wrappers rather than raw commands: the real game animates,
@@ -416,6 +424,7 @@ def do_replay(args) -> None:
         bridge.command("set_money", payload["money"])
 
     mismatches = 0
+    game_driven = 0
     for i, entry in enumerate(actions, start=1):
         action, params = entry["action"], normalise(entry["params"])
 
@@ -432,12 +441,15 @@ def do_replay(args) -> None:
         _match_hand_order(bridge, normalise(entry["before"].get("hand_ids")))
         _match_joker_order(bridge, entry["before"])
 
-        if entry["before"].get("phase") in TRANSIENT_PHASES:
-            handler = REPLAY.get(action)
-            if handler:
-                handler(bridge, params)
+        if entry["before"].get("phase") in GAME_DRIVEN_PHASES:
+            # The game's own doing, not the player's -- see the note on
+            # GAME_DRIVEN_PHASES. The engine performs it again by itself,
+            # so replaying it would apply the effect twice and deal every
+            # later hand from a different deck.
+            game_driven += 1
             if args.verbose:
-                print(f"  [{i:3d}] --   {action:32s} (mid-animation, skipped)")
+                print(f"  [{i:3d}] --   {action:32s} "
+                      f"(the game's own, the engine repeats it)")
             continue
 
         # Compare before acting: the recorded `before` is the state the human
@@ -472,7 +484,10 @@ def do_replay(args) -> None:
             break
         bridge.wait_until(lambda s: s.get("ready"), timeout=30)
 
-    print(f"\n{len(actions)} actions, {mismatches} divergences")
+    summary = f"{len(actions)} actions, {mismatches} divergences"
+    if game_driven:
+        summary += f", {game_driven} performed by the game itself"
+    print("\n" + summary)
     if not mismatches:
         print("the replay matched the recording at every step")
     raise SystemExit(1 if mismatches else 0)
