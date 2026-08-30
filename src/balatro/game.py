@@ -14,12 +14,16 @@ from enum import Enum
 
 from . import consumables as cons
 from . import shop as shop_mod
-from .blinds import Blind, BlindKind, BossEffect, make_blind, pick_boss
+from .blinds import (BOSSES, FINISHER_BOSSES, Blind, BlindKind,
+                     BossEffect, make_blind)
 from .cards import Card, Edition, Enhancement, Rank, Seal, Suit, standard_deck
 from .deck_data import DECK_DATA
+from .boss_data import BOSS_DATA, eligible_bosses
 from . import shop_pool
 
 # poll_edition speaks the game's names for these.
+_BOSS_BY_NAME = {b.name: b for b in BOSSES + FINISHER_BOSSES}
+
 _EDITION_BY_NAME = {"none": Edition.NONE, "foil": Edition.FOIL,
                     "holo": Edition.HOLOGRAPHIC,
                     "polychrome": Edition.POLYCHROME,
@@ -140,6 +144,7 @@ class GameState:
     # on that screen before any of it is paid.
     beaten_blind: Blind | None = None
     pending_payout: int = 0
+    beaten_was_boss: bool = False
     hands_played: int = 0          # total for the run, as G.GAME.hands_played
     # Run totals that jokers scale on. The game keeps these on G.GAME, and a
     # joker that counts them scores zero without them -- which looks like
@@ -159,6 +164,10 @@ class GameState:
     # G.GAME.used_jokers and blanks those entries from the pools, so a shop
     # that ignores it offers repeats the real game never would.
     seen_centers: set = field(default_factory=set)
+    # How often each boss has been drawn. The game narrows the eligible set to
+    # the least-used before rolling, so this is part of the selection rather
+    # than bookkeeping.
+    bosses_used: dict = field(default_factory=dict)
     tarots_used: int = 0
     planets_used: int = 0
     unique_planets: set = field(default_factory=set)
@@ -200,6 +209,20 @@ class GameState:
         if self.phase not in (Phase.PLAYING, Phase.GAME_OVER):
             return 0
         return self.blind.target
+
+    @property
+    def blind_name(self) -> str:
+        """The blind in force, which is nothing outside a round.
+
+        Same rule as blind_target: `blind` holds the next one through the
+        select screen and the shop so it can be offered, but the game names no
+        blind until one is actually being played.
+        """
+        if self.blind is None:
+            return ""
+        if self.phase not in (Phase.PLAYING, Phase.GAME_OVER):
+            return ""
+        return self.blind.name
 
     @property
     def deck_config(self) -> dict:
@@ -325,8 +348,10 @@ class GameState:
             self.ante_tags = [self.rng.choice(f"tag_{self.ante}_{i}", TAG_POOL)
                               for i in range(2)]
         kind = [BlindKind.SMALL, BlindKind.BIG, BlindKind.BOSS][self.blind_index]
-        boss = pick_boss(self.rng, self.ante) if kind is BlindKind.BOSS else None
-        self.blind = make_blind(kind, self.ante, boss)
+        boss = self._pick_boss() if kind is BlindKind.BOSS else None
+        self.blind = make_blind(
+            kind, self.ante, boss,
+            ante_scaling=self.deck_config.get("ante_scaling", 1))
         self.phase = Phase.BLIND_SELECT
 
     @property
@@ -380,6 +405,21 @@ class GameState:
                 card.debuffed = True
             if boss.debuff_previously_played and card.uid in self.played_this_ante:
                 card.debuffed = True
+
+    def _pick_boss(self):
+        """The game's own boss draw: least-used eligible, then a roll.
+
+        Picking uniformly from every boss -- which is what this did -- gives a
+        run that can meet the same boss twice while others go unseen, and the
+        game deliberately does not.
+        """
+        pool = eligible_bosses(self.ante, self.bosses_used)
+        if not pool:
+            return None
+        key = self.rng.random_element(pool, "boss")
+        self.bosses_used[key] = self.bosses_used.get(key, 0) + 1
+        name = BOSS_DATA[key][0]
+        return _BOSS_BY_NAME.get(name)
 
     def _round_allowance(self) -> tuple[int, int]:
         """Hands and discards for a round, from the deck, vouchers and boss."""
@@ -591,8 +631,18 @@ class GameState:
         self.discard_pile = []
 
         self.beaten_blind = self.blind
+        self.beaten_was_boss = self.blind.kind is BlindKind.BOSS
         self.blind = None
         self.phase = Phase.ROUND_EVAL
+
+        # The ante turns over the moment the boss round closes -- the engine
+        # already reads the next ante on the cash-out screen, before a penny
+        # has been paid.
+        if self.beaten_was_boss:
+            self.blind_index = 0
+            self.ante += 1
+        else:
+            self.blind_index += 1
 
     def _cash_out(self) -> None:
         """Take the payout and move on, as pressing Cash Out does."""
@@ -609,7 +659,7 @@ class GameState:
         # The blind stays cleared through the shop -- the engine reports no
         # blind and no target until the next one is chosen, so putting it back
         # here left the simulator still showing the beaten blind's target.
-        was_boss = self.beaten_blind.kind is BlindKind.BOSS
+        was_boss = self.beaten_was_boss
         self.beaten_blind = None
         if was_boss:
             if Tag.INVESTMENT in self.tags:
@@ -620,6 +670,8 @@ class GameState:
                 self.phase = Phase.WON
                 self.log(f"Run won at ante {self.ante}")
                 return
+
+
 
         self._open_shop()
 
@@ -711,11 +763,9 @@ class GameState:
             self.tags.remove(tag)
 
     def _leave_shop(self) -> None:
+        # The blind index and the ante moved on at cash-out; leaving the shop
+        # only chooses which blind is now on offer.
         self.shop = None
-        self.blind_index += 1
-        if self.blind_index > 2:
-            self.blind_index = 0
-            self.ante += 1
         self._next_blind()
 
     # ------------------------------------------------------------------

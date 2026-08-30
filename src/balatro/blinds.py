@@ -119,12 +119,18 @@ class Blind:
         return f"{self.kind.value.title()} Blind"
 
 
-def make_blind(kind: BlindKind, ante: int, boss: BossEffect | None = None) -> Blind:
+def make_blind(kind: BlindKind, ante: int, boss: BossEffect | None = None,
+               ante_scaling: float = 1.0) -> Blind:
+    """The game: get_blind_amount(ante) * mult * ante_scaling.
+
+    ante_scaling comes from the deck -- the Plasma Deck doubles every target
+    in the run, which is the price it pays for balancing chips and mult.
+    """
     mult = boss.chip_mult if (kind is BlindKind.BOSS and boss) else BLIND_MULT[kind]
     return Blind(
         kind=kind,
         ante=ante,
-        target=int(ante_base_chips(ante) * mult),
+        target=int(ante_base_chips(ante) * mult * ante_scaling),
         reward=BLIND_REWARD[kind],
         boss=boss,
     )

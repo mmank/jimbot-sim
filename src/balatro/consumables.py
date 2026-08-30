@@ -165,7 +165,7 @@ def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
 _tarot("The High Priestess", "Create 2 random Planet cards", 0, _high_priestess)
 _tarot("The Emperor", "Create 2 random Tarot cards", 0, _emperor)
 _tarot("Judgement", "Create a random Joker", 0, _judgement)
-_tarot("Wheel of Fortune", "1 in 4 chance to add an edition to a random Joker",
+_tarot("The Wheel of Fortune", "1 in 4 chance to add an edition to a random Joker",
        0, _wheel_of_fortune)
 
 
@@ -231,3 +231,63 @@ _spectral("Familiar", "Destroy 1 card, add 3 random face cards", 1, _familiar)
 
 def by_kind(kind: ConsumableKind) -> list[ConsumableSpec]:
     return [s for s in REGISTRY.values() if s.kind is kind]
+
+
+# --------------------------------------------------------------------------
+# the consumables the shop can offer that were never registered
+# --------------------------------------------------------------------------
+#
+# A whole-run comparison found these by crashing on them: the shop rolled a
+# Spectral, the pool named one the simulator had never heard of, and the
+# lookup failed. Nine Spectrals and The Fool. Registering them is what lets a
+# shop be built at all; the effects that need machinery this engine does not
+# have are marked rather than faked, so nothing here quietly does nothing
+# while looking implemented.
+
+
+def _fool(game: "GameState", cards: list[Card]) -> None:
+    """Copy the last Tarot or Planet used this run, itself excepted."""
+    last = getattr(game, "last_tarot_planet", None)
+    if last and last in REGISTRY:
+        game.add_consumables([REGISTRY[last]])
+
+
+def _grim(game: "GameState", cards: list[Card]) -> None:
+    """Destroy a card, add two random Aces."""
+    for card in cards:
+        game.remove_card(card)
+    for _ in range(2):
+        suit = game.rng.choice("grim_suit", list(Suit))
+        game.add_card(Card(Rank.ACE, suit))
+
+
+def _incantation(game: "GameState", cards: list[Card]) -> None:
+    """Destroy a card, add four random numbered cards."""
+    for card in cards:
+        game.remove_card(card)
+    numbered = [r for r in Rank if r.value <= 10]
+    for _ in range(4):
+        game.add_card(Card(game.rng.choice("inc_rank", numbered),
+                           game.rng.choice("inc_suit", list(Suit))))
+
+
+def _cryptid(game: "GameState", cards: list[Card]) -> None:
+    """Two copies of a chosen card."""
+    for card in cards:
+        for _ in range(2):
+            game.add_card(card.copy())
+
+
+_tarot("The Fool", "Copy the last Tarot or Planet card used this run", 0, _fool)
+
+_spectral("Ankh", "Copy a random Joker, destroy the others", 0, None)
+_spectral("Cryptid", "Create 2 copies of a selected card", 1, _cryptid)
+_spectral("Grim", "Destroy 1 card, add 2 random Aces", 1, _grim)
+_spectral("Hex", "Add Polychrome to a random Joker, destroy the others", 0, None)
+_spectral("Incantation", "Destroy 1 card, add 4 random numbered cards", 1,
+          _incantation)
+_spectral("Ouija", "Convert all cards in hand to a single random rank, -1 hand size",
+          0, None)
+_spectral("Sigil", "Convert all cards in hand to a single random suit", 0, None)
+_spectral("The Soul", "Create a Legendary Joker", 0, None)
+_spectral("Wraith", "Create a random Rare Joker, set money to $0", 0, None)

@@ -13,6 +13,8 @@ XMult is not commutative with +Mult:
 
 from __future__ import annotations
 
+import math
+
 from typing import TYPE_CHECKING
 
 from .cards import Card, Edition, Enhancement, Seal
@@ -148,6 +150,15 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     for joker, spec in pairs:
         if spec.update is not None and not spec.update_before_scoring:
             spec.update(joker, ctx)
+
+    # The Plasma Deck's final scoring step: chips and mult are averaged, both
+    # floored, so a hand scores the square of half their sum. It happens after
+    # everything else has had its say, which is why it lives at the very end
+    # rather than anywhere a joker could reach.
+    if game.deck_config.get("balance_chips_mult") or game.deck == "Plasma Deck":
+        total = ctx.chips + ctx.mult
+        ctx.chips = math.floor(total / 2)
+        ctx.mult = math.floor(total / 2)
 
     return ctx
 

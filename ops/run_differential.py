@@ -52,6 +52,7 @@ def engine_state(engine):
         "discards_left": int(ev("return G.GAME.current_round.discards_left")),
         "chips": int(ev("return G.GAME.chips")),
         "blind_chips": int(ev("return G.GAME.blind and G.GAME.blind.chips or 0")),
+        "boss": ev("return tostring(G.GAME.blind and G.GAME.blind.name or '')"),
         "deck": int(ev("return #G.deck.cards")),
         "hand": hand.split(" ") if hand else [],
         "jokers": jokers.split(" ") if jokers else [],
@@ -68,6 +69,7 @@ def sim_state(game):
         "discards_left": game.discards_left,
         "chips": game.chips_scored,
         "blind_chips": game.blind_target,
+        "boss": game.blind_name,
         "deck": len(game.draw_pile),
         "hand": ["%s/%s" % (RANK_NAME[c.rank.name.title()], c.suit.name.title())
                  for c in game.hand],
