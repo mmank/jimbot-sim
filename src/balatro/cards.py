@@ -82,6 +82,13 @@ class Seal(Enum):
 _ids = count()
 
 
+# From the game's own card bases. Suits order Diamonds < Clubs < Hearts <
+# Spades, and face_nominal separates the cards that all count as ten chips.
+SUIT_NOMINAL = {Suit.DIAMONDS: 0.01, Suit.CLUBS: 0.02,
+                Suit.HEARTS: 0.03, Suit.SPADES: 0.04}
+FACE_NOMINAL = {Rank.ACE: 0.4, Rank.KING: 0.3, Rank.QUEEN: 0.2, Rank.JACK: 0.1}
+
+
 @dataclass(eq=False)
 class Card:
     rank: Rank
@@ -102,6 +109,23 @@ class Card:
         if self.is_stone:
             return 50
         return self.rank.chips + self.extra_chips
+
+    @property
+    def sort_value(self) -> float:
+        """The game's get_nominal, which is what orders a hand on screen.
+
+        The order matters beyond looks: actions address cards by position, so
+        a simulator holding the same eight cards in a different order plays
+        different ones for the same choice. Ranks come first, then face cards
+        separate within the tens (Ace .4, King .3, Queen .2, Jack .1), then
+        the suit breaks what is left -- Diamonds lowest, Spades highest.
+        """
+        if self.is_stone:
+            # The game multiplies the suit term by -1000 for stone cards,
+            # which sinks them below everything else.
+            return self.rank.chips - 1000 * SUIT_NOMINAL[self.suit]
+        return (self.rank.chips + SUIT_NOMINAL[self.suit]
+                + FACE_NOMINAL.get(self.rank, 0.0))
 
     def counts_as_suit(self, suit: Suit) -> bool:
         """Wild cards count as every suit; stone cards have no suit."""

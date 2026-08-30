@@ -16,6 +16,14 @@ from . import consumables as cons
 from . import shop as shop_mod
 from .blinds import Blind, BlindKind, BossEffect, make_blind, pick_boss
 from .cards import Card, Edition, Enhancement, Rank, Seal, Suit, standard_deck
+from .deck_data import DECK_DATA
+from . import shop_pool
+
+# poll_edition speaks the game's names for these.
+_EDITION_BY_NAME = {"none": Edition.NONE, "foil": Edition.FOIL,
+                    "holo": Edition.HOLOGRAPHIC,
+                    "polychrome": Edition.POLYCHROME,
+                    "negative": Edition.NEGATIVE}
 from .consumables import ConsumableKind, ConsumableSpec
 from .hands import PLANET_FOR_HAND, HandLevels, HandType, evaluate
 from .jokers import REGISTRY as JOKER_REGISTRY, JokerInstance, Rarity
@@ -93,6 +101,10 @@ TAG_POOL = list(Tag)
 @dataclass
 class GameState:
     seed: int = 0
+    # The back the run is played with. Not decoration: Red Deck grants an
+    # extra discard every round, Blue an extra hand, Black a joker slot at the
+    # cost of a hand. A run that ignores the deck is a different run.
+    deck: str = "Red Deck"
     rng: RunRng = field(init=False)
 
     ante: int = 1
@@ -132,6 +144,10 @@ class GameState:
     castle_suit: object = None
 
     discards_used: int = 0    # this round, for Delayed Gratification
+    # Every centre the run has already produced. The game keeps this as
+    # G.GAME.used_jokers and blanks those entries from the pools, so a shop
+    # that ignores it offers repeats the real game never would.
+    seen_centers: set = field(default_factory=set)
     tarots_used: int = 0
     planets_used: int = 0
     unique_planets: set = field(default_factory=set)
@@ -156,8 +172,14 @@ class GameState:
     verbose: bool = False
     _satisfiable_cache: tuple | None = field(default=None, repr=False)
 
+    @property
+    def deck_config(self) -> dict:
+        return DECK_DATA.get(self.deck, ("", {}))[1]
+
     def __post_init__(self) -> None:
         self.rng = RunRng(self.seed)
+        config = self.deck_config
+        self.money += config.get("dollars", 0)
         if not self.full_deck:
             self.full_deck = standard_deck()
         self._next_blind()
@@ -238,6 +260,7 @@ class GameState:
         size = self.base_hand_size
         size += sum(v.hand_size for v in self.vouchers)
         size += sum(j.spec.hand_size for j in self.jokers)
+        size += self.deck_config.get("hand_size", 0)
         if self.boss is not None:
             size += self.boss.hand_size_delta
         return max(1, size)
@@ -300,10 +323,13 @@ class GameState:
             if joker.spec.on_round_start is not None:
                 joker.spec.on_round_start(joker, self)
 
+        config = self.deck_config
         hands = BASE_HANDS + sum(v.extra_hands for v in self.vouchers)
         hands += sum(j.spec.extra_hands for j in self.jokers)
+        hands += config.get("hands", 0)
         discards = BASE_DISCARDS + sum(v.extra_discards for v in self.vouchers)
         discards += sum(j.spec.extra_discards for j in self.jokers)
+        discards += config.get("discards", 0)
         boss = self.boss
         if boss is not None:
             hands = max(1, hands + boss.hands_delta) if boss.hands_delta > -50 else 1
@@ -338,9 +364,19 @@ class GameState:
             if boss.debuff_previously_played and card.uid in self.played_this_ante:
                 card.debuffed = True
 
+    def _sort_hand(self) -> None:
+        """Keep the hand in the order the game shows it.
+
+        G.hand is sorted "desc" by get_nominal, and every action addresses
+        cards by position, so an unsorted hand turns the same choice into a
+        different play.
+        """
+        self.hand.sort(key=lambda c: c.sort_value, reverse=True)
+
     def _draw_to_hand_size(self) -> None:
         while len(self.hand) < self.hand_size and self.draw_pile:
             self.hand.append(self.draw_pile.pop())
+        self._sort_hand()
         if not self.hand and self.phase is Phase.PLAYING:
             # Deck exhausted mid-blind: nothing left to play with.
             self.phase = Phase.GAME_OVER
@@ -534,16 +570,41 @@ class GameState:
         return 2 + sum(v.shop_slots for v in self.vouchers)
 
     def _roll_slot(self, tag: str) -> ShopSlot:
-        kind = shop_mod.weighted_pick(self.rng, f"{tag}_kind", shop_mod.SLOT_WEIGHTS)
-        if kind == "joker":
-            spec = shop_mod.random_joker_spec(self.rng, tag)
-            edition = shop_mod.random_edition(self.rng, f"{tag}_edition")
+        """One shop slot, rolled the way the game rolls it.
+
+        This used to invent its own weights and pools. It now goes through
+        balatro.shop_pool, which is checked against the engine draw for draw
+        -- the distribution a policy trains against is as much a part of
+        fidelity as the scoring, and it is the half that fails silently.
+        """
+        played = [h.label for h, n in self.hand_levels.plays.items() if n > 0]
+        owned = {c.enhancement.value for c in self.full_deck}
+        kind, key = shop_pool.draw_shop_card(
+            self.rng, self.ante, rates=self._shop_rates(),
+            seen_jokers=self.seen_centers, played_hands=played,
+            owned_enhancements={"m_%s" % e for e in owned})
+
+        if kind == "Joker":
+            self.seen_centers.add(key)
+            spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
+            edition = _EDITION_BY_NAME[
+                shop_pool.poll_edition(self.rng, "edi" + shop_pool.SHOP_APPEND)]
             joker = JokerInstance(spec, edition=edition)
             return ShopSlot("joker", self.price(shop_mod.joker_price(spec, edition)),
                             joker=joker)
-        kind_enum = ConsumableKind.TAROT if kind == "tarot" else ConsumableKind.PLANET
-        spec = self.rng.choice(f"{tag}_consumable", cons.by_kind(kind_enum))
-        return ShopSlot("consumable", self.price(spec.cost), consumable=spec)
+        if kind in ("Tarot", "Planet", "Spectral"):
+            self.seen_centers.add(key)
+            spec = cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]]
+            return ShopSlot("consumable", self.price(spec.cost), consumable=spec)
+        # A playing card slot, which only appears once a voucher enables it.
+        return ShopSlot("consumable", self.price(1),
+                        consumable=cons.by_kind(ConsumableKind.TAROT)[0])
+
+    def _shop_rates(self) -> dict:
+        """The run's card-type rates, which the deck and vouchers move."""
+        rates = dict(shop_pool.BASE_RATES)
+        rates["Spectral"] += self.deck_config.get("spectral_rate", 0)
+        return rates
 
     def _fill_shop(self, shop: Shop) -> None:
         shop.slots = [self._roll_slot(f"shop_{self.round_number}_{i}_{shop.rerolls}")

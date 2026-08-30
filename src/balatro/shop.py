@@ -140,9 +140,17 @@ def joker_price(spec: JokerSpec, edition: Edition = Edition.NONE) -> int:
 
 
 def weighted_pick(rng, name: str, weights: dict):
+    """A weighted choice over a named pool.
+
+    NOT the game's algorithm. The real one rolls once against summed rates and
+    walks fixed bands in a fixed order -- see shop_pool.roll_slot_type, which
+    is checked against the engine. This survives only for booster packs, whose
+    generation has not been reproduced yet, and it is deliberately left
+    obviously ad hoc so it is not mistaken for verified behaviour.
+    """
     keys = list(weights)
     total = sum(weights.values())
-    roll = rng.stream(name).random() * total
+    roll = rng.pseudorandom(name) * total
     upto = 0.0
     for key in keys:
         upto += weights[key]
@@ -153,6 +161,7 @@ def weighted_pick(rng, name: str, weights: dict):
 
 def random_joker_spec(rng, name: str = "shop_joker",
                       allowed: set[str] | None = None) -> JokerSpec:
+    """Unverified. Shop jokers go through shop_pool.draw_joker instead."""
     rarity = weighted_pick(rng, f"{name}_rarity", RARITY_WEIGHTS)
     pool = [s for s in JOKER_REGISTRY.values()
             if s.rarity is rarity and (allowed is None or s.name in allowed)]
