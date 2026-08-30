@@ -131,6 +131,14 @@ def main() -> None:
         mid-thought and reports it as the simulator being wrong.
         """
         for _ in range(40):
+            # Cashing out is not a decision, so "settled" means past it. The
+            # simulator cashes out the moment the blind is beaten and the env
+            # advances by itself, so the engine is walked through it here
+            # rather than compared against a screen the other side never
+            # stops on.
+            if state_of() == ROUND_EVAL:
+                engine.execute("api.cash_out(); api.pump(200)")
+                continue
             if state_of() in settled:
                 return
             engine.execute("api.pump(60)")
@@ -183,7 +191,6 @@ def main() -> None:
             what = "play %s" % list(picks)
         elif phase == ROUND_EVAL:
             engine.execute("api.cash_out(); api.pump(400)")
-            game.step(Action(ActionType.CASH_OUT))
             what = "cash_out"
         elif phase == SHOP:
             engine.execute("api.leave_shop(); api.pump(300)")

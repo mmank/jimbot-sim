@@ -269,7 +269,12 @@ end
 
 -- G.FUNCS.cash_out expects the button element it was clicked from.
 function api.cash_out()
-  api.pump_until(function() return G.round_eval ~= nil end, 600)
+  -- Both have to be true. The state says the round is over; G.round_eval is
+  -- the cash-out screen, and G.FUNCS.cash_out reads what to pay from it -- so
+  -- calling before it exists moves the game to the shop and pays nothing.
+  api.pump_until(function()
+    return G.STATE == G.STATES.ROUND_EVAL and G.round_eval ~= nil
+  end, 600)
   local owed = G.GAME.current_round.dollars or 0
   local before = G.GAME.dollars
   G.FUNCS.cash_out({ config = {} })
@@ -282,6 +287,15 @@ function api.cash_out()
   -- returning on the state alone hands the caller an empty shop.
   api.pump_until(api.shop_ready, 400)
   api.pump(30)
+
+  -- Say so when the payout did not arrive. It used to pass quietly: the run
+  -- carried on into a shop with the blind's reward simply not paid, and a
+  -- policy trained on money got a reward that sometimes did not come. A
+  -- reward that silently goes missing is worse than one that fails loudly.
+  if owed > 0 and G.GAME.dollars == before then
+    error('cash_out did not pay the ' .. tostring(owed) ..
+          ' owed for the round', 0)
+  end
   return G.GAME.dollars
 end
 

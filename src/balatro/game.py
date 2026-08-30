@@ -639,10 +639,6 @@ class GameState:
                                      max(0, self.money) // 5)
                                + gold)
 
-        for joker in list(self.jokers):
-            if joker.spec.round_end is not None:
-                joker.spec.round_end(joker, self)
-
         # Every card returns to the deck as the round closes, which is why the
         # engine reads fifty-two here and a simulator that only rebuilds the
         # deck when the next round starts reads whatever was left.
@@ -665,11 +661,29 @@ class GameState:
         else:
             self.blind_index += 1
 
+        # The cash-out screen holds nothing the policy decides. You can
+        # reorder or sell jokers there, which is real but niche, and the
+        # env has never offered it as a choice -- it advances by itself. So
+        # the simulator does too, and the two stay in step without a screen
+        # existing on one side and not the other.
+        #
+        # Recorded in the README as a thing to revisit if selling on the
+        # cash-out screen ever matters.
+        self._cash_out()
+
     def _cash_out(self) -> None:
         """Take the payout and move on, as pressing Cash Out does."""
         assert self.beaten_blind is not None
         self.add_money(self.pending_payout, f"{self.beaten_blind.name} payout")
         self.pending_payout = 0
+
+        # End-of-round joker money is part of what the cash-out screen pays,
+        # not something already in the bankroll when it appears. Golden Joker's
+        # $4 is listed there beside the blind's reward; running these when the
+        # blind was beaten paid it a whole screen early.
+        for joker in list(self.jokers):
+            if joker.spec.round_end is not None:
+                joker.spec.round_end(joker, self)
 
         # Cashing out is also where the round's counters go back: the engine
         # already reads a full complement of hands and discards, and no chips
@@ -899,9 +913,6 @@ class GameState:
                         for i, j in enumerate(self.jokers) if not j.eternal]
             return actions
 
-        if self.phase is Phase.ROUND_EVAL:
-            return [Action(ActionType.CASH_OUT)]
-
         if self.phase is Phase.SHOP:
             assert self.shop is not None
             actions = [Action(ActionType.LEAVE_SHOP)]
@@ -1048,9 +1059,6 @@ class GameState:
                         and not self.jokers[index].eternal)
             return False
 
-        if self.phase is Phase.ROUND_EVAL:
-            return [Action(ActionType.CASH_OUT)]
-
         if self.phase is Phase.SHOP:
             shop = self.shop
             if shop is None:
@@ -1160,7 +1168,10 @@ class GameState:
         elif t is ActionType.SKIP_PACK:
             self._close_pack()
         elif t is ActionType.CASH_OUT:
-            self._cash_out()
+            # A no-op: beating a blind cashes out by itself. Kept as an action
+            # so a caller written against the old shape is not broken, and so
+            # it reads as deliberate rather than missing.
+            pass
         elif t is ActionType.LEAVE_SHOP:
             self._leave_shop()
         else:  # pragma: no cover
