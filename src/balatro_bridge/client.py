@@ -309,9 +309,13 @@ class BalatroBridge:
         def paid(state):
             if cost > 0:
                 return state["dollars"] <= money - cost
-            shop = state.get("shop") or []
-            return bool(shop) and not any(
-                i["area"] == area and i["index"] == index for i in shop)
+            # A free item pays nothing, so there is no money to watch. The old
+            # fallback -- "the item is no longer at that index" -- is wrong
+            # rather than merely weak: buying out of a row re-indexes it, so
+            # the card behind the one just bought slides into the same index
+            # and the condition never comes true. Seltzer at $0 hung on this
+            # for the full timeout. Arrival is the honest signal for these.
+            return True
 
         def arrived(state):
             # The money leaves before the card lands, and until it has landed
@@ -374,9 +378,28 @@ class BalatroBridge:
         return self.state()
 
     def reroll(self) -> dict:
-        before = self.state()["dollars"]
+        """Reroll the shop and wait for the shelves to actually change.
+
+        Not for the money to move: a reroll is free under Chaos the Clown, and
+        the Reroll Surplus and Reroll Glut vouchers make it free again, so
+        watching the bankroll waits for something that never happens. What
+        always changes is the shelf -- the jokers on offer are replaced.
+        """
+        before = self.state()
+        money = before["dollars"]
+        shelf = [(i["area"], i["index"], i["center"])
+                 for i in (before.get("shop") or [])]
+
         self.command("reroll")
-        self.wait_for(lambda s: s["dollars"] != before, timeout=30.0)
+
+        def rerolled(state):
+            if state["dollars"] != money:
+                return True
+            current = [(i["area"], i["index"], i["center"])
+                       for i in (state.get("shop") or [])]
+            return bool(current) and current != shelf
+
+        self.wait_for(rerolled, timeout=30.0)
         return self.state()
 
     def _await_use(self, landed, timeout: float = 30.0) -> dict:
@@ -479,9 +502,16 @@ class BalatroBridge:
         if cards:
             self.wait_hand_dealt()
             self.select(cards)
-        before = len(self.state().get("consumables") or [])
+        # Watch *which* consumables are held, not how many. A card that
+        # consumes itself and creates another -- The Fool copying the last
+        # Tarot used -- leaves the count where it started, and in the headless
+        # engine the whole exchange happens inside a single pump, so there is
+        # no moment when the count is down by one to be observed. Polling the
+        # length there waits forever for a card that was used immediately.
+        before = list(self.state().get("consumables") or [])
         self.command("use_consumable", index)
-        self._await_use(lambda s: len(s.get("consumables") or []) != before)
+        self._await_use(
+            lambda s: list(s.get("consumables") or []) != before)
         # A consumable that *creates* one moves the count twice: The Fool
         # removes itself, which satisfies the wait above, and only then does
         # the copy it made arrive. Returning on the first change leaves the new

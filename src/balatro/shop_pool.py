@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from .consumable_data import CONSUMABLE_DATA, EXCLUDED_FROM_POOLS
 from .joker_data import JOKER_DATA, pool_for_rarity
 from .rng import RunRng
 
@@ -92,6 +93,50 @@ def draw_joker(rng: RunRng, ante: int, owned_enhancements: Iterable[str] = (),
     pool = build_pool(rarity, owned_enhancements, seen_jokers, showman,
                       pool_flags)
     key = "Joker%d%d" % (rarity, ante)
+    center = rng.random_element(pool, key)
+    attempt = 1
+    while center == UNAVAILABLE:
+        attempt += 1
+        center = rng.random_element(pool, "%s_resample%d" % (key, attempt))
+    return center
+
+
+# --------------------------------------------------------------------------
+# consumables
+# --------------------------------------------------------------------------
+
+def build_consumable_pool(card_set: str, played_hands: Iterable[str] = (),
+                          seen: Iterable[str] = (), showman: bool = False
+                          ) -> list[str]:
+    """A Tarot, Planet or Spectral pool, blanked the same way as jokers.
+
+    The rule worth knowing is the Planet softlock: Planet X, Ceres and Eris
+    are only in the pool once the hand they level has been played. A run that
+    has never made a Five of a Kind is never offered the card for it, so a
+    simulator that ignores this hands out deck-defining cards for hands the
+    player cannot yet make.
+    """
+    played = set(played_hands)
+    already = set(seen)
+    pool = []
+    for key, name, _order, softlock, hand_type in CONSUMABLE_DATA[card_set]:
+        if name in EXCLUDED_FROM_POOLS:
+            pool.append(UNAVAILABLE)          # The Soul, Black Hole
+        elif softlock and hand_type not in played:
+            pool.append(UNAVAILABLE)          # Planet X before a Five of a Kind
+        elif key in already and not showman:
+            pool.append(UNAVAILABLE)
+        else:
+            pool.append(key)
+    return pool
+
+
+def draw_consumable(rng: RunRng, card_set: str, ante: int,
+                    played_hands: Iterable[str] = (),
+                    seen: Iterable[str] = (), showman: bool = False) -> str:
+    """One consumable, as the game would roll it."""
+    pool = build_consumable_pool(card_set, played_hands, seen, showman)
+    key = "%s%d" % (card_set, ante)
     center = rng.random_element(pool, key)
     attempt = 1
     while center == UNAVAILABLE:

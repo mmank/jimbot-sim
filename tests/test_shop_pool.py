@@ -24,7 +24,8 @@ import pytest
 
 from balatro.joker_data import JOKER_DATA, pool_for_rarity
 from balatro.rng import RunRng
-from balatro.shop_pool import GATES, build_pool, draw_joker, roll_rarity
+from balatro.shop_pool import (GATES, build_consumable_pool, build_pool,
+                               draw_consumable, draw_joker, roll_rarity)
 from balatro_headless.runtime import HeadlessBalatro
 
 SEEDS = ["TESTSEED", "ABCD1234", "7EVEN", "XYZZY"]
@@ -75,6 +76,14 @@ def _pool_flags(engine):
                       'do if v then t[#t+1] = k end end '
                       'return table.concat(t, " ")')
     return raw.split()
+
+
+def _played_hands(engine):
+    """Hand types the run has actually made, which gate the Planet pool."""
+    raw = _ev(engine, 'local t = {} for k, v in pairs(G.GAME.hands) do '
+                      'if (v.played or 0) > 0 then t[#t+1] = k end end '
+                      'return table.concat(t, "|")')
+    return [h for h in raw.split("|") if h]
 
 
 def _engine_draws_a_joker(engine):
@@ -168,3 +177,66 @@ def test_gros_michel_and_cavendish_swap_places(engine):
     extinct = build_pool(1, pool_flags=("gros_michel_extinct",))
     assert gros not in extinct
     assert cavendish in extinct
+
+
+# --------------------------------------------------------------------------
+# consumables
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("card_set", ["Tarot", "Planet", "Spectral"])
+def test_python_predicts_the_consumable_the_shop_offers(engine, card_set):
+    """Six consecutive draws per set, compared by key."""
+    _start(engine, "TESTSEED")
+    for index in range(6):
+        rng = _synced_rng(engine, "TESTSEED")
+        predicted = draw_consumable(rng, card_set, 1,
+                                    played_hands=_played_hands(engine),
+                                    seen=_seen_jokers(engine))
+        actual = _ev(engine,
+                     'local c = create_card("%s", G.consumeables, nil, nil, '
+                     'true) return c.config.center.key' % card_set)
+        assert predicted == actual, "%s draw %d" % (card_set, index)
+
+
+def test_a_planet_is_locked_until_its_hand_is_played():
+    """Planet X, Ceres and Eris are absent until the hand has been made.
+
+    This is a real constraint on what a run can be offered, not a nicety: a
+    simulator that ignores it hands out the card for Five of a Kind to a deck
+    that has never made one.
+    """
+    common = ["High Card", "Pair", "Two Pair", "Three of a Kind", "Straight",
+              "Flush", "Full House", "Four of a Kind", "Straight Flush"]
+    without = build_consumable_pool("Planet", played_hands=common)
+    assert "c_planet_x" not in without
+    assert "c_ceres" not in without
+    assert "c_eris" not in without
+
+    with_all = build_consumable_pool("Planet", played_hands=common + [
+        "Five of a Kind", "Flush House", "Flush Five"])
+    assert "c_planet_x" in with_all
+    assert len(without) == len(with_all) == 12
+
+
+def test_the_special_planets_get_no_probability_boost():
+    """Once unlocked they are drawn like any other Planet, not more often.
+
+    Worth pinning: the centers carry a `freq` field that looks like a weight,
+    and it is 1 for every planet and never read by the pool code.
+    """
+    from collections import Counter
+
+    played = ["High Card", "Pair", "Two Pair", "Three of a Kind", "Straight",
+              "Flush", "Full House", "Four of a Kind", "Straight Flush",
+              "Five of a Kind", "Flush House", "Flush Five"]
+    rng = RunRng("TESTSEED")
+    counts = Counter(draw_consumable(rng, "Planet", 1, played_hands=played)
+                     for _ in range(3000))
+    special = sum(counts[k] for k in ("c_planet_x", "c_ceres", "c_eris"))
+    assert 0.20 < special / 3000 < 0.30, "expected about 3 in 12"
+
+
+def test_black_hole_and_the_soul_never_come_from_a_pool():
+    """They have their own path; drawing them normally would be wrong."""
+    assert "c_black_hole" not in build_consumable_pool("Spectral")
+    assert "c_soul" not in build_consumable_pool("Spectral")
