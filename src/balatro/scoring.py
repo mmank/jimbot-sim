@@ -105,7 +105,7 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     ctx.add_mult(mult, result.hand.label)
 
     for joker, spec in pairs:
-        if spec.update is not None:
+        if spec.update is not None and spec.update_before_scoring:
             spec.update(joker, ctx)
 
     for card in result.scoring:
@@ -138,6 +138,14 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
         if spec.independent is not None:
             spec.independent(joker, ctx)
         _apply_edition(joker.edition, ctx, joker.name)
+
+    # Scaling jokers grow *after* the hand they are part of, which the game
+    # does under context.after. Running it first cost Ice Cream five chips on
+    # every hand including its first, and would have done the same to Square
+    # Joker and Runner the moment a hand met their condition.
+    for joker, spec in pairs:
+        if spec.update is not None and not spec.update_before_scoring:
+            spec.update(joker, ctx)
 
     return ctx
 

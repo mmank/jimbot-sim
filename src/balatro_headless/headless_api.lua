@@ -105,7 +105,16 @@ function api.pump(frames)
           -- can_use_consumeable compares against mod_num -- so without this
           -- every targeting tarot in the engine raised "attempt to compare
           -- number with nil" the moment the game asked whether it was usable.
-          if api.update_cards then
+          -- Jokers always update, whatever api.update_cards says. Eight of
+          -- them keep scoring state in Card:update rather than in a scoring
+          -- hook -- Swashbuckler recomputes its mult from the other jokers'
+          -- sell value there, and Temperance, Throwback, Ectoplasm, Hex and
+          -- The Wheel of Fortune are the same shape. Skipping it left lone
+          -- Swashbuckler paying its center default of +1 mult instead of +0,
+          -- which no recording caught because none of them buy one. There are
+          -- never more than five jokers, so this costs nothing next to the
+          -- fifty-two cards in the deck.
+          if api.update_cards or area == G.jokers then
             for _, card in ipairs(area.cards) do
               card:update(DT * G.SPEEDFACTOR)
             end

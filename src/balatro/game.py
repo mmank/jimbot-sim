@@ -117,6 +117,7 @@ class GameState:
     joker_slots: int = BASE_JOKER_SLOTS
 
     blind: Blind | None = None
+    hands_played: int = 0          # total for the run, as G.GAME.hands_played
     chips_scored: int = 0
     hands_left: int = 0
     discards_left: int = 0
@@ -349,6 +350,7 @@ class GameState:
         result = self.evaluate_selection(played)
 
         self.hands_left -= 1
+        self.hands_played += 1
         self.hand_levels.plays[result.hand] += 1
 
         ctx = score_hand(self, result, played, held)

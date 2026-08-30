@@ -42,12 +42,15 @@ HELD = [Card(Rank.TWO, D), Card(Rank.FIVE, C), Card(Rank.SEVEN, H),
 # Known-wrong, each with the reason. An xfail here is a bug with a name, not a
 # joker quietly excused: when one is fixed the test fails as XPASS and the
 # entry has to come out.
+# Only genuinely-wrong jokers belong here. Four of the original five left for
+# other reasons and are worth remembering, because none was what it looked
+# like: Ice Cream and Runner were real (fixed in the simulator), Supernova was
+# the harness scoring without counting the hand, and Swashbuckler was the
+# *engine* being wrong -- headless had per-card updates disabled, and
+# Swashbuckler keeps its mult in Card:update, so the oracle itself was lying.
 KNOWN_BAD = {
-    "Ice Cream": "decrements its chips before scoring; the game does it after",
-    "Misprint": "rolls its own RNG, not the game's 'misprint' pool",
-    "Runner": "adds its bonus with no straight played",
-    "Supernova": "counts hands played before this one; the game includes it",
-    "Swashbuckler": "ignores its own sell value in the total",
+    "Misprint": "draws from the game's 'misprint' pool, whose state this "
+                "harness does not yet synchronise -- see test_rng.py",
 }
 NEEDS_SETUP = {"Steel Joker": "scales on steel cards in the deck; none here"}
 
@@ -81,7 +84,10 @@ def _sim_score(name: str, state: dict) -> int:
     game.hands_left = state["hands_left"]
     game.money = state["money"]
     game.draw_pile = standard_deck()[:state["draw_pile"]]
-    return score_hand(game, evaluate(PLAYED), PLAYED, HELD).score
+    result = evaluate(PLAYED)
+    game.hand_levels.plays[result.hand] = state["pair_plays"]
+    game.hands_played = state["hands_played"]
+    return score_hand(game, result, PLAYED, HELD).score
 
 
 def _engine_state(engine) -> dict:
@@ -91,6 +97,12 @@ def _engine_state(engine) -> dict:
         "hands_left": read("G.GAME.current_round.hands_left"),
         "money": read("G.GAME.dollars"),
         "draw_pile": read("#G.deck.cards"),
+        # The game counts the hand being played before the jokers score it, so
+        # Supernova sees 1 on its first Pair, not 0. GameState._play does the
+        # same; scoring directly here would not.
+        "pair_plays": read('G.GAME.hands["Pair"].played') + 1,
+        # Loyalty Card measures from hands played, not a counter of its own.
+        "hands_played": read("G.GAME.hands_played"),
     }
 
 

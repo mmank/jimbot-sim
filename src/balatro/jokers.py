@@ -45,6 +45,12 @@ class JokerSpec:
     cost: int = 0
     init_counter: float = 0.0
     update: UpdateHook | None = None
+    # When `update` runs relative to the hand it is part of. The game is not
+    # consistent about this and the difference is visible on the very first
+    # hand: Ice Cream, Runner and Square Joker grow under context.after, so
+    # they score their old value, while Green Joker increments while the last
+    # played card is scoring and so pays its new one immediately.
+    update_before_scoring: bool = False
     scored: ScoredHook | None = None
     held: HeldHook | None = None
     independent: IndepHook | None = None
@@ -64,6 +70,9 @@ class JokerInstance:
     edition: Edition = Edition.NONE
     counter: float = 0.0
     eternal: bool = False
+    # Jokers that count hands measure from when they were acquired, not from
+    # the start of the run -- the game stores this as hands_played_at_create.
+    hands_at_create: int = 0
 
     def __post_init__(self) -> None:
         if self.counter == 0.0:
@@ -249,12 +258,12 @@ register("Ride the Bus", Rarity.COMMON,
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
 
 register("Green Joker", Rarity.COMMON, "+1 Mult per hand played, -1 per discard", cost=4,
-         update=lambda j, ctx: _bump(j, 1),
+         update=lambda j, ctx: _bump(j, 1), update_before_scoring=True,
          discarded=lambda j, cards, g: _bump(j, -1, floor=0.0),
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
 
 register("Runner", Rarity.COMMON, "+15 Chips, gains +15 Chips per Straight played",
-         cost=5, init_counter=15.0,
+         cost=5, init_counter=0.0,   # the game starts extra.chips at 0
          update=lambda j, ctx: _bump(j, 15) if ctx.hand in CONTAINS_STRAIGHT else None,
          independent=lambda j, ctx: ctx.add_chips(j.counter, j.name))
 
@@ -365,9 +374,21 @@ register("Ramen", Rarity.UNCOMMON, "X2 Mult, -X0.01 per discarded card",
          discarded=lambda j, cards, g: _bump(j, -0.01 * len(cards), floor=1.0),
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 
+def _loyalty_remaining(j: "JokerInstance", game: "GameState") -> int:
+    """The game's own formula, not a modulo-6 counter.
+
+    loyalty_remaining = (every-1 - hands since created) % (every+1), with the
+    X4 firing when that equals `every`. A plain counter starting at zero fires
+    on the *first* hand instead of the sixth, which is what the simulator did.
+    """
+    every = 5
+    return (every - 1 - (game.hands_played - j.hands_at_create)) % (every + 1)
+
+
 register("Loyalty Card", Rarity.UNCOMMON, "X4 Mult every 6th hand played",
-         cost=5, update=lambda j, ctx: _bump(j, 1),
-         independent=lambda j, ctx: ctx.times_mult(4.0, j.name) if j.counter % 6 == 0 else None)
+         cost=5,
+         independent=lambda j, ctx: ctx.times_mult(4.0, j.name)
+         if _loyalty_remaining(j, ctx.game) == 5 else None)
 
 register("Hologram", Rarity.UNCOMMON, "X0.25 Mult per playing card added to your deck",
          cost=7, init_counter=1.0,
