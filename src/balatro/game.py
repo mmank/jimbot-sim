@@ -312,7 +312,11 @@ class GameState:
         self.discards_left = discards
 
         self.draw_pile = list(self.full_deck)
-        self.rng.shuffle(f"deck_{self.round_number}", self.draw_pile)
+        # The game shuffles with pseudoseed("nr" .. ante) at the start of a
+        # round, and draws from the end of the result. The pool is named by
+        # the ante, not the round, so the two blinds of an ante draw from the
+        # same stream at different points in it.
+        self.rng.shuffle(self.draw_pile, f"nr{self.ante}")
         self.hand = []
         self.discard_pile = []
         self._apply_debuffs()

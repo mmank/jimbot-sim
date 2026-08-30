@@ -130,6 +130,23 @@ class Card:
         return f"<{body}{marks}>"
 
 
+# The order the game builds a deck in, which is also its sort_id order. It is
+# not a playing order at all: the game keys its cards "C_2", "C_A", "C_T" and
+# so on, and lays them out in the alphabetical order of those keys. So suits
+# run Clubs, Diamonds, Hearts, Spades -- and within a suit the ranks run
+# 2..9, then Ace, Jack, King, Queen, Ten, because that is A, J, K, Q, T.
+#
+# This matters because the round's shuffle runs over this list. A deck built
+# in any other order shuffles reproducibly into a different deck, and every
+# hand of the run is then wrong from the same seed while every rule stays
+# right -- the failure that is hardest to see.
+DECK_SUIT_ORDER = (Suit.CLUBS, Suit.DIAMONDS, Suit.HEARTS, Suit.SPADES)
+DECK_RANK_ORDER = (Rank.TWO, Rank.THREE, Rank.FOUR, Rank.FIVE, Rank.SIX,
+                   Rank.SEVEN, Rank.EIGHT, Rank.NINE, Rank.ACE, Rank.JACK,
+                   Rank.KING, Rank.QUEEN, Rank.TEN)
+
+
 def standard_deck() -> list[Card]:
-    """The 52-card Red/Blue deck contents."""
-    return [Card(rank, suit) for suit in Suit for rank in Rank]
+    """The 52-card Red/Blue deck, in the game's own build order."""
+    return [Card(rank, suit)
+            for suit in DECK_SUIT_ORDER for rank in DECK_RANK_ORDER]
