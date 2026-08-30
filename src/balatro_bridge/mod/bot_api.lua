@@ -21,6 +21,7 @@ local BotAPI = {}
 
 local KEY_INDEX, KEY_ORDER
 local TAG_INDEX, TAG_ORDER
+local BLIND_INDEX, BLIND_ORDER
 
 -- Editions and seals are a large part of what a card is worth -- polychrome is
 -- x1.5 on the whole hand, negative is a whole extra joker slot, a gold seal is
@@ -109,6 +110,26 @@ local function tag_index()
 end
 
 local function tag_id(key) return (key and tag_index()[key]) or 0 end
+
+--- Blinds have their own table too, G.P_BLINDS, so key_id cannot see them --
+--- the same way it could not see tags. Asking it for a boss returned 0 for
+--- every boss there is, which reads as "no boss" rather than as an error.
+local function blind_index()
+  if BLIND_INDEX then return BLIND_INDEX end
+  BLIND_INDEX, BLIND_ORDER = {}, {}
+  for key in pairs(G.P_BLINDS) do BLIND_ORDER[#BLIND_ORDER + 1] = key end
+  table.sort(BLIND_ORDER)
+  for i, key in ipairs(BLIND_ORDER) do BLIND_INDEX[key] = i end
+  return BLIND_INDEX
+end
+
+local function blind_id(key) return (key and blind_index()[key]) or 0 end
+
+--- The blind vocabulary, so the client can size a one-hot over it.
+function BotAPI.blind_list()
+  blind_index()
+  return table.concat(BLIND_ORDER, ",")
+end
 
 --- The tag vocabulary, so the client can size a one-hot over it. Tags are in
 --- G.P_TAGS, a different table from P_CENTERS -- which is why asking key_id
@@ -477,6 +498,37 @@ function BotAPI.state()
     -- The tag on offer for the blind on deck. Skipping is a trade -- no money
     -- and no chips, in exchange for this -- so it has to be visible before the
     -- decision, not after.
+    -- The run info screen's blind list: what each blind of this ante asks for,
+    -- what it pays, whether it is still to come -- and which boss it is.
+    --
+    -- A player checks this constantly, because the boss decides what to build
+    -- for: The Wall wants twice the score, The Needle gives one hand, The
+    -- Water takes the discards. Knowing it while there is still a shop to
+    -- spend in is most of preparing for it, and none of it was visible.
+    blinds = (function()
+      local out = {}
+      if not in_run then return out end
+      local resets = G.GAME.round_resets
+      for i, kind in ipairs({ "Small", "Big", "Boss" }) do
+        local key = resets.blind_choices and resets.blind_choices[kind]
+        local proto = key and G.P_BLINDS[key]
+        local state = (resets.blind_states and resets.blind_states[kind]) or ""
+        out[i] = {
+          kind = kind,
+          blind = blind_id(key),
+          -- The requirement, in chips, as the run info screen states it.
+          chips = (proto and math.floor(
+            get_blind_amount(resets.ante) * (proto.mult or 1)
+            * G.GAME.starting_params.ante_scaling)) or 0,
+          reward = (proto and proto.dollars) or 0,
+          -- Upcoming, current, defeated, skipped or hidden.
+          defeated = (state == "Defeated") and 1 or 0,
+          skipped = (state == "Skipped") and 1 or 0,
+          current = (state == "Current") and 1 or 0,
+        }
+      end
+      return out
+    end)(),
     offered_tag = in_run and tag_id(
       G.GAME.round_resets.blind_tags[blind_on_deck()]) or 0,
     -- "The shop has dealt", not "the joker row is non-empty". Buying the
