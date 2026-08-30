@@ -363,29 +363,39 @@ def do_record(args) -> None:
     # watching is to see that what you did is what got captured.
     print(f"  {'#':>3}  {'action':<12} {'detail':<34} state\n")
     actions: list[dict] = []
+    ended = "you stopped it"
     try:
         while True:
             time.sleep(0.4)
-            drain(actions)
+            try:
+                drain(actions)
+            except Exception as error:            # noqa: BLE001
+                # The game window closing is the ordinary way a session ends,
+                # and it arrives as whatever the socket felt like raising. A
+                # recording someone just spent an hour making is not worth
+                # losing to an exception type nobody predicted, so anything
+                # from the poll ends the loop and falls through to the save.
+                ended = f"the game went away ({type(error).__name__})"
+                break
     except KeyboardInterrupt:
         print()
 
-    # Anything between the last poll and the interrupt. Never let a failure
-    # here lose a recording the player just spent time making.
+    # Anything between the last poll and the end. Never let a failure here
+    # lose a recording the player just spent time making.
     try:
         drain(actions)
-    except (BridgeError, OSError) as error:
+    except Exception as error:                    # noqa: BLE001
         print(f"  (could not fetch the last actions: {error})")
     try:
         bridge.command("stop_recording")
-    except (BridgeError, OSError):
+    except Exception:                             # noqa: BLE001
         pass
 
     payload = {"seed": info["seed"], "deck": info["deck"],
                "money": args.money, "stake": args.stake,
                "start": normalise(info["start"]), "actions": actions}
     args.out.write_text(json.dumps(payload, indent=1), encoding="utf-8")
-    print(f"saved {len(actions)} actions to {args.out}")
+    print(f"saved {len(actions)} actions to {args.out} ({ended})")
 
 
 # ---------------------------------------------------------------- replay
