@@ -572,21 +572,42 @@ register("Shoot the Moon", Rarity.COMMON,
          if c.rank is Rank.QUEEN and not c.debuffed else None)
 
 
-def _raised_fist(j: JokerInstance, ctx: ScoreContext) -> None:
-    """Double the rank of the lowest card held in hand.
+def _lowest_held(ctx: ScoreContext) -> Card | None:
+    """The card Raised Fist points at.
 
-    "Rank" is the card's chip value, so an Ace is 11 and counts as the highest
-    rather than the lowest. Stone cards have no rank and are skipped.
+    The game walks the hand front to back keeping any card whose id is <= the
+    best so far, so on a tie the *rightmost* of the equal-lowest cards wins.
+    Taking the first minimum instead is invisible until the two differ --
+    until one of them is debuffed, or Mime is retriggering whichever was
+    chosen. Stone cards have no rank and are skipped; a Steel card is not,
+    and can perfectly well be the lowest.
     """
-    ranked = [c for c in ctx.held if not c.is_stone and not c.debuffed]
-    if ranked:
-        lowest = min(ranked, key=lambda c: c.rank.value)
-        ctx.add_mult(2 * lowest.rank.chips, j.name)
+    chosen, best = None, 15
+    for card in ctx.held:
+        if card.is_stone:
+            continue
+        if card.rank.value <= best:
+            chosen, best = card, card.rank.value
+    return chosen
+
+
+def _raised_fist(j: JokerInstance, card: Card, ctx: ScoreContext) -> None:
+    """Add double that card's nominal value, once it is the one being held.
+
+    This is a held-card trigger rather than an independent one, which is what
+    makes Mime retrigger it: Mime repeats abilities of cards held in hand, and
+    Raised Fist's mult is attached to the card it points at.
+    """
+    if card is not _lowest_held(ctx):
+        return
+    if card.debuffed:      # a debuffed choice pays nothing; it does not
+        return             # fall through to the next lowest card
+    ctx.add_mult(2 * card.rank.chips, j.name)
 
 
 register("Raised Fist", Rarity.COMMON,
          "Adds double the rank of the lowest card held in hand to Mult",
-         cost=5, independent=_raised_fist)
+         cost=5, held=_raised_fist)
 
 register("Acrobat", Rarity.UNCOMMON, "X3 Mult on the final hand of the round",
          cost=6,
