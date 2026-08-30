@@ -131,6 +131,7 @@ KNOWN_BAD = {
     # does not synchronise, so the two engines roll different numbers while
     # agreeing about the rule. They are the same blocker as the lucky cards in
     # test_retriggers.py, and all of them come good once pools are shared.
+    "8 Ball": "rolls 1 in 4 per played 8 from the game's pool",
     "Bloodstone": "rolls 1 in 2 per Heart from the game's pool",
     "Business Card": "rolls 1 in 2 per face card from the game's pool",
     "Reserved Parking": "rolls 1 in 2 per held face card from the game's pool",
@@ -177,7 +178,6 @@ NOT_A_SCORING_EFFECT = {
     # cannot see them however many hands it plays. Listed one by one
     # rather than waved through as a group, so that anything wrongly
     # believed to be non-scoring has to be argued for individually.
-    '8 Ball': 'creates a Tarot on a played 8; makes no chips or mult',
     'Astronomer': 'makes shop Planets free',
     'Burglar': 'trades discards for hands when the Blind is selected',
     'Burnt Joker': 'upgrades the first discarded hand of a round',
@@ -205,13 +205,10 @@ NOT_A_SCORING_EFFECT = {
     'Satellite': 'pays per unique Planet used at the end of a round',
     'Showman': 'lets duplicates appear in the shop',
     'Sixth Sense': 'destroys a lone first-hand 6 and makes a Spectral',
-    'Superposition': 'creates a Tarot on an Ace plus a Straight',
-    'Séance': 'creates a Spectral on a Straight Flush',
     'To the Moon': 'adds interest at the end of a round',
     'Trading Card': 'pays on a lone first discard',
     'Troubadour': 'changes hand size and hands',
     'Turtle Bean': 'changes hand size',
-    'Vagabond': 'creates a Tarot when playing while poor',
 
     "Driver's License": "needs 16 enhanced cards in the deck, which no "
                         "scenario here builds",
@@ -337,10 +334,18 @@ def _engine_score(engine, case, key):
     engine.execute("api.pump(20)")
     scene.select(case.play)
     state = _engine_state(engine)
-    before = int(engine.eval("(function() return G.GAME.dollars end)()"))
+    read_money = lambda: int(
+        engine.eval("(function() return G.GAME.dollars end)()"))
+    read_cons = lambda: int(
+        engine.eval("(function() return #G.consumeables.cards end)()"))
+    money_before, cons_before = read_money(), read_cons()
     score = scene.play()
-    after = int(engine.eval("(function() return G.GAME.dollars end)()"))
-    return (score, after - before), state
+    # Consumables created are the third thing a joker can do with a hand, and
+    # the only one 8 Ball, Superposition, Séance and Vagabond do at all --
+    # comparing score and money alone called them verified without ever
+    # running them, exactly as it did Rough Gem before money was added.
+    return (score, read_money() - money_before,
+            read_cons() - cons_before), state
 
 
 _BOSS_BY_NAME = {b.name: b for b in BOSSES + FINISHER_BOSSES}
@@ -392,10 +397,14 @@ def _sim_score(name, case, state):
                       four_fingers=game._four_fingers(),
                       shortcut=game._shortcut())
     game.hand_levels.plays[result.hand] = state["plays"]
+    before = len(game.consumables)
     ctx = score_hand(game, result, played, held)
-    # Rough Gem and Golden Ticket change no score at all -- they pay money.
-    # Comparing only the score called them verified while never running them.
-    return ctx.score, ctx.money_gained
+    for joker in list(game.jokers):
+        if joker.spec.after_hand is not None:
+            joker.spec.after_hand(joker, ctx)
+    # Rough Gem and Golden Ticket change no score at all -- they pay money --
+    # and the creation jokers change neither.
+    return ctx.score, ctx.money_gained, len(game.consumables) - before
 
 
 @pytest.fixture(scope="module")
@@ -429,7 +438,7 @@ def test_joker_scores_what_the_engine_scores(engine, joker_keys, baselines, name
         expected, state = _engine_score(engine, case, key)
         actual = _sim_score(name, case, state)
         assert expected == actual, (
-            "%s on %r: engine scored %s, simulator %s (score, money)"
+            "%s on %r: engine %s, simulator %s (score, money, consumables)"
             % (name, case.name, expected, actual))
         if expected != baselines[case.name]:
             active.append(case.name)

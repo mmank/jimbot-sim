@@ -11,7 +11,10 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import TYPE_CHECKING, Callable
 
-from .cards import Card, Edition, Enhancement, Rank, Suit
+from .cards import Card, Edition, Enhancement, Rank, Seal, Suit
+# consumables does not import jokers, so this direction is safe; shop
+# imports both.
+from .consumables import ConsumableKind
 from .effects import ScoreContext
 from .hands import HandType
 
@@ -58,6 +61,17 @@ class JokerSpec:
     discarded: DiscardHook | None = None
     retrigger_scored: RetriggerHook | None = None
     retrigger_held: RetriggerHook | None = None
+
+    # Triggers outside the scoring of a hand. The game fires these at points
+    # the scoring pipeline never reaches, and a joker whose whole effect lives
+    # here scores nothing -- which is why they were invisible to the
+    # differential and had to be listed as unbuilt rather than assumed done.
+    on_blind_select: RoundHook | None = None   # Cartomancer, Marble Joker
+    on_round_start: RoundHook | None = None    # Certificate
+    on_sell: RoundHook | None = None           # Diet Cola, Luchador
+    before_hand: object = None                 # DNA, Sixth Sense
+    after_hand: IndepHook | None = None        # Superposition, Séance
+    on_first_discard: DiscardHook | None = None   # Burnt Joker, Trading Card
     copier: str | None = None  # "right" (Blueprint) or "leftmost" (Brainstorm)
     # The shop will not offer these unless the run already has a card with
     # that enhancement -- no Lucky Cat without a lucky card. Taken from the
@@ -91,6 +105,8 @@ class JokerInstance:
     # Jokers that count hands measure from when they were acquired, not from
     # the start of the run -- the game stores this as hands_played_at_create.
     hands_at_create: int = 0
+    # Egg grows this on its own; Gift Card grows every joker's.
+    extra_sell_value: float = 0.0
 
     def __post_init__(self) -> None:
         if self.counter == 0.0:
@@ -102,7 +118,7 @@ class JokerInstance:
 
     @property
     def sell_value(self) -> int:
-        return max(1, self.spec.cost // 2)
+        return max(1, self.spec.cost // 2) + int(self.extra_sell_value)
 
     def __repr__(self) -> str:
         tag = "" if self.edition is Edition.NONE else f"[{self.edition.value}]"
@@ -858,10 +874,17 @@ register("Satellite", Rarity.UNCOMMON,
          cost=6,
          round_end=_round_money(lambda j, g: len(g.unique_planets)))
 register("Egg", Rarity.COMMON, "Gains $3 of sell value at end of round",
-         cost=4, round_end=lambda j, g: _bump(j, 3))
+         cost=4,
+         round_end=lambda j, g: setattr(j, "extra_sell_value",
+                                        j.extra_sell_value + 3))
+def _gift_card(j: JokerInstance, game: "GameState") -> None:
+    for other in game.jokers:
+        other.extra_sell_value += 1
+
+
 register("Gift Card", Rarity.UNCOMMON,
          "Adds $1 of sell value to every Joker and Consumable at end of round",
-         cost=6)
+         cost=6, round_end=_gift_card)
 register("Delayed Gratification", Rarity.COMMON,
          "Earn $2 per discard if no discards are used by end of the round",
          cost=4,
@@ -909,38 +932,98 @@ register("Diet Cola", Rarity.UNCOMMON,
 # cannot yet make the card, so that the trigger is already right when creation
 # arrives rather than being guessed at then.
 
+def _marble(j: JokerInstance, game: "GameState") -> None:
+    game.add_card(Card(Rank.ACE, Suit.SPADES,
+                       enhancement=Enhancement.STONE))
+
+
 register("Marble Joker", Rarity.UNCOMMON,
-         "Adds one Stone card to the deck when Blind is selected", cost=6)
+         "Adds one Stone card to the deck when Blind is selected", cost=6,
+         on_blind_select=_marble)
 register("Cartomancer", Rarity.UNCOMMON,
-         "Create a Tarot card when Blind is selected", cost=6)
+         "Create a Tarot card when Blind is selected", cost=6,
+         on_blind_select=lambda j, g: g.add_consumables(
+             g.random_consumables(ConsumableKind.TAROT, 1)))
+def _certificate(j: JokerInstance, game: "GameState") -> None:
+    card = Card(game.rng.choice("cert_rank", list(Rank)),
+                game.rng.choice("cert_suit", list(Suit)),
+                seal=game.rng.choice("cert_seal", [Seal.GOLD, Seal.RED,
+                                                   Seal.BLUE, Seal.PURPLE]))
+    game.hand.append(card)
+
+
 register("Certificate", Rarity.UNCOMMON,
          "When the round begins, add a random playing card with a random seal "
-         "to your hand", cost=6)
+         "to your hand", cost=6, on_round_start=_certificate)
+def _riff_raff(j: JokerInstance, game: "GameState") -> None:
+    for _ in range(2):
+        game.add_random_joker("Riff-Raff", Rarity.COMMON)
+
+
 register("Riff-Raff", Rarity.COMMON,
-         "When Blind is selected, create 2 Common Jokers", cost=6)
+         "When Blind is selected, create 2 Common Jokers", cost=6,
+         on_blind_select=_riff_raff)
 register("8 Ball", Rarity.COMMON,
          "1 in 4 chance for each played 8 to create a Tarot card when scored",
-         cost=5)
+         cost=5,
+         scored=lambda j, c, ctx: ctx.game.add_consumables(
+             ctx.game.random_consumables(ConsumableKind.TAROT, 1))
+         if c.rank is Rank.EIGHT and not c.is_stone
+         and _chance(ctx, "8ball", 1, 4) else None)
 register("Hallucination", Rarity.COMMON,
          "1 in 2 chance to create a Tarot card when a Booster Pack is opened",
          cost=4)
 register("Superposition", Rarity.COMMON,
          "Create a Tarot card if the poker hand contains an Ace and a Straight",
-         cost=4)
+         cost=4,
+         after_hand=lambda j, ctx: ctx.game.add_consumables(
+             ctx.game.random_consumables(ConsumableKind.TAROT, 1))
+         if ctx.hand in CONTAINS_STRAIGHT
+         and any(c.rank is Rank.ACE for c in ctx.scoring) else None)
 register('Séance', Rarity.UNCOMMON,
          "If the poker hand is a Straight Flush, create a random Spectral card",
-         cost=6)
+         cost=6,
+         after_hand=lambda j, ctx: ctx.game.add_consumables(
+             ctx.game.random_consumables(ConsumableKind.SPECTRAL, 1))
+         if ctx.hand is HandType.STRAIGHT_FLUSH else None)
 register("Vagabond", Rarity.RARE,
-         "Create a Tarot card if a hand is played with $4 or less", cost=8)
+         "Create a Tarot card if a hand is played with $4 or less", cost=8,
+         after_hand=lambda j, ctx: ctx.game.add_consumables(
+             ctx.game.random_consumables(ConsumableKind.TAROT, 1))
+         if ctx.game.money <= 4 else None)
+def _sixth_sense(j: JokerInstance, played: list, game: "GameState") -> None:
+    if len(played) == 1 and played[0].rank is Rank.SIX:
+        game.remove_card(played[0])
+        game.add_consumables(
+            game.random_consumables(ConsumableKind.SPECTRAL, 1))
+
+
 register("Sixth Sense", Rarity.UNCOMMON,
          "If the first hand of a round is a single 6, destroy it and create a "
-         "Spectral card", cost=6)
+         "Spectral card", cost=6, before_hand=_sixth_sense)
+def _dna(j: JokerInstance, played: list, game: "GameState") -> None:
+    if len(played) == 1:
+        copy = played[0].copy()
+        game.full_deck.append(copy)
+        game.hand.append(copy)
+
+
 register("DNA", Rarity.RARE,
          "If the first hand of a round has only 1 card, add a permanent copy "
-         "to the deck and draw it to hand", cost=8)
+         "to the deck and draw it to hand", cost=8, before_hand=_dna)
+def _trading_card(j: JokerInstance, cards: list, game: "GameState") -> None:
+    if len(cards) == 1:
+        game.remove_card(cards[0])
+        game.add_money(3, "Trading Card")
+
+
 register("Trading Card", Rarity.UNCOMMON,
          "If the first discard of a round has only 1 card, destroy it and "
-         "earn $3", cost=6)
+         "earn $3", cost=6, on_first_discard=_trading_card)
+def _burnt(j: JokerInstance, cards: list, game: "GameState") -> None:
+    game.hand_levels.level_up(game.evaluate_selection(list(cards)).hand)
+
+
 register("Burnt Joker", Rarity.RARE,
          "Upgrade the level of the first discarded poker hand each round",
-         cost=8)
+         cost=8, on_first_discard=_burnt)

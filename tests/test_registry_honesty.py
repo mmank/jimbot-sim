@@ -25,8 +25,13 @@ saying so.
 
 from balatro.jokers import REGISTRY
 
+# Every hook a joker can carry. Kept in step with JokerSpec deliberately: a
+# hook missing from this list makes the jokers that use it look behaviourless,
+# which is how thirteen implemented jokers were briefly still counted hollow.
 HOOKS = ("update", "scored", "held", "independent", "round_end", "discarded",
-         "retrigger_scored", "retrigger_held", "copier")
+         "retrigger_scored", "retrigger_held", "copier",
+         "on_blind_select", "on_round_start", "on_sell", "before_hand",
+         "after_hand", "on_first_discard")
 DECLARATIONS = ("hand_size", "extra_hands", "extra_discards", "free_rerolls",
                 "debt_limit", "interest_bonus", "free_planets",
                 "allows_duplicates", "prevents_death",
@@ -40,12 +45,16 @@ READ_ELSEWHERE = {
     "Perkeo",                            # shop, on leaving
 }
 
-# Registered, triggers recorded, effect not yet built. Every one of these
-# creates a card or edits the deck.
+# Registered, triggers recorded, effect not yet built. Both are blocked on
+# machinery this engine does not have rather than on the joker itself, and
+# each one says which.
 NOT_YET_BUILT = {
-    "8 Ball", "Burnt Joker", "Cartomancer", "Certificate", "DNA",
-    "Diet Cola", "Gift Card", "Hallucination", "Marble Joker", "Riff-Raff",
-    "Sixth Sense", "Superposition", "S\u00e9ance", "Trading Card", "Vagabond",
+    # The tag pool here holds 8 of the game's 24 tags and Double Tag is not
+    # among them, so Diet Cola has nothing to leave behind when sold.
+    "Diet Cola",
+    # Nothing opens a Booster Pack in this engine yet, so the trigger has no
+    # moment to fire at.
+    "Hallucination",
 }
 
 
@@ -65,6 +74,26 @@ def test_the_hollow_jokers_are_the_ones_we_say_they_are():
 
 def test_nothing_claims_to_be_both():
     assert not (READ_ELSEWHERE & NOT_YET_BUILT)
+
+
+def test_the_hook_list_matches_the_spec():
+    """HOOKS must name every callable field JokerSpec has.
+
+    Otherwise this file measures hollowness against a stale list and reports
+    working jokers as unimplemented -- or, worse, the reverse.
+    """
+    import dataclasses
+
+    from balatro.jokers import JokerSpec
+
+    callable_fields = {
+        f.name for f in dataclasses.fields(JokerSpec)
+        if f.name not in {"name", "rarity", "text", "cost", "init_counter",
+                          "update_before_scoring"}
+        and f.name not in DECLARATIONS}
+    assert callable_fields == set(HOOKS), (
+        "JokerSpec and HOOKS disagree: %s"
+        % sorted(callable_fields ^ set(HOOKS)))
 
 
 def test_every_name_is_real():

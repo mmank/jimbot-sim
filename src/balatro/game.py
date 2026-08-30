@@ -288,7 +288,17 @@ class GameState:
         assert self.blind is not None
         self.round_number += 1
         self.chips_scored = 0
+        self.discards_used = 0
         self.hands_played_this_round = set()
+        # Selecting the blind is its own moment in the game, before any card
+        # is dealt: Marble Joker's Stone card is in the deck for the first
+        # draw, and Riff-Raff's Jokers are there for the first hand.
+        for joker in list(self.jokers):
+            if joker.spec.on_blind_select is not None:
+                joker.spec.on_blind_select(joker, self)
+        for joker in list(self.jokers):
+            if joker.spec.on_round_start is not None:
+                joker.spec.on_round_start(joker, self)
 
         hands = BASE_HANDS + sum(v.extra_hands for v in self.vouchers)
         hands += sum(j.spec.extra_hands for j in self.jokers)
@@ -388,11 +398,23 @@ class GameState:
         held = [c for i, c in enumerate(self.hand) if i not in indices]
         result = self.evaluate_selection(played)
 
+        # DNA and Sixth Sense act on the played cards before they score, and
+        # only on the round's first hand.
+        if self.hands_played_this_round == set():
+            for joker in list(self.jokers):
+                if joker.spec.before_hand is not None:
+                    joker.spec.before_hand(joker, played, self)
         self.hands_left -= 1
         self.hands_played += 1
         self.hand_levels.plays[result.hand] += 1
 
         ctx = score_hand(self, result, played, held)
+        # Jokers that make a card off the back of a hand -- Superposition,
+        # Séance, Vagabond -- run once the hand has resolved, so they can ask
+        # what it turned out to be.
+        for joker in list(self.jokers):
+            if joker.spec.after_hand is not None:
+                joker.spec.after_hand(joker, ctx)
         gained = ctx.score
         self.chips_scored += gained
         self.log(f"{result.hand.label} scored {gained} "
@@ -449,9 +471,15 @@ class GameState:
     def _discard(self, indices: tuple[int, ...]) -> None:
         cards = [self.hand[i] for i in indices]
         self.discards_left -= 1
+        first = self.discards_used == 0
+        self.discards_used += 1
         for joker in list(self.jokers):
             if joker.spec.discarded is not None:
                 joker.spec.discarded(joker, cards, self)
+        if first:
+            for joker in list(self.jokers):
+                if joker.spec.on_first_discard is not None:
+                    joker.spec.on_first_discard(joker, cards, self)
         for card in cards:
             if card.seal is Seal.PURPLE:
                 self.add_consumables(self.random_consumables(ConsumableKind.TAROT, 1))
@@ -895,9 +923,16 @@ class GameState:
         elif t is ActionType.SELL_JOKER:
             joker = self.jokers.pop(action.index)
             self.add_money(joker.sell_value, f"sold {joker.name}")
+            self.cards_sold += 1
+            # Selling is the whole point of some jokers -- Luchador disables
+            # the boss, Diet Cola leaves a tag behind -- so the effect fires
+            # after it has left the list, as the game does it.
+            if joker.spec.on_sell is not None:
+                joker.spec.on_sell(joker, self)
         elif t is ActionType.SELL_CONSUMABLE:
             spec = self.consumables.pop(action.index)
             self.add_money(max(1, spec.cost // 2), f"sold {spec.name}")
+            self.cards_sold += 1
         elif t is ActionType.BUY:
             self._buy(action.index)
         elif t is ActionType.BUY_VOUCHER:
