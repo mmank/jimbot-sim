@@ -31,6 +31,7 @@ from balatro.cards import Card, Edition, Enhancement, Rank, Seal, Suit, standard
 from balatro.game import GameState
 from balatro.hands import evaluate
 from balatro.jokers import make
+from balatro.rng import RunRng
 from balatro.scoring import score_hand
 from balatro_headless.runtime import HeadlessBalatro
 from balatro_headless.scenario import Scenario
@@ -210,12 +211,27 @@ def _engine_score(engine, combo, joker_keys):
         "money": read("G.GAME.dollars"),
         "draw_pile": read("#G.deck.cards"),
         "hands_played": read("G.GAME.hands_played"),
+        "rng_seed": engine.eval(
+            "(function() return tostring(G.GAME.pseudorandom.seed) end)()"),
+        "rng_pools": engine.eval(
+            "(function() local t = {} "
+            "for k, v in pairs(G.GAME.pseudorandom) do "
+            "  if type(v) == 'number' then "
+            "    t[#t+1] = k .. '=' .. string.format('%.17g', v) end "
+            "end return table.concat(t, ' ') end)()"),
     }
     return scene.play(), state
 
 
 def _sim_score(combo, state):
     game = GameState(seed=0)
+    # Lucky cards roll from the game's pools, so the simulator has to stand
+    # where the engine stands rather than merely roll at the same odds.
+    game.rng = RunRng(state["rng_seed"])
+    for entry in state["rng_pools"].split():
+        key, _, value = entry.partition("=")
+        if key != "hashed_seed":
+            game.rng.pools[key] = float(value)
     game.jokers = [make(n) for n in combo.jokers]
     played, held = combo.played, combo.held
     game.hand = played + held
@@ -234,8 +250,6 @@ def _sim_score(combo, state):
 
 @pytest.mark.parametrize("combo", COMBOS, ids=lambda c: c.name)
 def test_engines_agree(engine, joker_keys, combo):
-    if combo.rng_dependent:
-        pytest.xfail("draws from the game's RNG pools, not yet synchronised")
     expected, state = _engine_score(engine, combo, joker_keys)
     assert expected == _sim_score(combo, state), (
         "%s: engine %d, simulator %d" % (combo.name, expected,

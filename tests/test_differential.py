@@ -31,6 +31,7 @@ from balatro.cards import Card, Enhancement, Rank, Suit, standard_deck
 from balatro.game import GameState
 from balatro.hands import HandType, evaluate
 from balatro.jokers import REGISTRY, make
+from balatro.rng import RunRng
 from balatro.scoring import score_hand
 from balatro_headless.runtime import HeadlessBalatro
 from balatro_headless.scenario import Scenario
@@ -68,6 +69,11 @@ class Case:
     hands_left: int = -1
     boss: str = ""
     gold_cards: tuple = ()
+    # Lua run before the hand. Used to put an RNG pool somewhere its next draw
+    # actually fires: a 1-in-4 that never comes up on any fixture leaves the
+    # joker unobserved, and now that the pools are replicated the state that
+    # makes it fire can be worked out here and set on both sides at once.
+    lua_setup: str = ""
 
     @property
     def codes(self):
@@ -122,6 +128,15 @@ CASES = [
     Case("final hand of the round", "S_K H_K D_2 C_5 H_7 S_9 D_3 C_4", (1, 2),
          hands_left=1),
     Case("queens held", "S_9 H_9 D_Q C_Q H_Q S_3 D_4 C_5", (1, 2)),
+    # Four eights, for the jokers that roll a chance per played 8.
+    Case("eights", "S_8 H_8 D_8 C_8 H_2 S_3 D_4 C_5", (1, 2, 3, 4)),
+    # Pool states chosen so the next draw lands under the threshold, found
+    # with the replicated generator in balatro.rng.
+    Case("eights with a winning roll", "S_8 H_8 D_8 C_8 H_2 S_3 D_4 C_5",
+         (1, 2, 3, 4),
+         lua_setup='G.GAME.pseudorandom["8ball"] = 1.5e-05'),
+    Case("a hand upgrade that lands", "S_K H_K D_2 C_5 H_7 S_9 D_3 C_4",
+         (1, 2), lua_setup='G.GAME.pseudorandom["space"] = 1.5e-05'),
     Case("gold and diamonds", "D_K D_Q D_2 C_5 H_7 S_9 D_3 C_4", (1, 2, 3),
          gold_cards=(1, 2)),
 ]
@@ -131,13 +146,6 @@ KNOWN_BAD = {
     # does not synchronise, so the two engines roll different numbers while
     # agreeing about the rule. They are the same blocker as the lucky cards in
     # test_retriggers.py, and all of them come good once pools are shared.
-    "8 Ball": "rolls 1 in 4 per played 8 from the game's pool",
-    "Bloodstone": "rolls 1 in 2 per Heart from the game's pool",
-    "Business Card": "rolls 1 in 2 per face card from the game's pool",
-    "Reserved Parking": "rolls 1 in 2 per held face card from the game's pool",
-    "Space Joker": "rolls 1 in 4 to upgrade the hand from the game's pool",
-    "Misprint": "draws from the game's 'misprint' pool, whose state this "
-                "harness does not yet synchronise -- see test_rng.py",
     "Hanging Chad": "on a five-card flush the engine scores 292 against the "
                     "simulator's 276. It agrees everywhere else, the straight "
                     "flush included, so this is not simply the wrong card "
@@ -293,6 +301,19 @@ def _engine_state(engine):
         "ancient_suit": engine.eval(
             "(function() return tostring("
             "G.GAME.current_round.ancient_card.suit) end)()"),
+        # The whole pseudorandom table: the run's seed and every pool's
+        # current state. A joker that rolls a chance draws from the pool named
+        # after it, so matching the rule is not enough -- the stream has to be
+        # at the same place, or the two engines roll different numbers while
+        # agreeing about everything else.
+        "rng_seed": engine.eval(
+            "(function() return tostring(G.GAME.pseudorandom.seed) end)()"),
+        "rng_pools": engine.eval(
+            "(function() local t = {} "
+            "for k, v in pairs(G.GAME.pseudorandom) do "
+            "  if type(v) == 'number' then "
+            "    t[#t+1] = k .. '=' .. string.format('%.17g', v) end "
+            "end return table.concat(t, ' ') end)()"),
         "todo_hand": engine.eval(
             "(function() return tostring(G.jokers.cards[1] and "
             "G.jokers.cards[1].ability.to_do_poker_hand or '') end)()"),
@@ -321,6 +342,8 @@ def _engine_score(engine, case, key):
                        % case.hands_left)
     for index in case.gold_cards:
         scene.enhance(index, enhancement="m_gold")
+    if case.lua_setup:
+        engine.execute(case.lua_setup)
     engine.execute("api.pump(30)")
     # Pin the targets the game rerolls each round, so a joker that names a
     # card or a hand actually fires on these fixtures instead of waiting for a
@@ -363,6 +386,13 @@ _HAND_BY_GAME_NAME = {h.label: h for h in HandType}
 
 def _sim_score(name, case, state):
     game = GameState(seed=0)
+    # Put the simulator's pools where the engine's are, so a chance-based
+    # joker draws the same number rather than merely the same distribution.
+    game.rng = RunRng(state["rng_seed"])
+    for entry in state["rng_pools"].split():
+        key, _, value = entry.partition("=")
+        if key not in ("hashed_seed",):
+            game.rng.pools[key] = float(value)
     game.jokers = [make(name)] if name else []
     game.idol_rank = _RANK_BY_GAME_NAME.get(state["idol_rank"])
     game.idol_suit = _SUIT_BY_GAME_NAME.get(state["idol_suit"])

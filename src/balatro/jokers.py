@@ -16,7 +16,7 @@ from .cards import Card, Edition, Enhancement, Rank, Seal, Suit
 # imports both.
 from .consumables import ConsumableKind
 from .effects import ScoreContext
-from .hands import HandType
+from .hands import LEVEL_GAIN, HandType
 
 if TYPE_CHECKING:  # pragma: no cover
     from .game import GameState
@@ -769,11 +769,26 @@ register("Reserved Parking", Rarity.COMMON,
          held=lambda j, c, ctx: ctx.__setattr__(
              "money_gained", ctx.money_gained + 1)
          if is_face(c, ctx) and _chance(ctx, "parking", 1, 2) else None)
+def _space_joker(j: JokerInstance, ctx: ScoreContext) -> None:
+    """Upgrade the played hand, and score it at the new level.
+
+    The game raises the level before the base chips and mult are read, so the
+    upgrade pays on the very hand that triggered it. Scoring runs the base in
+    first, so the level gain is added to the context by hand -- levelling up
+    alone leaves the hand scored at its old value and only the next one
+    benefits.
+    """
+    if not _chance(ctx, "space", 1, 4):
+        return
+    ctx.game.hand_levels.level_up(ctx.hand)
+    chips, mult = LEVEL_GAIN[ctx.hand]
+    ctx.add_chips(chips, j.name)
+    ctx.add_mult(mult, j.name)
+
+
 register("Space Joker", Rarity.UNCOMMON,
          "1 in 4 chance to upgrade the level of the played poker hand", cost=5,
-         update=lambda j, ctx: ctx.game.hand_levels.level_up(ctx.hand)
-         if _chance(ctx, "space", 1, 4) else None,
-         update_before_scoring=True)
+         update=_space_joker, update_before_scoring=True)
 
 
 # -- jokers that name a card or hand the round chose ------------------------

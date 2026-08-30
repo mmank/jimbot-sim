@@ -120,8 +120,19 @@ class RunRng:
         return items[index - 1]
 
     def chance(self, key: str, numerator: float, denominator: float) -> bool:
-        """A '1 in N' roll. Numerator scales with Oops! All 6s."""
-        return self.pseudorandom(key, 1.0, denominator) <= numerator
+        """A "1 in N" roll, exactly as the game words it.
+
+        The game writes these as
+
+            pseudorandom(key) < G.GAME.probabilities.normal / odds
+
+        which is a float draw compared against a ratio, not an integer draw
+        from 1..N. The two agree on how often they fire and disagree on *which*
+        draws fire, so a simulator using the wrong form matches the odds and
+        still diverges hand by hand from the same seed. The numerator is the
+        run's probability numerator, which Oops! All 6s doubles.
+        """
+        return self.pseudorandom(key) < numerator / denominator
 
     def shuffle(self, items: list, key: str = "shuffle") -> None:
         """The game's pseudoshuffle, in place.

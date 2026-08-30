@@ -68,7 +68,9 @@ def _score_card_once(card: Card, ctx: ScoreContext) -> None:
     elif card.enhancement is Enhancement.GLASS:
         ctx.times_mult(2.0, "glass card")
     elif card.enhancement is Enhancement.LUCKY:
-        if game.rng.chance("lucky", *LUCKY_MULT_CHANCE):
+        # The game's pool is called lucky_mult, and a pool is identified by
+        # its name -- a different name is a different stream of numbers.
+        if game.rng.chance("lucky_mult", *LUCKY_MULT_CHANCE):
             ctx.add_mult(20, "lucky card")
         if game.rng.chance("lucky_money", *LUCKY_MONEY_CHANCE):
             ctx.money_gained += 20
