@@ -105,16 +105,24 @@ function api.pump(frames)
           -- can_use_consumeable compares against mod_num -- so without this
           -- every targeting tarot in the engine raised "attempt to compare
           -- number with nil" the moment the game asked whether it was usable.
-          -- Jokers always update, whatever api.update_cards says. Eight of
-          -- them keep scoring state in Card:update rather than in a scoring
-          -- hook -- Swashbuckler recomputes its mult from the other jokers'
-          -- sell value there, and Temperance, Throwback, Ectoplasm, Hex and
-          -- The Wheel of Fortune are the same shape. Skipping it left lone
-          -- Swashbuckler paying its center default of +1 mult instead of +0,
-          -- which no recording caught because none of them buy one. There are
-          -- never more than five jokers, so this costs nothing next to the
-          -- fifty-two cards in the deck.
-          if api.update_cards or area == G.jokers then
+          -- The small areas always update, whatever api.update_cards says,
+          -- because Card:update is where several cards keep the number they
+          -- are about to pay out. It is not animation.
+          --
+          -- Swashbuckler recomputes its mult from the other jokers' sell
+          -- value there; skipping it left a lone one paying its center
+          -- default of +1 instead of +0. Temperance is the same shape and
+          -- worse: its payout *is* ability.money, recomputed per frame, so a
+          -- Temperance used without an update pays nothing at all. Hex,
+          -- Ectoplasm and The Wheel of Fortune sit in the same block, and
+          -- those live in the consumable slots or in an open pack rather
+          -- than the joker row.
+          --
+          -- Together these hold at most a handful of cards, so this costs
+          -- nothing next to the fifty-two in the deck, which is what
+          -- api.update_cards is actually for.
+          if api.update_cards or area == G.jokers
+              or area == G.consumeables or area == G.pack_cards then
             for _, card in ipairs(area.cards) do
               card:update(DT * G.SPEEDFACTOR)
             end

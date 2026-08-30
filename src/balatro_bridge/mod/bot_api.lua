@@ -955,15 +955,17 @@ end
 
 BotAPI.fingerprint = fingerprint
 
-local function note(action, params)
+local function note(action, params, before)
   if not recording then return end
   recording[#recording + 1] = {
     n = #recording + 1,
     action = action,
     params = params or {},
     -- State *before* the action; the replay applies the action and then
-    -- compares against the next entry's before-state.
-    before = fingerprint(),
+    -- compares against the next entry's before-state. Taken by the caller
+    -- when the action is one that only gets written down once it is known to
+    -- have happened -- by then the state has moved on.
+    before = before or fingerprint(),
   }
 end
 
@@ -991,18 +993,31 @@ local function install_hooks()
     local original = G.FUNCS[name]
     if not original then return end
     G.FUNCS[name] = function(e, ...)
-      if recording then
-        -- The extra arguments matter: the game calls some of these functions
-        -- itself and says so in them. Passing only `e` hides that.
-        local ok, params = pcall(capture, e, ...)
-        -- A capture returning false declines: the click is already covered by
-        -- another entry, and recording it twice would make the replay do it
-        -- twice.
-        if not ok or params ~= false then
-          note(name, ok and params or {})
-        end
+      if not recording then return original(e, ...) end
+
+      -- The extra arguments matter: the game calls some of these functions
+      -- itself and says so in them. Passing only `e` hides that.
+      local ok, params = pcall(capture, e, ...)
+      -- A capture returning false declines: the click is already covered by
+      -- another entry, and recording it twice would make the replay do it
+      -- twice.
+      local wanted = (not ok) or params ~= false
+      -- The state has to be read now, before the action changes it, even
+      -- though the entry may not be written until afterwards.
+      local before = wanted and fingerprint() or nil
+
+      local result = original(e, ...)
+
+      -- The game refuses some clicks and says so by returning false --
+      -- buy_from_shop does it when there is no room for the card. The button
+      -- was pressed, so the hook fires, but nothing happened: no money left
+      -- the bankroll and no card moved. Writing that down would make a replay
+      -- wait for a consequence that never comes, which is exactly how a
+      -- recording of five jokers and a refused sixth used to stall.
+      if wanted and result ~= false then
+        note(name, ok and params or {}, before)
       end
-      return original(e, ...)
+      return result
     end
   end
 
