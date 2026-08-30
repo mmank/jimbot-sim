@@ -121,8 +121,21 @@ function api.pump(frames)
           -- Together these hold at most a handful of cards, so this costs
           -- nothing next to the fifty-two in the deck, which is what
           -- api.update_cards is actually for.
-          if api.update_cards or area == G.jokers
-              or area == G.consumeables or area == G.pack_cards then
+          -- Every area except the big piles updates, whatever
+          -- api.update_cards says. The optimisation was only ever about the
+          -- fifty-two cards sitting in the deck and the discard; the small
+          -- areas hold a handful between them and their cards carry real
+          -- state.
+          --
+          -- Naming the small ones instead was wrong twice. Jokers were
+          -- exempted first, for Swashbuckler; then consumables and open
+          -- packs, for a Temperance used out of a pack; and a Temperance
+          -- bought with the shop's buy-and-use button is still sitting in the
+          -- shop when it resolves, so that missed it too. The rule now says
+          -- what it is for rather than listing what has bitten so far.
+          local bulk = (area == G.deck) or (area == G.hand)
+              or (area == G.discard)
+          if api.update_cards or not bulk then
             for _, card in ipairs(area.cards) do
               card:update(DT * G.SPEEDFACTOR)
             end
@@ -311,7 +324,29 @@ function api.skip_blind()
   G.GAME.round_resets.blind_states[on_deck] = 'Skipped'
   G.GAME.round_resets.blind_states[on_deck == 'Small' and 'Big' or 'Boss'] = 'Select'
   G.GAME.blind_on_deck = on_deck == 'Small' and 'Big' or 'Boss'
-  api.pump(30)
+
+  -- Skipping puts a new blind on the table, and some tags act on exactly
+  -- that: a Boss Tag rerolls the boss the moment the next choice appears,
+  -- then removes itself. The game fires this from the UI that builds the
+  -- choice screen, which is not built here, so without it a Boss Tag is taken
+  -- and then sits in the run for ever -- present in the tag list, never
+  -- spent, and rerolling nothing.
+  --
+  -- This is the game's own apply_to_run, not a reimplementation of what the
+  -- tag does; the loop is copied from the three places the game calls it.
+  G.E_MANAGER:add_event(Event({
+    blocking = false, trigger = 'after', delay = 0.5,
+    func = function()
+      for i = 1, #G.GAME.tags do
+        if G.GAME.tags[i]:apply_to_run({ type = 'new_blind_choice' }) then
+          break
+        end
+      end
+      return true
+    end
+  }))
+
+  api.pump(120)
   return G.GAME.blind_on_deck
 end
 

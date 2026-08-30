@@ -486,6 +486,22 @@ def do_replay(args) -> None:
         _match_hand_order(bridge, normalise(entry["before"].get("hand_ids")))
         _match_joker_order(bridge, entry["before"])
 
+        # A use_card on a card in no area is the game using something it made
+        # itself: a Meteor Tag opening its own Celestial pack calls use_card
+        # on a card that belongs to no shop row and no consumable slot, so the
+        # recorder writes "?" for where it was. The engine fires the tag and
+        # opens the pack unprompted, so replaying the entry as well opens a
+        # second one.
+        #
+        # A player's buy-and-use also lands here in older recordings, as a buy
+        # followed by an area-less use -- but merge_buy_and_use has already
+        # folded those into their buy by now. What is left is the game's.
+        if (action == "use_card" and (params or {}).get("area") == "?"):
+            if args.verbose:
+                print(f"  [{i:3d}] --   {action:32s} "
+                      f"(the game's own, the engine repeats it)")
+            continue
+
         # Compare before acting: the recorded `before` is the state the human
         # was looking at when they made this choice.
         actual = normalise(bridge.command("check"))

@@ -546,12 +546,17 @@ class BalatroBridge:
         consumables = len(before.get("consumables") or [])
         deck = before.get("deck_size", 0)
         packed = len(before.get("pack") or [])
+        levels = before.get("hand_levels")
         self.command("pick_pack", index)
         self._await_use(
             lambda s: (len(s.get("jokers") or []) != jokers
                        or len(s.get("consumables") or []) != consumables
                        or s.get("deck_size", deck) != deck
                        or len(s.get("pack") or []) < packed
+                       # A Planet used straight out of a pack owns nothing
+                       # afterwards: it is not kept, no card moves, and the
+                       # only mark it leaves is the hand it levelled.
+                       or s.get("hand_levels") != levels
                        or not s.get("in_pack")))
         # Then let the pack finish closing, if it is going to. A Mega pack
         # allows two picks and legitimately stays open, so this must not be
