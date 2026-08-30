@@ -992,7 +992,9 @@ local function install_hooks()
     if not original then return end
     G.FUNCS[name] = function(e, ...)
       if recording then
-        local ok, params = pcall(capture, e)
+        -- The extra arguments matter: the game calls some of these functions
+        -- itself and says so in them. Passing only `e` hides that.
+        local ok, params = pcall(capture, e, ...)
         -- A capture returning false declines: the click is already covered by
         -- another entry, and recording it twice would make the replay do it
         -- twice.
@@ -1008,7 +1010,16 @@ local function install_hooks()
   wrap('skip_blind', function() return { blind = blind_on_deck() } end)
   wrap('play_cards_from_highlighted', function()
     return { cards = selected_indices(), card_ids = selected_ids() } end)
-  wrap('discard_cards_from_highlighted', function()
+  -- The Hook discards two random cards after every hand played, and it does
+  -- so by calling this function with hook = true. That is the game acting,
+  -- not the player: no discard button exists while a hand is resolving, and
+  -- the discard does not cost the player one of theirs.
+  --
+  -- Recording it would be worse than noise. Replaying it discards two *more*,
+  -- on top of the two the engine takes unprompted, and every hand after that
+  -- comes off a different deck.
+  wrap('discard_cards_from_highlighted', function(e, hook)
+    if hook then return false end
     return { cards = selected_indices(), card_ids = selected_ids() } end)
   -- The sort buttons reorder the hand, which changes what every later index
   -- means and which card scores first.
