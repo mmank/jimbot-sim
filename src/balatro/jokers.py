@@ -17,6 +17,7 @@ from .cards import Card, Edition, Enhancement, Rank, Seal, Suit
 from .consumables import ConsumableKind
 from .effects import ScoreContext
 from .hands import LEVEL_GAIN, HandType
+from . import shop_pool
 
 if TYPE_CHECKING:  # pragma: no cover
     from .game import GameState
@@ -981,10 +982,31 @@ register("Cartomancer", Rarity.UNCOMMON,
          on_blind_select=lambda j, g: g.add_consumables(
              g.random_consumables(ConsumableKind.TAROT, 1, "car")))
 def _certificate(j: JokerInstance, game: "GameState") -> None:
-    card = Card(game.rng.choice("cert_rank", list(Rank)),
-                game.rng.choice("cert_suit", list(Suit)),
-                seal=game.rng.choice("cert_seal", [Seal.GOLD, Seal.RED,
-                                                   Seal.BLUE, Seal.PURPLE]))
+    """A random card with a random seal, straight into the hand.
+
+    Two draws, not three: the game picks a face out of G.P_CARDS in one go
+    -- rank and suit together, from the same pool -- and then rolls the seal
+    against thresholds. Drawing the rank and the suit separately is three
+    rolls from names the game does not have.
+    """
+    front = game.rng.random_element(shop_pool.FRONTS, "cert_fr")
+    suit, rank = front.split("_")
+    by_rank = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR, "5": Rank.FIVE,
+               "6": Rank.SIX, "7": Rank.SEVEN, "8": Rank.EIGHT,
+               "9": Rank.NINE, "T": Rank.TEN, "J": Rank.JACK,
+               "Q": Rank.QUEEN, "K": Rank.KING, "A": Rank.ACE}
+    by_suit = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
+               "S": Suit.SPADES}
+    roll = game.rng.pseudorandom("certsl")
+    seal = (Seal.RED if roll > 0.75 else Seal.BLUE if roll > 0.5
+            else Seal.GOLD if roll > 0.25 else Seal.PURPLE)
+    card = Card(by_rank[rank], by_suit[suit], seal=seal)
+    # Into the hand *and* into the deck. The game makes a real playing card
+    # -- create_playing_card registers it in G.playing_cards -- so the run is
+    # fifty-three cards from here on and every later draw comes off a
+    # different deck. Putting it only in the hand loses it at the end of the
+    # round.
+    game.full_deck.append(card)
     game.hand.append(card)
 
 

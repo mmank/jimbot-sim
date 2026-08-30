@@ -106,19 +106,31 @@ def match_hand_order(game, recorded_ids, deck_index):
     """
     if not recorded_ids:
         return
-    wanted = list(recorded_ids)
     by_id = {}
+    made = []                       # cards created during the run
     for card in game.hand:
         index = deck_index.get(id(card))
-        if index is not None:
+        if index is None:
+            made.append(card)
+        else:
             by_id.setdefault(index, []).append(card)
+
     ordered, leftover = [], list(game.hand)
-    for want in wanted:
+    for want in recorded_ids:
         pool = by_id.get(want)
         if pool:
             card = pool.pop(0)
-            ordered.append(card)
-            leftover.remove(card)
+        elif made:
+            # An id the starting deck does not have belongs to a card the run
+            # made -- Certificate's, a Tarot's copy, a card from a Standard
+            # pack. Its number cannot be matched, but its *place* can: it is
+            # whatever the recording has here that the deck cannot account
+            # for, and where it sits decides which cards a position plays.
+            card = made.pop(0)
+        else:
+            continue
+        ordered.append(card)
+        leftover.remove(card)
     game.hand[:] = ordered + leftover
 
 

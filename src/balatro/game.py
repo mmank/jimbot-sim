@@ -404,9 +404,55 @@ class GameState:
     def boss(self) -> BossEffect | None:
         if self.blind is None or self.blind.kind is not BlindKind.BOSS:
             return None
+        if self.blind.disabled:
+            return None
         if any(j.name == "Chicot" for j in self.jokers):
             return None
         return self.blind.boss
+
+    def disable_blind(self, source: str) -> None:
+        """Turn the boss off mid-round, the way Blind:disable does it.
+
+        Not simply a flag. The game undoes each boss by hand, and the undo is
+        not always the mirror image of the effect: a blind that was made
+        larger is divided back down to the ordinary boss size, a hand or a
+        discard the blind took away is handed back to the counter that is
+        already running, and The Manacle -- which took a card out of the hand
+        when the blind began -- gives back two.
+
+        That last one looks like a mistake in the game and is worth spelling
+        out, because it is the sort of thing a simulator written from the
+        rules would never produce. Blind:disable calls change_size(1), which
+        raises the limit and deals a card into the space it just made, and
+        then calls draw_from_deck_to_hand(1) as well. The hand ends the
+        transaction one card *over* its own limit. A recording of a real run
+        shows exactly that: limit eight, nine cards in hand.
+        """
+        blind = self.blind
+        if blind is None or blind.boss is None or blind.disabled:
+            return
+        boss = blind.boss
+        blind.disabled = True
+
+        # A blind made larger goes back to the ordinary boss size rather than
+        # to no boss at all: the game divides, so The Wall's four times
+        # becomes two and Violet Vessel's six becomes two.
+        if boss.chip_mult != 2.0 and boss.chip_mult:
+            blind.target = int(blind.target * 2.0 / boss.chip_mult)
+
+        # Hands and discards go back on the live counters, not on the next
+        # round's allowance -- the round is still running.
+        hands, discards = self._round_allowance()
+        if boss.hands_delta:
+            self.hands_left = max(self.hands_left, hands)
+        if boss.discards_delta:
+            self.discards_left = max(self.discards_left, discards)
+
+        if boss.hand_size_delta < 0:
+            self._draw_to_hand_size()
+            self._draw_cards(-boss.hand_size_delta)
+
+        self.log(f"{source}: {boss.name} is disabled")
 
     @property
     def seen_centers(self) -> set:
@@ -564,10 +610,6 @@ class GameState:
         for joker in list(self.jokers):
             if joker.spec.on_blind_select is not None:
                 joker.spec.on_blind_select(joker, self)
-        for joker in list(self.jokers):
-            if joker.spec.on_round_start is not None:
-                joker.spec.on_round_start(joker, self)
-
         self.hands_left, self.discards_left = self._round_allowance()
 
         self.draw_pile = list(self.full_deck)
@@ -580,6 +622,16 @@ class GameState:
         self.discard_pile = []
         self._apply_debuffs()
         self._draw_to_hand_size()
+
+        # After the deal, not before. The game fires these on
+        # `first_hand_drawn`, so Certificate's card lands on top of a hand
+        # that is already full and the round starts one card over the limit.
+        # Running them first put the card in a hand that was then thrown away
+        # and dealt again.
+        for joker in list(self.jokers):
+            if joker.spec.on_round_start is not None:
+                joker.spec.on_round_start(joker, self)
+
         self.phase = Phase.PLAYING
         self.log(f"--- Ante {self.ante} {self.blind.name}: need {self.blind.target} ---")
 
@@ -654,6 +706,19 @@ class GameState:
         back.
         """
         self.hand_sort = "suit" if by == "suit" else "rank"
+        self._sort_hand()
+
+    def _draw_cards(self, count: int) -> None:
+        """Deal `count` cards regardless of the hand limit.
+
+        The game has draw_from_deck_to_hand, which takes a number and does not
+        consult the limit -- which is how a disabled Manacle leaves the hand
+        one card over it.
+        """
+        for _ in range(count):
+            if not self.draw_pile:
+                return
+            self.hand.append(self.draw_pile.pop())
         self._sort_hand()
 
     def _draw_to_hand_size(self) -> None:
@@ -775,8 +840,15 @@ class GameState:
                 self.discard_pile.append(card)
 
         if boss is not None and boss.discard_random_on_play and self.hand:
-            for card in self.rng.sample("hook", self.hand,
-                                        min(boss.discard_random_on_play, len(self.hand))):
+            # By creation order, not by what is on screen. The game draws
+            # these with pseudorandom_element, which sorts the table by
+            # sort_id before picking an index -- so the two cards The Hook
+            # takes depend on when the cards were made, and a hand the player
+            # has dragged around loses the same two either way.
+            pool = sorted(self.hand, key=lambda card: card.uid)
+            for card in self.rng.sample("hook", pool,
+                                        min(boss.discard_random_on_play,
+                                            len(pool))):
                 self.hand.remove(card)
                 self.discard_pile.append(card)
 
@@ -829,11 +901,6 @@ class GameState:
                                      max(0, self.money) // 5)
                                + gold)
 
-        # The voucher for the next ante is rolled the moment the boss falls,
-        # before the cash-out screen and well before the shop that shows it.
-        if self.blind.kind is BlindKind.BOSS:
-            self._roll_voucher()
-
         # Every card returns to the deck as the round closes, which is why the
         # engine reads fifty-two here and a simulator that only rebuilds the
         # deck when the next round starts reads whatever was left.
@@ -853,6 +920,12 @@ class GameState:
         if self.beaten_was_boss:
             self.blind_index = 0
             self.ante += 1
+            # After the ante turns over, not before: the game raises the ante
+            # and *then* rolls, so the voucher for the ante about to start is
+            # drawn from that ante's pool. Rolling a step earlier draws it
+            # from the pool of the ante just finished, which is a different
+            # voucher from the same seed.
+            self._roll_voucher()
         else:
             self.blind_index += 1
 
@@ -1434,6 +1507,8 @@ class GameState:
             # Selling is the whole point of some jokers -- Luchador disables
             # the boss, Diet Cola leaves a tag behind -- so the effect fires
             # after it has left the list, as the game does it.
+            if joker.spec.disables_boss_on_sell:
+                self.disable_blind(joker.name)
             if joker.spec.on_sell is not None:
                 joker.spec.on_sell(joker, self)
         elif t is ActionType.SELL_CONSUMABLE:

@@ -111,6 +111,10 @@ class Blind:
     target: int
     reward: int
     boss: BossEffect | None = None
+    # Set by Luchador, Chicot and The Fool's Gold. The game keeps this on the
+    # blind rather than on the joker, which matters: the blind stays disabled
+    # for the rest of the round even after the joker that did it is gone.
+    disabled: bool = False
 
     @property
     def name(self) -> str:
