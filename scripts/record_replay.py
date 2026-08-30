@@ -33,6 +33,8 @@ COMPARED = ("phase", "dollars", "chips", "ante", "round", "hands_left",
             "consumables", "hand_levels", "deck_size", "hands_played",
             "last_hand", "hand_ids", "tags", "joker_ids")
 
+
+
 # Phases where the round score is a settled number rather than mid-animation.
 # cash_out resets it with ease_chips(0) over several frames, so between the
 # cash-out and the next blind its value depends on exactly when you sample --
@@ -79,8 +81,18 @@ def _select(bridge, params):
     ids = params.get("card_ids")
     wanted = list(ids) if ids else list(params.get("cards") or [])
     if ids:
-        for card_id in ids:
-            bridge.command("toggle_id", card_id)
+        try:
+            for card_id in ids:
+                bridge.command("toggle_id", card_id)
+        except BridgeError:
+            # A card added during the run carries an id from the run's card
+            # counter, and that counter drifts when the real game builds
+            # something the engine does not. The recorded positions are the
+            # same click and do not drift, so they are the better answer once
+            # an id cannot be found.
+            bridge.command("clear")
+            for index in params.get("cards") or []:
+                bridge.toggle(index)
     else:
         for index in params.get("cards") or []:
             bridge.toggle(index)
@@ -125,9 +137,14 @@ def _match_joker_order(bridge, expected: dict) -> bool:
     interchangeable for this purpose.
     """
     ids = normalise(expected.get("joker_ids"))
-    if ids:
-        return _match_order(bridge, ids, "joker_ids", "set_joker_order")
-
+    if ids and _match_order(bridge, ids, "joker_ids", "set_joker_order"):
+        return True
+    # Ids can be right about identity and still not match: the run's card
+    # counter moves whenever the real game builds something the engine never
+    # does, so a card can be the same card under a different number. Falling
+    # through to the keys keeps the order reproducible when that happens,
+    # rather than leaving the jokers in whatever order they landed -- and
+    # joker order decides the order effects resolve in.
     keys = normalise(expected.get("jokers")) or []
     if not keys:
         return True
@@ -241,6 +258,30 @@ def normalise(value):
     return value
 
 
+# A card's id is its place in the run's card counter, and that counter moves
+# for reasons a recording cannot capture: opening the deck collection screen
+# builds fifty-two Card objects to fan out behind the deck art, and the
+# recorder hooks game actions, not looking at a menu. The engine never builds
+# that screen, so from the first time a player opens one, every card made
+# afterwards is numbered differently while being the same card in the same
+# place.
+#
+# The starting deck is immune -- those cards exist before anything can shift
+# the counter -- so their ids are still worth comparing, and they are what
+# card-identity selection depends on. Anything above them is shown as "new",
+# which keeps the position and the count while dropping the number that cannot
+# mean anything.
+ID_FIELDS = ("hand_ids", "joker_ids")
+STARTING_DECK = 52
+
+
+def _stable_ids(ids):
+    if not isinstance(ids, (list, tuple)):
+        return ids
+    return ["new" if isinstance(i, int) and i >= STARTING_DECK else i
+            for i in ids]
+
+
 def differences(expected: dict, actual: dict) -> list[str]:
     out = []
     scoring = expected.get("phase") in SCORE_STABLE_PHASES
@@ -253,6 +294,8 @@ def differences(expected: dict, actual: dict) -> list[str]:
         if field not in expected:
             continue
         want, got = normalise(expected.get(field)), normalise(actual.get(field))
+        if field in ID_FIELDS:
+            want, got = _stable_ids(want), _stable_ids(got)
         if want != got:
             out.append(f"{field}: recorded {want!r} but replayed {got!r}")
     return out
