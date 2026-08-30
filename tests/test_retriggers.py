@@ -193,7 +193,11 @@ def _engine_score(engine, combo, joker_keys):
     read = lambda e: int(engine.eval("(function() return %s end)()" % e))
     state = {
         "discards_left": read("G.GAME.current_round.discards_left"),
-        "hands_left": read("G.GAME.current_round.hands_left"),
+        # The game spends the hand before the jokers score it, so a joker
+        # that asks "is this the last hand?" -- Acrobat, Dusk -- sees one
+        # fewer than the state read here. Syncing the pre-play number left
+        # both engines agreeing that it was never the final hand.
+        "hands_left": read("G.GAME.current_round.hands_left") - 1,
         "money": read("G.GAME.dollars"),
         "draw_pile": read("#G.deck.cards"),
         "hands_played": read("G.GAME.hands_played"),

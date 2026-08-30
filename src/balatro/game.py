@@ -118,6 +118,17 @@ class GameState:
 
     blind: Blind | None = None
     hands_played: int = 0          # total for the run, as G.GAME.hands_played
+    # Run totals that jokers scale on. The game keeps these on G.GAME, and a
+    # joker that counts them scores zero without them -- which looks like
+    # agreement in any test where both sides are at zero.
+    tarots_used: int = 0
+    planets_used: int = 0
+    unique_planets: set = field(default_factory=set)
+    rerolls: int = 0
+    blinds_skipped: int = 0
+    cards_sold: int = 0
+    glass_destroyed: int = 0
+    lucky_triggers: int = 0
     chips_scored: int = 0
     hands_left: int = 0
     discards_left: int = 0

@@ -27,7 +27,7 @@ from dataclasses import dataclass
 import pytest
 
 from balatro.blinds import BOSSES, FINISHER_BOSSES, Blind, BlindKind
-from balatro.cards import Card, Rank, Suit, standard_deck
+from balatro.cards import Card, Enhancement, Rank, Suit, standard_deck
 from balatro.game import GameState
 from balatro.hands import evaluate
 from balatro.jokers import REGISTRY, make
@@ -65,19 +65,27 @@ class Case:
     # default "verifies" them while they sit inert.
     money: int = 0
     discards_left: int = -1
+    hands_left: int = -1
     boss: str = ""
+    gold_cards: tuple = ()
 
     @property
     def codes(self):
         return self.hand.split()
 
+    def _at(self, index):
+        card = _card(self.codes[index - 1])
+        if index in self.gold_cards:
+            card.enhancement = Enhancement.GOLD
+        return card
+
     @property
     def played(self):
-        return [_card(self.codes[i - 1]) for i in self.play]
+        return [self._at(i) for i in self.play]
 
     @property
     def held(self):
-        return [_card(c) for i, c in enumerate(self.codes, 1)
+        return [self._at(i) for i in range(1, len(self.codes) + 1)
                 if i not in self.play]
 
 
@@ -111,6 +119,11 @@ CASES = [
     # Four Fingers, a Straight with Shortcut, and a Straight Flush with both.
     Case("four to a gapped flush", "S_A S_3 C_5 S_7 S_9 H_2 D_4 C_6",
          (1, 2, 3, 4, 5)),
+    Case("final hand of the round", "S_K H_K D_2 C_5 H_7 S_9 D_3 C_4", (1, 2),
+         hands_left=1),
+    Case("queens held", "S_9 H_9 D_Q C_Q H_Q S_3 D_4 C_5", (1, 2)),
+    Case("gold and diamonds", "D_K D_Q D_2 C_5 H_7 S_9 D_3 C_4", (1, 2, 3),
+         gold_cards=(1, 2)),
 ]
 
 KNOWN_BAD = {
@@ -127,6 +140,19 @@ KNOWN_BAD = {
 # actually covered, because "inert here" must not be allowed to read as
 # "verified" -- that is exactly the trap the single-hand matrix fell into.
 COVERED_ELSEWHERE = {
+    # Scaling jokers contribute nothing until they have grown, so they are
+    # measured at a grown value in tests/test_scaling.py instead. Leaving them
+    # to pass here would count "did nothing, twice" as verification.
+    "Campfire": "tests/test_scaling.py, grows on cards sold",
+    "Castle": "tests/test_scaling.py, grows on discarded cards of a suit",
+    "Ceremonial Dagger": "tests/test_scaling.py, grows on destroyed jokers",
+    "Constellation": "tests/test_scaling.py, grows on Planet cards used",
+    "Flash Card": "tests/test_scaling.py, grows on shop rerolls",
+    "Glass Joker": "tests/test_scaling.py, grows on Glass cards destroyed",
+    "Hit the Road": "tests/test_scaling.py, grows on Jacks discarded",
+    "Lucky Cat": "tests/test_scaling.py, grows on Lucky triggers",
+    "Obelisk": "tests/test_scaling.py, needs another hand played more often",
+    "Throwback": "tests/test_scaling.py, needs Blinds skipped",
     "Baron": "tests/test_retriggers.py, needs kings held in hand",
     "Blueprint": "tests/test_retriggers.py, needs a neighbour to copy",
     "Brainstorm": "tests/test_retriggers.py, needs a leftmost joker to copy",
@@ -135,6 +161,13 @@ COVERED_ELSEWHERE = {
     "Swashbuckler": "tests/test_retriggers.py, needs other jokers to value",
 }
 NOT_A_SCORING_EFFECT = {
+    "Driver's License": "needs 16 enhanced cards in the deck, which no "
+                        "scenario here builds",
+    "Erosion": "needs cards missing from a 52-card deck",
+    "Fortune Teller": "counts Tarot cards used across the run",
+    "Hiker": "adds chips to a card permanently, visible only on a later hand",
+    "Stone Joker": "needs Stone cards in the deck; the game will not even "
+                   "offer it without one",
     "Baseball Card": "multiplies per uncommon joker owned, not per hand",
     "Canio": "grows when a face card is destroyed",
     "Card Sharp": "needs the same hand played earlier this round",
@@ -181,7 +214,11 @@ def _engine_state(engine):
         label = "Straight Flush"
     return {
         "discards_left": read("G.GAME.current_round.discards_left"),
-        "hands_left": read("G.GAME.current_round.hands_left"),
+        # The game spends the hand before the jokers score it, so a joker
+        # that asks "is this the last hand?" -- Acrobat, Dusk -- sees one
+        # fewer than the state read here. Syncing the pre-play number left
+        # both engines agreeing that it was never the final hand.
+        "hands_left": read("G.GAME.current_round.hands_left") - 1,
         "money": read("G.GAME.dollars"),
         "draw_pile": read("#G.deck.cards"),
         # The game counts the hand before the jokers score it, so Supernova
@@ -207,10 +244,18 @@ def _engine_score(engine, case, key):
     if case.discards_left >= 0:
         engine.execute("G.GAME.current_round.discards_left = %d"
                        % case.discards_left)
+    if case.hands_left >= 0:
+        engine.execute("G.GAME.current_round.hands_left = %d"
+                       % case.hands_left)
+    for index in case.gold_cards:
+        scene.enhance(index, enhancement="m_gold")
     engine.execute("api.pump(30)")
     scene.select(case.play)
     state = _engine_state(engine)
-    return scene.play(), state
+    before = int(engine.eval("(function() return G.GAME.dollars end)()"))
+    score = scene.play()
+    after = int(engine.eval("(function() return G.GAME.dollars end)()"))
+    return (score, after - before), state
 
 
 _BOSS_BY_NAME = {b.name: b for b in BOSSES + FINISHER_BOSSES}
@@ -240,7 +285,10 @@ def _sim_score(name, case, state):
     result = evaluate(played, four_fingers=game._four_fingers(),
                       shortcut=game._shortcut())
     game.hand_levels.plays[result.hand] = state["plays"]
-    return score_hand(game, result, played, held).score
+    ctx = score_hand(game, result, played, held)
+    # Rough Gem and Golden Ticket change no score at all -- they pay money.
+    # Comparing only the score called them verified while never running them.
+    return ctx.score, ctx.money_gained
 
 
 @pytest.fixture(scope="module")
@@ -274,7 +322,7 @@ def test_joker_scores_what_the_engine_scores(engine, joker_keys, baselines, name
         expected, state = _engine_score(engine, case, key)
         actual = _sim_score(name, case, state)
         assert expected == actual, (
-            "%s on %r: engine %d, simulator %d"
+            "%s on %r: engine scored %s, simulator %s (score, money)"
             % (name, case.name, expected, actual))
         if expected != baselines[case.name]:
             active.append(case.name)

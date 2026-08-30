@@ -59,6 +59,12 @@ class JokerSpec:
     retrigger_scored: RetriggerHook | None = None
     retrigger_held: RetriggerHook | None = None
     copier: str | None = None  # "right" (Blueprint) or "leftmost" (Brainstorm)
+    # The shop will not offer these unless the run already has a card with
+    # that enhancement -- no Lucky Cat without a lucky card. Taken from the
+    # game's own enhancement_gate field, and needed once shops are generated:
+    # offering a gated joker to a deck that cannot use it is a distribution
+    # error the policy would learn from.
+    enhancement_gate: str = ""
     hand_size: int = 0
     extra_hands: int = 0
     extra_discards: int = 0
@@ -356,7 +362,7 @@ register("Flower Pot", Rarity.UNCOMMON, "X3 Mult if scoring hand has all 4 suits
 register("Stuntman", Rarity.RARE, "+250 Chips, -2 hand size", cost=7, hand_size=-2,
          independent=lambda j, ctx: ctx.add_chips(250, j.name))
 
-register("Steel Joker", Rarity.UNCOMMON, "X0.2 Mult per Steel card in your deck", cost=7,
+register("Steel Joker", Rarity.UNCOMMON, "X0.2 Mult per Steel card in your deck", enhancement_gate="m_steel", cost=7,
          independent=lambda j, ctx: ctx.times_mult(
              1.0 + 0.2 * sum(1 for c in ctx.game.full_deck
                              if c.enhancement is Enhancement.STEEL), j.name))
@@ -464,3 +470,203 @@ register("Perkeo", Rarity.LEGENDARY,
 
 def by_rarity(rarity: Rarity) -> list[JokerSpec]:
     return [s for s in REGISTRY.values() if s.rarity is rarity]
+
+
+# --------------------------------------------------------------------------
+# suit and rank scorers, second batch
+# --------------------------------------------------------------------------
+
+def _suit_chips(suit: Suit, amount: int) -> ScoredHook:
+    def hook(j: JokerInstance, card: Card, ctx: ScoreContext) -> None:
+        if card.counts_as_suit(suit):
+            ctx.add_chips(amount, j.name)
+    return hook
+
+
+def _suit_money(suit: Suit, amount: int) -> ScoredHook:
+    def hook(j: JokerInstance, card: Card, ctx: ScoreContext) -> None:
+        if card.counts_as_suit(suit):
+            ctx.money_gained += amount
+    return hook
+
+
+def _first_face(ctx: ScoreContext) -> Card | None:
+    """The first scoring face card, which Photograph multiplies."""
+    for card in ctx.scoring:
+        if card.rank.is_face and not card.is_stone and not card.debuffed:
+            return card
+    return None
+
+
+register("Arrowhead", Rarity.UNCOMMON, "Played Spades give +50 Chips", cost=7,
+         scored=_suit_chips(Suit.SPADES, 50))
+register("Onyx Agate", Rarity.UNCOMMON, "Played Clubs give +7 Mult", cost=7,
+         scored=_suit_scorer(Suit.CLUBS, 7))
+register("Rough Gem", Rarity.UNCOMMON, "Played Diamonds earn $1", cost=7,
+         scored=_suit_money(Suit.DIAMONDS, 1))
+register("Golden Ticket", Rarity.COMMON, "Played Gold cards earn $4", enhancement_gate="m_gold", cost=5,
+         scored=lambda j, c, ctx: ctx.__setattr__(
+             "money_gained", ctx.money_gained + 4)
+         if c.enhancement is Enhancement.GOLD else None)
+register("Photograph", Rarity.COMMON,
+         "First played face card gives X2 Mult", cost=5,
+         scored=lambda j, c, ctx: ctx.times_mult(2.0, j.name)
+         if c is _first_face(ctx) else None)
+
+register("Shoot the Moon", Rarity.COMMON,
+         "Each Queen held in hand gives +13 Mult", cost=5,
+         held=lambda j, c, ctx: ctx.add_mult(13, j.name)
+         if c.rank is Rank.QUEEN and not c.debuffed else None)
+
+
+def _raised_fist(j: JokerInstance, ctx: ScoreContext) -> None:
+    """Double the rank of the lowest card held in hand.
+
+    "Rank" is the card's chip value, so an Ace is 11 and counts as the highest
+    rather than the lowest. Stone cards have no rank and are skipped.
+    """
+    ranked = [c for c in ctx.held if not c.is_stone and not c.debuffed]
+    if ranked:
+        lowest = min(ranked, key=lambda c: c.rank.value)
+        ctx.add_mult(2 * lowest.rank.chips, j.name)
+
+
+register("Raised Fist", Rarity.COMMON,
+         "Adds double the rank of the lowest card held in hand to Mult",
+         cost=5, independent=_raised_fist)
+
+register("Acrobat", Rarity.UNCOMMON, "X3 Mult on the final hand of the round",
+         cost=6,
+         independent=lambda j, ctx: ctx.times_mult(3.0, j.name)
+         if ctx.game.hands_left == 0 else None)
+
+
+def _seeing_double(j: JokerInstance, ctx: ScoreContext) -> None:
+    """X2 when a scoring Club sits alongside a scoring card of another suit.
+
+    A single Wild card cannot satisfy both halves: the game wants two cards.
+    """
+    live = [c for c in ctx.scoring if not c.debuffed and not c.is_stone]
+    for club in (c for c in live if c.counts_as_suit(Suit.CLUBS)):
+        for other in live:
+            if other is club:
+                continue
+            if any(other.counts_as_suit(s) for s in Suit if s is not Suit.CLUBS):
+                ctx.times_mult(2.0, j.name)
+                return
+
+
+register("Seeing Double", Rarity.UNCOMMON,
+         "X2 Mult if the hand scores a Club and a card of any other suit",
+         cost=6, independent=_seeing_double)
+
+
+# -- jokers that scale on the deck ------------------------------------------
+
+register("Erosion", Rarity.UNCOMMON,
+         "+4 Mult for each card below 52 in your full deck", cost=6,
+         independent=lambda j, ctx: ctx.add_mult(
+             4 * max(0, 52 - len(ctx.game.full_deck)), j.name))
+register("Stone Joker", Rarity.UNCOMMON,
+         "+25 Chips for each Stone card in your full deck", enhancement_gate="m_stone", cost=6,
+         independent=lambda j, ctx: ctx.add_chips(
+             25 * sum(1 for c in ctx.game.full_deck if c.is_stone), j.name))
+register("Driver's License", Rarity.RARE,
+         "X3 Mult if you have at least 16 Enhanced cards", cost=7,
+         independent=lambda j, ctx: ctx.times_mult(3.0, j.name)
+         if sum(1 for c in ctx.game.full_deck
+                if c.enhancement is not Enhancement.NONE) >= 16 else None)
+register("Joker Stencil", Rarity.UNCOMMON,
+         "X1 Mult for each empty Joker slot, itself included", cost=8,
+         independent=lambda j, ctx: ctx.times_mult(
+             float(ctx.game.joker_slots - len(ctx.game.jokers) + 1), j.name))
+
+
+# -- jokers that scale on what the run has done -----------------------------
+
+register("Fortune Teller", Rarity.COMMON,
+         "+1 Mult per Tarot card used this run", cost=6,
+         independent=lambda j, ctx: ctx.add_mult(ctx.game.tarots_used, j.name))
+# These keep their growth on the joker, not on the run: the game stores it in
+# ability.x_mult, so two Constellations scale independently and selling one
+# does not reset the other. Reading a run-wide counter instead would look
+# right until a second copy appeared.
+register("Constellation", Rarity.UNCOMMON,
+         "Gains X0.1 Mult per Planet card used", cost=6, init_counter=1.0,
+         independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+register("Flash Card", Rarity.UNCOMMON, "Gains +2 Mult per shop reroll",
+         cost=5,
+         independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
+register("Throwback", Rarity.UNCOMMON, "X0.25 Mult per Blind skipped this run",
+         cost=6,
+         # Card:update recomputes this as 1 + skips * 0.25 every frame, so the
+         # joker keeps no growth of its own however much the tooltip looks
+         # like it does.
+         independent=lambda j, ctx: ctx.times_mult(
+             1.0 + 0.25 * ctx.game.blinds_skipped, j.name))
+register("Campfire", Rarity.RARE,
+         "Gains X0.25 Mult per card sold, resets on a defeated Boss Blind",
+         cost=9, init_counter=1.0,
+         independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+register("Glass Joker", Rarity.UNCOMMON,
+         "Gains X0.75 Mult per Glass card destroyed", enhancement_gate="m_glass", cost=6, init_counter=1.0,
+         independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+register("Lucky Cat", Rarity.UNCOMMON,
+         "Gains X0.25 Mult each time a Lucky card triggers", enhancement_gate="m_lucky", cost=6,
+         init_counter=1.0,
+         independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+
+
+# -- scaling on the hand just played ----------------------------------------
+
+register("Wee Joker", Rarity.RARE, "Gains +8 Chips when each played 2 scores",
+         cost=8,
+         scored=lambda j, c, ctx: _bump(j, 8) if c.rank is Rank.TWO
+         and not c.is_stone else None,
+         independent=lambda j, ctx: ctx.add_chips(j.counter, j.name))
+register("Spare Trousers", Rarity.UNCOMMON,
+         "Gains +2 Mult if the played hand contains a Two Pair", cost=6,
+         update=lambda j, ctx: _bump(j, 2)
+         if ctx.hand in CONTAINS_TWO_PAIR else None,
+         update_before_scoring=True,
+         independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
+register("Hiker", Rarity.UNCOMMON,
+         "Every played card permanently gains +5 Chips when scored", cost=5,
+         scored=lambda j, c, ctx: setattr(c, "extra_chips", c.extra_chips + 5))
+
+
+# -- scaling jokers whose growth comes from outside the played hand ---------
+
+register("Ceremonial Dagger", Rarity.UNCOMMON,
+         "When Blind is selected, destroy the Joker to the right and "
+         "permanently add double its sell value to Mult", cost=6,
+         independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
+register("Castle", Rarity.UNCOMMON,
+         "Gains +3 Chips per discarded card of a suit that changes each round",
+         cost=6,
+         independent=lambda j, ctx: ctx.add_chips(j.counter, j.name))
+def _obelisk_update(j: JokerInstance, ctx: ScoreContext) -> None:
+    """Grow unless the hand just played is the run's most played.
+
+    The game resets only when no *other* hand has been played at least as
+    often, so a tie keeps it growing. Reading it as a stored counter -- which
+    it is, in ability.x_mult -- misses that it is rewritten before every hand.
+    """
+    plays = ctx.game.hand_levels.plays
+    mine = plays[ctx.hand]
+    if any(hand is not ctx.hand and count >= mine
+           for hand, count in plays.items()):
+        j.counter += 0.2
+    elif j.counter > 1.0:
+        j.counter = 1.0
+
+
+register("Obelisk", Rarity.RARE,
+         "Gains X0.2 Mult per consecutive hand played without playing your "
+         "most played poker hand", cost=8, init_counter=1.0,
+         update=_obelisk_update, update_before_scoring=True,
+         independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+register("Hit the Road", Rarity.RARE,
+         "Gains X0.5 Mult for every Jack discarded this round", cost=8,
+         init_counter=1.0,
+         independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
