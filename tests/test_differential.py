@@ -172,6 +172,47 @@ COVERED_ELSEWHERE = {
     "Swashbuckler": "tests/test_retriggers.py, needs other jokers to value",
 }
 NOT_A_SCORING_EFFECT = {
+    # Structural jokers: they shape the run -- the shop, the round
+    # boundary, the deck -- and move no chips or mult, so this file
+    # cannot see them however many hands it plays. Listed one by one
+    # rather than waved through as a group, so that anything wrongly
+    # believed to be non-scoring has to be argued for individually.
+    '8 Ball': 'creates a Tarot on a played 8; makes no chips or mult',
+    'Astronomer': 'makes shop Planets free',
+    'Burglar': 'trades discards for hands when the Blind is selected',
+    'Burnt Joker': 'upgrades the first discarded hand of a round',
+    'Cartomancer': 'creates a Tarot when the Blind is selected',
+    'Certificate': 'adds a sealed card to hand as the round begins',
+    'Chaos the Clown': 'gives a free shop reroll',
+    'Cloud 9': 'pays per 9 in the deck at the end of a round',
+    'Credit Card': 'raises the debt limit',
+    'DNA': 'copies a lone first-hand card into the deck',
+    'Delayed Gratification': 'pays at the end of a round for unused discards',
+    'Diet Cola': 'creates a Double Tag when sold',
+    'Drunkard': 'grants an extra discard each round',
+    'Egg': 'grows its own sell value at the end of a round',
+    'Gift Card': 'adds sell value to other cards at the end of a round',
+    'Hallucination': 'creates a Tarot when a Booster Pack is opened',
+    'Invisible Joker': 'duplicates a Joker when sold after two rounds',
+    'Juggler': 'changes hand size',
+    'Luchador': 'disables the Boss Blind when sold',
+    'Mail-In Rebate': 'pays on a discard, not on a played hand',
+    'Marble Joker': 'adds a Stone card when the Blind is selected',
+    'Merry Andy': 'changes hand size and discards',
+    'Mr. Bones': 'prevents a loss instead of scoring',
+    'Riff-Raff': 'creates Jokers when the Blind is selected',
+    'Rocket': 'pays at the end of a round',
+    'Satellite': 'pays per unique Planet used at the end of a round',
+    'Showman': 'lets duplicates appear in the shop',
+    'Sixth Sense': 'destroys a lone first-hand 6 and makes a Spectral',
+    'Superposition': 'creates a Tarot on an Ace plus a Straight',
+    'Séance': 'creates a Spectral on a Straight Flush',
+    'To the Moon': 'adds interest at the end of a round',
+    'Trading Card': 'pays on a lone first discard',
+    'Troubadour': 'changes hand size and hands',
+    'Turtle Bean': 'changes hand size',
+    'Vagabond': 'creates a Tarot when playing while poor',
+
     "Driver's License": "needs 16 enhanced cards in the deck, which no "
                         "scenario here builds",
     "Erosion": "needs cards missing from a 52-card deck",

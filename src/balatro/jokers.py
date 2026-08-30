@@ -69,6 +69,18 @@ class JokerSpec:
     extra_hands: int = 0
     extra_discards: int = 0
 
+    # Jokers that change the shape of a run rather than the score of a hand.
+    # These are read by the shop and the round, not by the scoring pipeline,
+    # so they are declared rather than hooked -- a hook that never fires
+    # during scoring is indistinguishable from a joker that does nothing.
+    free_rerolls: int = 0             # Chaos the Clown
+    debt_limit: int = 0               # Credit Card
+    interest_bonus: int = 0           # To the Moon, per $5 held
+    free_planets: bool = False        # Astronomer
+    allows_duplicates: bool = False   # Showman
+    prevents_death: bool = False      # Mr. Bones
+    disables_boss_on_sell: bool = False   # Luchador
+
 
 @dataclass
 class JokerInstance:
@@ -791,3 +803,144 @@ register("Madness", Rarity.UNCOMMON,
          "Gains X0.5 Mult when a Small or Big Blind is selected, and destroys "
          "a random Joker", cost=7, init_counter=1.0,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+
+
+# --------------------------------------------------------------------------
+# jokers that shape the run rather than the hand
+# --------------------------------------------------------------------------
+#
+# None of these move chips or mult, so the scoring differential cannot see
+# them; they are exercised where their effect actually lands -- the shop, the
+# round boundary, the deck. Registering them still matters even where the
+# effect is not yet wired: a joker missing from the registry cannot be offered
+# at all, and a policy trained on a shop that never contains Credit Card is
+# learning a different game from the one it will be tested on.
+
+
+def _round_money(amount) -> RoundHook:
+    """Pay at the end of a round, which is where the game pays these."""
+    def hook(j: JokerInstance, game: "GameState") -> None:
+        value = amount(j, game) if callable(amount) else amount
+        if value:
+            game.add_money(int(value), j.name)
+    return hook
+
+
+# -- hand size, hands and discards ------------------------------------------
+
+register("Juggler", Rarity.COMMON, "+1 hand size", cost=4, hand_size=1)
+register("Drunkard", Rarity.COMMON, "+1 discard each round", cost=4,
+         extra_discards=1)
+register("Merry Andy", Rarity.UNCOMMON, "+3 discards each round, -1 hand size",
+         cost=7, hand_size=-1, extra_discards=3)
+register("Troubadour", Rarity.UNCOMMON, "+2 hand size, -1 hand each round",
+         cost=6, hand_size=2, extra_hands=-1)
+register("Turtle Bean", Rarity.UNCOMMON,
+         "+5 hand size, reduced by 1 every round", cost=6, init_counter=5.0,
+         round_end=lambda j, g: _bump(j, -1, floor=0.0))
+register("Burglar", Rarity.UNCOMMON,
+         "When Blind is selected, gain +3 Hands and lose all discards",
+         cost=6, extra_hands=3)
+
+
+# -- money at the end of a round --------------------------------------------
+
+register("Cloud 9", Rarity.UNCOMMON,
+         "Earn $1 for each 9 in your full deck at end of round", cost=7,
+         round_end=_round_money(
+             lambda j, g: sum(1 for c in g.full_deck if c.rank is Rank.NINE)))
+register("Rocket", Rarity.UNCOMMON,
+         "Earn $1 at end of round, increasing by $2 per Boss Blind defeated",
+         cost=6, init_counter=1.0,
+         round_end=_round_money(lambda j, g: j.counter))
+register("Satellite", Rarity.UNCOMMON,
+         "Earn $1 at end of round per unique Planet card used this run",
+         cost=6,
+         round_end=_round_money(lambda j, g: len(g.unique_planets)))
+register("Egg", Rarity.COMMON, "Gains $3 of sell value at end of round",
+         cost=4, round_end=lambda j, g: _bump(j, 3))
+register("Gift Card", Rarity.UNCOMMON,
+         "Adds $1 of sell value to every Joker and Consumable at end of round",
+         cost=6)
+register("Delayed Gratification", Rarity.COMMON,
+         "Earn $2 per discard if no discards are used by end of the round",
+         cost=4,
+         round_end=_round_money(
+             lambda j, g: 2 * g.discards_left if g.discards_used == 0 else 0))
+register("Mail-In Rebate", Rarity.COMMON,
+         "Earn $5 for each discarded card of a rank that changes every round",
+         cost=4,
+         discarded=lambda j, cards, g: g.add_money(
+             5 * sum(1 for c in cards if c.rank is g.mail_rank), j.name)
+         if g.mail_rank is not None else None)
+register("To the Moon", Rarity.UNCOMMON,
+         "Earn an extra $1 of interest for every $5 at end of round", cost=5,
+         interest_bonus=1)
+
+
+# -- shop and run structure -------------------------------------------------
+
+register("Chaos the Clown", Rarity.COMMON, "1 free Reroll per shop", cost=4,
+         free_rerolls=1)
+register("Credit Card", Rarity.COMMON, "Go up to -$20 in debt", cost=1,
+         debt_limit=20)
+register("Astronomer", Rarity.UNCOMMON,
+         "All Planet cards and Celestial Packs in the shop are free", cost=8,
+         free_planets=True)
+register("Showman", Rarity.UNCOMMON,
+         "Joker, Tarot, Planet and Spectral cards may appear multiple times",
+         cost=5, allows_duplicates=True)
+register("Mr. Bones", Rarity.UNCOMMON,
+         "Prevents death if chips scored are at least 25% of the requirement, "
+         "then self destructs", cost=5, prevents_death=True)
+register("Luchador", Rarity.UNCOMMON,
+         "Sell this card to disable the current Boss Blind", cost=5,
+         disables_boss_on_sell=True)
+register("Invisible Joker", Rarity.RARE,
+         "After 2 rounds, sell this card to duplicate a random Joker", cost=8,
+         round_end=lambda j, g: _bump(j, 1))
+register("Diet Cola", Rarity.UNCOMMON,
+         "Sell this card to create a free Double Tag", cost=6)
+
+
+# -- cards created on a condition -------------------------------------------
+#
+# The condition each one waits for is written down even where the simulator
+# cannot yet make the card, so that the trigger is already right when creation
+# arrives rather than being guessed at then.
+
+register("Marble Joker", Rarity.UNCOMMON,
+         "Adds one Stone card to the deck when Blind is selected", cost=6)
+register("Cartomancer", Rarity.UNCOMMON,
+         "Create a Tarot card when Blind is selected", cost=6)
+register("Certificate", Rarity.UNCOMMON,
+         "When the round begins, add a random playing card with a random seal "
+         "to your hand", cost=6)
+register("Riff-Raff", Rarity.COMMON,
+         "When Blind is selected, create 2 Common Jokers", cost=6)
+register("8 Ball", Rarity.COMMON,
+         "1 in 4 chance for each played 8 to create a Tarot card when scored",
+         cost=5)
+register("Hallucination", Rarity.COMMON,
+         "1 in 2 chance to create a Tarot card when a Booster Pack is opened",
+         cost=4)
+register("Superposition", Rarity.COMMON,
+         "Create a Tarot card if the poker hand contains an Ace and a Straight",
+         cost=4)
+register('Séance', Rarity.UNCOMMON,
+         "If the poker hand is a Straight Flush, create a random Spectral card",
+         cost=6)
+register("Vagabond", Rarity.RARE,
+         "Create a Tarot card if a hand is played with $4 or less", cost=8)
+register("Sixth Sense", Rarity.UNCOMMON,
+         "If the first hand of a round is a single 6, destroy it and create a "
+         "Spectral card", cost=6)
+register("DNA", Rarity.RARE,
+         "If the first hand of a round has only 1 card, add a permanent copy "
+         "to the deck and draw it to hand", cost=8)
+register("Trading Card", Rarity.UNCOMMON,
+         "If the first discard of a round has only 1 card, destroy it and "
+         "earn $3", cost=6)
+register("Burnt Joker", Rarity.RARE,
+         "Upgrade the level of the first discarded poker hand each round",
+         cost=8)

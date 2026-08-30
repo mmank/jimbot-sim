@@ -131,6 +131,7 @@ class GameState:
     mail_rank: object = None
     castle_suit: object = None
 
+    discards_used: int = 0    # this round, for Delayed Gratification
     tarots_used: int = 0
     planets_used: int = 0
     unique_planets: set = field(default_factory=set)
