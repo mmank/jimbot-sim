@@ -266,20 +266,28 @@ def normalise(value):
 # afterwards is numbered differently while being the same card in the same
 # place.
 #
-# The starting deck is immune -- those cards exist before anything can shift
-# the counter -- so their ids are still worth comparing, and they are what
-# card-identity selection depends on. Anything above them is shown as "new",
-# which keeps the position and the count while dropping the number that cannot
-# mean anything.
+# What the numbers still carry is their order. Both counters only ever go up,
+# and the extra cards are all created at one moment on one side, so a card
+# made earlier has a lower id than one made later on both sides even though
+# neither number matches. Ranking each list against itself -- smallest 0, next
+# 1 -- throws away the offset and keeps that order.
+#
+# It beats blanking the drifted ones, which was the first attempt here: two
+# cards blanked to "new" are indistinguishable, and their relative age is
+# exactly the thing worth comparing. [68, 53, 54, 136] and [68, 53, 54, 83]
+# both rank to [2, 0, 1, 3], and a card genuinely out of place still moves a
+# rank and still shows up.
 ID_FIELDS = ("hand_ids", "joker_ids")
-STARTING_DECK = 52
 
 
-def _stable_ids(ids):
+def _ranked(ids):
+    """Replace each id by its position in the sorted list of ids present."""
     if not isinstance(ids, (list, tuple)):
         return ids
-    return ["new" if isinstance(i, int) and i >= STARTING_DECK else i
-            for i in ids]
+    if not all(isinstance(i, int) for i in ids):
+        return ids
+    rank = {value: place for place, value in enumerate(sorted(ids))}
+    return [rank[i] for i in ids]
 
 
 def differences(expected: dict, actual: dict) -> list[str]:
@@ -295,7 +303,7 @@ def differences(expected: dict, actual: dict) -> list[str]:
             continue
         want, got = normalise(expected.get(field)), normalise(actual.get(field))
         if field in ID_FIELDS:
-            want, got = _stable_ids(want), _stable_ids(got)
+            want, got = _ranked(want), _ranked(got)
         if want != got:
             out.append(f"{field}: recorded {want!r} but replayed {got!r}")
     return out
