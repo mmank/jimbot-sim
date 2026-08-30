@@ -30,6 +30,12 @@ local TAG_INDEX, TAG_ORDER
 local EDITION_IDS = { foil = 1, holo = 2, polychrome = 3, negative = 4 }
 local SEAL_IDS = { Gold = 1, Red = 2, Blue = 3, Purple = 4 }
 
+-- Enhancements, in the order the client expects. Index 0 is a plain card.
+local ENHANCEMENT_IDS = {
+  c_base = 0, m_bonus = 1, m_mult = 2, m_wild = 3, m_glass = 4,
+  m_steel = 5, m_stone = 6, m_gold = 7, m_lucky = 8,
+}
+
 --- can_use_consumeable, safe on a card the game has not updated yet.
 ---
 --- The gate compares #G.hand.highlighted against ability.consumeable.mod_num,
@@ -492,6 +498,40 @@ function BotAPI.state()
     -- puts them in the shop and buy_from_shop sends them to the deck -- so
     -- this is the only place its arrival is visible.
     deck_size = (in_run and G.playing_cards and #G.playing_cards) or 0,
+    -- What the whole deck is made of, which the game shows on its deck view:
+    -- ranks, suits, enhancements, seals and editions across every card owned,
+    -- not just the eight in hand.
+    --
+    -- Without it the agent cannot tell whether it is building something -- six
+    -- steel kings, a suit it has been fixing toward -- or just holding
+    -- fifty-two cards. Deck fixing is most of strong play and every signal for
+    -- it was invisible.
+    deck_cards = (function()
+      local ranks, suits = {}, {}
+      local enhancements, seals, editions = {}, {}, {}
+      for i = 1, 13 do ranks[i] = 0 end
+      for i = 1, 4 do suits[i] = 0 end
+      for i = 0, 8 do enhancements[i + 1] = 0 end
+      for i = 0, 4 do seals[i + 1] = 0 end
+      for i = 0, 4 do editions[i + 1] = 0 end
+      if in_run then
+        for _, card in ipairs(G.playing_cards or {}) do
+          local rank = card.base and RANK_IDS[card.base.value]
+          local suit = card.base and SUIT_IDS[card.base.suit]
+          if rank then ranks[rank] = ranks[rank] + 1 end
+          if suit then suits[suit] = suits[suit] + 1 end
+          local key = card.config.center.key
+          local slot = ENHANCEMENT_IDS[key] or 0
+          enhancements[slot + 1] = enhancements[slot + 1] + 1
+          local seal = seal_id(card)
+          seals[seal + 1] = seals[seal + 1] + 1
+          local edition = edition_id(card)
+          editions[edition + 1] = editions[edition + 1] + 1
+        end
+      end
+      return { ranks = ranks, suits = suits, enhancements = enhancements,
+               seals = seals, editions = editions }
+    end)(),
     -- Redeemed vouchers. A voucher joins no tray and does not touch the deck,
     -- so this is the only visible consequence of buying one. The real game
     -- happened to be caught by state_name instead -- use_card flips the state
@@ -516,6 +556,39 @@ function BotAPI.state()
     -- Which positions are highlighted, so the client can confirm a selection
     -- took rather than assume it did.
     selected = in_run and selected_indices() or {},
+    -- What the selected cards make, exactly as the game shows a player while
+    -- they are choosing: the hand's name, its level, and the chips and mult it
+    -- would score before jokers. This is on screen in the real game; an agent
+    -- without it is choosing five cards blindfolded to what they add up to.
+    selected_hand = (function()
+      if not in_run or #G.hand.highlighted == 0 then
+        return { name = "", level = 0, chips = 0, mult = 0, cards = 0,
+                 estimate = 0 }
+      end
+      local cards = {}
+      for _, card in ipairs(G.hand.highlighted) do cards[#cards + 1] = card end
+      local ok, text, _, _, scoring = pcall(G.FUNCS.get_poker_hand_info, cards)
+      if not ok or not text then
+        return { name = "", level = 0, chips = 0, mult = 0, cards = 0,
+                 estimate = 0 }
+      end
+      local level = G.GAME.hands[text]
+      local base_chips = (level and level.chips) or 0
+      local mult = (level and level.mult) or 0
+      -- The cards' own chips, which only the scoring ones contribute: two pair
+      -- played with a fifth card scores four of the five.
+      local card_chips = 0
+      for _, card in ipairs(scoring or {}) do
+        card_chips = card_chips + ((card.base and card.base.nominal) or 0)
+      end
+      return {
+        name = text,
+        level = (level and level.level) or 0,
+        chips = base_chips + card_chips,
+        mult = mult,
+        cards = #(scoring or {}),
+      }
+    end)(),
     -- How many cards the hand holds once dealing finishes. An Arcana or
     -- Spectral pack deals a hand to target and it arrives over several frames;
     -- acting on a partial hand targets the wrong cards.
