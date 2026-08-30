@@ -52,6 +52,34 @@ YES_FLAG = {key: flag
             for _, (key, _r, _o, _u, _g, _n, flag) in JOKER_DATA.items() if flag}
 
 
+# When every entry is blanked the game does not hand back a pool of nothing:
+# it throws the pool away and offers one card. A run that has seen every Tarot
+# is offered Strength, over and over. Without this the resample loop -- which
+# the game writes with no bound, because it cannot fail -- never ends.
+EMPTY_POOL_FALLBACK = {"Tarot": "c_strength", "Tarot_Planet": "c_strength",
+                       "Planet": "c_pluto", "Spectral": "c_incantation",
+                       "Joker": "j_joker", "Voucher": "v_blank",
+                       "Tag": "tag_handy"}
+
+
+def _or_fallback(pool: list[str], kind: str) -> list[str]:
+    if any(entry != UNAVAILABLE for entry in pool):
+        return pool
+    return [EMPTY_POOL_FALLBACK.get(kind, "j_joker")]
+
+
+def _draw(rng: RunRng, pool: list[str], key: str) -> str:
+    """One pool draw, resampling past blanks under a different pool name."""
+    center = rng.random_element(pool, key)
+    attempt = 1
+    while center == UNAVAILABLE:
+        attempt += 1
+        if attempt > 100:                      # cannot happen: see _or_fallback
+            raise RuntimeError("pool %s never yielded a card" % key)
+        center = rng.random_element(pool, "%s_resample%d" % (key, attempt))
+    return center
+
+
 def roll_rarity(rng: RunRng, ante: int, append: str = "") -> int:
     """1 common, 2 uncommon, 3 rare. Legendary never comes from a shop.
 
@@ -99,13 +127,8 @@ def draw_joker(rng: RunRng, ante: int, owned_enhancements: Iterable[str] = (),
         rarity = roll_rarity(rng, ante, append)
     pool = build_pool(rarity, owned_enhancements, seen_jokers, showman,
                       pool_flags)
-    key = "Joker%d%s%d" % (rarity, append, ante)
-    center = rng.random_element(pool, key)
-    attempt = 1
-    while center == UNAVAILABLE:
-        attempt += 1
-        center = rng.random_element(pool, "%s_resample%d" % (key, attempt))
-    return center
+    return _draw(rng, _or_fallback(pool, "Joker"),
+                 "Joker%d%s%d" % (rarity, append, ante))
 
 
 # --------------------------------------------------------------------------
@@ -144,13 +167,8 @@ def draw_consumable(rng: RunRng, card_set: str, ante: int,
                     append: str = "") -> str:
     """One consumable, as the game would roll it."""
     pool = build_consumable_pool(card_set, played_hands, seen, showman)
-    key = "%s%s%d" % (card_set, append, ante)
-    center = rng.random_element(pool, key)
-    attempt = 1
-    while center == UNAVAILABLE:
-        attempt += 1
-        center = rng.random_element(pool, "%s_resample%d" % (key, attempt))
-    return center
+    return _draw(rng, _or_fallback(pool, card_set),
+                 "%s%s%d" % (card_set, append, ante))
 
 
 # --------------------------------------------------------------------------
@@ -273,9 +291,10 @@ def draw_pack(rng: RunRng, ante: int, first_shop: bool = False,
     Returns the pool entry: (key, kind, weight, choose, cards, cost).
     """
     if first_shop:
-        # p_buffoon_normal_1 or _2, chosen with math.random(1, 2) -- the game
-        # does not use a named pool for this one.
-        index = int(TW223(rng.pseudoseed("buffoon_first")).random(1, 2))
+        # p_buffoon_normal_1 or _2, chosen with a bare math.random(1, 2).
+        # There is no pool name here, so it continues whatever stream the last
+        # seeded draw left behind -- see RunRng.math_random.
+        index = int(rng.math_random(1, 2))
         wanted = "p_buffoon_normal_%d" % index
         for entry in PACK_DATA:
             if entry[0] == wanted:
@@ -330,11 +349,146 @@ def draw_tag(rng: RunRng, ante: int, discovered: Iterable[str] | None = None,
     key, which handed a run a tag it was never offered -- and an Uncommon or
     Rare tag hands over a joker with it.
     """
-    pool = build_tag_pool(ante, discovered)
-    key = "Tag%s%d" % (append, ante)
-    tag = rng.random_element(pool, key)
-    attempt = 1
-    while tag == UNAVAILABLE:
-        attempt += 1
-        tag = rng.random_element(pool, "%s_resample%d" % (key, attempt))
-    return tag
+    pool = _or_fallback(build_tag_pool(ante, discovered), "Tag")
+    return _draw(rng, pool, "Tag%s%d" % (append, ante))
+
+
+# --------------------------------------------------------------------------
+# what is inside a pack
+# --------------------------------------------------------------------------
+
+# The Enhanced pool in the game's own order. pseudorandom_element sorts an
+# array-shaped pool by its integer keys, so this order is the draw order and
+# alphabetising it would hand out different enhancements from the same seed.
+ENHANCEMENTS = ["m_bonus", "m_mult", "m_wild", "m_glass",
+                "m_steel", "m_stone", "m_gold", "m_lucky"]
+
+# G.P_CARDS is keyed by strings, so pseudorandom_element sorts it by key:
+# clubs, diamonds, hearts, spades, and within a suit 2-9 then A J K Q T.
+SUITS = ["C", "D", "H", "S"]
+RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "A", "J", "K", "Q", "T"]
+FRONTS = ["%s_%s" % (suit, rank) for suit in SUITS for rank in RANKS]
+
+# The appends each kind of pack creates its cards under. They are pool names,
+# not labels: a Tarot from an Arcana pack draws from "Tarotar11", a Tarot from
+# the shop from "Tarotsho1", and the two streams run independently.
+PACK_APPEND = {"Arcana": "ar1", "Celestial": "pl1", "Spectral": "spe",
+               "Standard": "sta", "Buffoon": "buf"}
+
+
+def _soul_key(card_set: str, ante: int) -> str:
+    return "soul_%s%d" % (card_set, ante)
+
+
+def _soulable(rng: RunRng, card_set: str, ante: int, soul_used: bool,
+              black_hole_used: bool, showman: bool) -> str | None:
+    """The 1-in-333 that turns a pack card into The Soul or Black Hole.
+
+    This runs *before* the pool draw and it runs whether or not it fires, so
+    a simulator that skips it draws every later card of that type from a pool
+    one step behind. Spectral polls twice -- once for each -- against the same
+    pool name, which advances it twice.
+    """
+    if card_set in ("Tarot", "Spectral") and not (soul_used and not showman):
+        if rng.pseudorandom(_soul_key(card_set, ante)) > 0.997:
+            return "c_soul"
+    if card_set in ("Planet", "Spectral") and not (black_hole_used
+                                                   and not showman):
+        if rng.pseudorandom(_soul_key(card_set, ante)) > 0.997:
+            return "c_black_hole"
+    return None
+
+
+def _pack_consumable(rng: RunRng, card_set: str, ante: int, append: str,
+                     played_hands, seen, showman) -> dict:
+    forced = _soulable(rng, card_set, ante, "c_soul" in seen,
+                       "c_black_hole" in seen, showman)
+    if forced is not None:
+        return {"set": "Spectral", "key": forced}
+    key = draw_consumable(rng, card_set, ante, played_hands, seen, showman,
+                          append=append)
+    return {"set": card_set, "key": key}
+
+
+def _standard_card(rng: RunRng, ante: int) -> dict:
+    """One card from a Standard pack: face, enhancement, edition, seal.
+
+    The order matters as much as the rolls. The game decides enhanced-or-not
+    first, then draws the enhancement, then the face, then the edition, then
+    whether there is a seal and only then which seal -- five pools, each
+    advanced whether or not anything comes of it.
+    """
+    enhanced = rng.pseudorandom("stdset%d" % ante) > 0.6
+    enhancement = None
+    if enhanced:
+        enhancement = rng.random_element(ENHANCEMENTS, "Enhancedsta%d" % ante)
+    front = rng.random_element(FRONTS, "frontsta%d" % ante)
+    suit, rank = front.split("_")
+    edition = poll_edition(rng, "standard_edition%d" % ante, mod=2,
+                           no_negative=True)
+    seal = None
+    if rng.pseudorandom("stdseal%d" % ante) > 0.8:          # 1 - 0.02*10
+        roll = rng.pseudorandom("stdsealtype%d" % ante)
+        seal = ("Red" if roll > 0.75 else "Blue" if roll > 0.5
+                else "Gold" if roll > 0.25 else "Purple")
+    return {"set": "Playing", "rank": rank, "suit": suit,
+            "enhancement": enhancement, "edition": edition, "seal": seal}
+
+
+def pack_contents(rng: RunRng, kind: str, cards: int, ante: int,
+                  played_hands: Iterable[str] = (),
+                  seen: Iterable[str] = (), showman: bool = False,
+                  owned_enhancements: Iterable[str] = (),
+                  seen_jokers: Iterable[str] = (),
+                  pool_flags: Iterable[str] = (),
+                  soul_used: bool = False, black_hole_used: bool = False,
+                  telescope: bool = False, omen_globe: bool = False,
+                  most_played_planet: str | None = None) -> list[dict]:
+    """Everything a pack offers, in the order the game creates it.
+
+    The simulator drew pack contents uniformly from whole card sets, which is
+    wrong twice over: it ignores the pool -- so it offers a Tarot the run has
+    already seen, or Planet X for a hand nobody has played -- and it ignores
+    the stream, so every draw afterwards is off by however many rolls the pack
+    should have taken.
+    """
+    append = PACK_APPEND[kind]
+    # A card marks its own centre used the moment it is constructed -- see
+    # Card:set_ability -- not when the player takes it. So a pack blanks each
+    # card it has just made from the pool the next one draws from, and cannot
+    # offer the same Tarot twice. G.GAME.used_jokers is one table for jokers
+    # and consumables alike, which is why one set covers both here.
+    made = set(seen) | set(seen_jokers) | ({"c_soul"} if soul_used else set())         | ({"c_black_hole"} if black_hole_used else set())
+    out = []
+    for i in range(1, cards + 1):
+        if kind == "Arcana":
+            if omen_globe and rng.pseudorandom("omen_globe") > 0.8:
+                card = _pack_consumable(rng, "Spectral", ante, "ar2",
+                                        played_hands, made, showman)
+            else:
+                card = _pack_consumable(rng, "Tarot", ante, append,
+                                        played_hands, made, showman)
+        elif kind == "Celestial":
+            # The Telescope voucher forces the first card to the planet for
+            # the hand the run has played most, with no roll at all.
+            if telescope and i == 1 and most_played_planet:
+                card = {"set": "Planet", "key": most_played_planet}
+            else:
+                card = _pack_consumable(rng, "Planet", ante, append,
+                                        played_hands, made, showman)
+        elif kind == "Spectral":
+            card = _pack_consumable(rng, "Spectral", ante, append,
+                                    played_hands, made, showman)
+        elif kind == "Buffoon":
+            key = draw_joker(rng, ante, owned_enhancements, made,
+                             showman, pool_flags=pool_flags, append=append)
+            edition = poll_edition(rng, "edi%s%d" % (append, ante))
+            card = {"set": "Joker", "key": key, "edition": edition}
+        elif kind == "Standard":
+            card = _standard_card(rng, ante)
+        else:
+            raise ValueError("unknown pack kind %r" % kind)
+        if not showman and card.get("key"):
+            made.add(card["key"])
+        out.append(card)
+    return out

@@ -8,6 +8,7 @@ from enum import Enum
 from .cards import Card, Edition
 from .consumables import ConsumableKind, ConsumableSpec
 from .jokers import BASE_COST, REGISTRY as JOKER_REGISTRY, JokerInstance, JokerSpec, Rarity
+from .pack_data import PACK_DATA
 
 RARITY_WEIGHTS = {Rarity.COMMON: 0.70, Rarity.UNCOMMON: 0.25, Rarity.RARE: 0.05}
 SLOT_WEIGHTS = {"joker": 20, "tarot": 4, "planet": 4}
@@ -71,6 +72,7 @@ class PackSpec:
     options: int       # cards shown
     picks: int         # cards you may take
     cost: int
+    key: str = ""      # the game's own centre key, e.g. p_arcana_mega_1
 
     @property
     def name(self) -> str:
@@ -78,30 +80,19 @@ class PackSpec:
         return f"{prefix}{self.kind.value.title()} Pack"
 
 
-def _pack_variants(kind: PackKind, base_options: int) -> list[PackSpec]:
-    return [
-        PackSpec(kind, "normal", base_options, 1, 4),
-        PackSpec(kind, "jumbo", base_options + 2, 1, 6),
-        PackSpec(kind, "mega", base_options + 2, 2, 8),
-    ]
+def pack_from_row(row) -> PackSpec:
+    """A PackSpec from one row of the game's Booster pool."""
+    key, kind, _weight, choose, cards, cost = row
+    return PackSpec(PackKind(kind.lower()), key.split("_")[2],
+                    cards, choose, cost, key)
 
 
-PACKS: list[PackSpec] = (
-    _pack_variants(PackKind.ARCANA, 3)
-    + _pack_variants(PackKind.CELESTIAL, 3)
-    + _pack_variants(PackKind.STANDARD, 3)
-    + [PackSpec(PackKind.BUFFOON, "normal", 2, 1, 4),
-       PackSpec(PackKind.BUFFOON, "jumbo", 4, 1, 6),
-       PackSpec(PackKind.BUFFOON, "mega", 4, 2, 8),
-       PackSpec(PackKind.SPECTRAL, "normal", 2, 1, 4),
-       PackSpec(PackKind.SPECTRAL, "jumbo", 4, 1, 6),
-       PackSpec(PackKind.SPECTRAL, "mega", 4, 2, 8)]
-)
+PACKS: list[PackSpec] = [pack_from_row(row) for row in PACK_DATA]
+BY_KEY: dict[str, PackSpec] = {pack.key: pack for pack in PACKS}
 
-PACK_APPEARANCE_WEIGHTS = {
-    PackKind.ARCANA: 0.28, PackKind.CELESTIAL: 0.28, PackKind.STANDARD: 0.28,
-    PackKind.BUFFOON: 0.12, PackKind.SPECTRAL: 0.04,
-}
+
+def pack_from_key(key: str) -> PackSpec:
+    return BY_KEY[key]
 
 
 @dataclass

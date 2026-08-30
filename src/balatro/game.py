@@ -28,6 +28,16 @@ _EDITION_BY_NAME = {"none": Edition.NONE, "foil": Edition.FOIL,
                     "holo": Edition.HOLOGRAPHIC,
                     "polychrome": Edition.POLYCHROME,
                     "negative": Edition.NEGATIVE}
+
+# The game names a playing card by its centre key, C_2 through S_T, and pack
+# contents come back in that vocabulary.
+_RANK_BY_CODE = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR,
+                 "5": Rank.FIVE, "6": Rank.SIX, "7": Rank.SEVEN,
+                 "8": Rank.EIGHT, "9": Rank.NINE, "T": Rank.TEN,
+                 "J": Rank.JACK, "Q": Rank.QUEEN, "K": Rank.KING,
+                 "A": Rank.ACE}
+_SUIT_BY_CODE = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
+                 "S": Suit.SPADES}
 from .consumables import ConsumableKind, ConsumableSpec
 from .hands import PLANET_FOR_HAND, HandLevels, HandType, evaluate
 from .jokers import REGISTRY as JOKER_REGISTRY, JokerInstance, Rarity
@@ -101,6 +111,8 @@ class Tag(Enum):
     CHARM = "Charm Tag"
     METEOR = "Meteor Tag"
     BUFFOON = "Buffoon Tag"
+    ETHEREAL = "Ethereal Tag"
+    STANDARD = "Standard Tag"
     INVESTMENT = "Investment Tag"
     ECONOMY = "Economy Tag"
     JUGGLE = "Juggle Tag"
@@ -120,6 +132,8 @@ TAG_BY_KEY = {
     "tag_charm": Tag.CHARM,
     "tag_meteor": Tag.METEOR,
     "tag_buffoon": Tag.BUFFOON,
+    "tag_ethereal": Tag.ETHEREAL,
+    "tag_standard": Tag.STANDARD,
     "tag_investment": Tag.INVESTMENT,
     "tag_economy": Tag.ECONOMY,
     "tag_juggle": Tag.JUGGLE,
@@ -212,6 +226,10 @@ class GameState:
     phase: Phase = Phase.BLIND_SELECT
     shop: Shop | None = None
     pack: PackSpec | None = None
+    # The game gives every run a Buffoon pack in its first shop, short-
+    # circuiting before any roll -- see get_pack. This remembers whether that
+    # has happened, which is G.GAME.first_shop_buffoon.
+    first_shop_buffoon: bool = False
     pack_options: list = field(default_factory=list)
     pack_picks_left: int = 0
 
@@ -392,6 +410,7 @@ class GameState:
         # simulator reporting nought of each against a screen showing both.
         self.hands_left, self.discards_left = self._round_allowance()
         self.phase = Phase.BLIND_SELECT
+        self._apply_blind_select_tags()
 
     @property
     def offered_tag(self) -> Tag | None:
@@ -754,7 +773,7 @@ class GameState:
     def _shop_slot_count(self) -> int:
         return 2 + sum(v.shop_slots for v in self.vouchers)
 
-    def _roll_slot(self, tag: str) -> ShopSlot:
+    def _roll_slot(self) -> ShopSlot:
         """One shop slot, rolled the way the game rolls it.
 
         This used to invent its own weights and pools. It now goes through
@@ -792,15 +811,15 @@ class GameState:
         return rates
 
     def _fill_shop(self, shop: Shop) -> None:
-        shop.slots = [self._roll_slot(f"shop_{self.round_number}_{i}_{shop.rerolls}")
-                      for i in range(self._shop_slot_count())]
+        shop.slots = []
+        for _ in range(self._shop_slot_count()):
+            forced = self._forced_shop_slot()
+            shop.slots.append(forced if forced is not None else self._roll_slot())
 
     def _open_shop(self) -> None:
         shop = Shop()
         self._fill_shop(shop)
-        shop.packs = [
-            self._roll_pack(f"pack_{self.round_number}_{i}") for i in range(2)
-        ]
+        shop.packs = [self._roll_pack() for _ in range(2)]
         owned = {v.name for v in self.vouchers}
         available = [v for v in shop_mod.VOUCHERS if v.name not in owned]
         shop.voucher = self.rng.choice("voucher", available) if available else None
@@ -808,31 +827,82 @@ class GameState:
         self.phase = Phase.SHOP
         self._apply_shop_tags()
 
-    def _roll_pack(self, tag: str) -> PackSpec:
-        kind = shop_mod.weighted_pick(self.rng, f"{tag}_kind",
-                                      shop_mod.PACK_APPEARANCE_WEIGHTS)
-        options = [p for p in shop_mod.PACKS if p.kind is kind]
-        return self.rng.choice(f"{tag}_size", options)
+    def _roll_pack(self) -> PackSpec:
+        """One shop pack, rolled from the game's own Booster pool.
+
+        This used to pick a kind from weights invented here and then a size,
+        which gives the right kinds at the wrong sizes -- and a pack's price
+        follows its size, so a mega where the game offers a normal costs the
+        run four dollars it never spent.
+        """
+        first = not self.first_shop_buffoon
+        self.first_shop_buffoon = True
+        return shop_mod.pack_from_row(
+            shop_pool.draw_pack(self.rng, self.ante, first_shop=first))
+
+    # A tag does not wait for the shop. Each one names the moment it fires,
+    # and the simulator used to fire all of them when the shop opened, which
+    # is the wrong screen for most and the wrong order for the rest:
+    #
+    #   immediate           on the blind select screen, all of them
+    #   new_blind_choice    same screen, but only the first that triggers
+    #   store_joker_create  while a shop slot is being filled, in its place
+    #   round_start_bonus   when the round begins
+    #   eval                at cash-out
+    #
+    # Getting this wrong is not a timing nicety: a Charm Tag opens its pack
+    # before the blind, so the player takes a Tarot into the round the tag was
+    # skipped for, and the shop three screens later is drawn from pools that
+    # have already moved.
+    PACK_TAGS = (Tag.CHARM, Tag.METEOR, Tag.BUFFOON, Tag.ETHEREAL,
+                 Tag.STANDARD)
+
+    def _apply_blind_select_tags(self) -> None:
+        for tag in list(self.tags):
+            if tag is Tag.ECONOMY:
+                self.add_money(min(40, max(0, self.money)), tag.value)
+                self.tags.remove(tag)
+        # Only the first tag that actually does something fires here -- the
+        # game breaks out of the loop -- so two Charm Tags open one pack now
+        # and the other at the next blind.
+        for tag in list(self.tags):
+            if tag in self.PACK_TAGS:
+                self.tags.remove(tag)
+                self._open_pack(
+                    shop_mod.pack_from_key(self._tag_pack_key(tag)), free=True)
+                return
+
+    def _forced_shop_slot(self) -> ShopSlot | None:
+        """A shop slot an Uncommon or Rare Tag fills instead of a roll.
+
+        The tag does not hand the player a joker -- it puts a free one in the
+        shop, in place of a card that is then never rolled. The simulator used
+        to add it straight to the joker row, so a run held a joker it had
+        never bought and the shop offered one card too many.
+        """
+        for tag in list(self.tags):
+            if tag not in (Tag.UNCOMMON, Tag.RARE):
+                continue
+            rarity, append = ((2, "uta") if tag is Tag.UNCOMMON
+                              else (3, "rta"))
+            self.tags.remove(tag)
+            key = shop_pool.draw_joker(self.rng, self.ante,
+                                       seen_jokers=self.seen_centers,
+                                       rarity=rarity, append=append)
+            self.seen_centers.add(key)
+            spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
+            edition = _EDITION_BY_NAME[
+                shop_pool.poll_edition(self.rng, "edi%s%d" % (append, self.ante))]
+            return ShopSlot("joker", 0, joker=JokerInstance(spec,
+                                                            edition=edition))
+        return None
 
     def _apply_shop_tags(self) -> None:
-        for tag in list(self.tags):
-            if tag is Tag.UNCOMMON:
-                self.add_random_joker(tag.value, Rarity.UNCOMMON)
-            elif tag is Tag.RARE:
-                self.add_random_joker(tag.value, Rarity.RARE)
-            elif tag is Tag.ECONOMY:
-                self.add_money(min(40, max(0, self.money)), tag.value)
-            elif tag in (Tag.CHARM, Tag.METEOR, Tag.BUFFOON):
-                kind = {Tag.CHARM: PackKind.ARCANA, Tag.METEOR: PackKind.CELESTIAL,
-                        Tag.BUFFOON: PackKind.BUFFOON}[tag]
-                free = next(p for p in shop_mod.PACKS
-                            if p.kind is kind and p.size == "normal")
-                self._open_pack(free)
-            elif tag is Tag.JUGGLE:
-                continue  # consumed at round start; modelled as a no-op for now
-            else:
-                continue
-            self.tags.remove(tag)
+        # What is left for the shop itself: the D6 Tag's free rerolls, the
+        # Voucher Tag's extra voucher and the Coupon Tag's free cards. None
+        # are modelled yet, and they stay in self.tags rather than being
+        # silently dropped.
+        return
 
     def _leave_shop(self) -> None:
         # The blind index and the ante moved on at cash-out; leaving the shop
@@ -844,37 +914,61 @@ class GameState:
     # packs
     # ------------------------------------------------------------------
 
-    def _open_pack(self, spec: PackSpec) -> None:
+    # Which pack each pack tag hands over. They are fixed keys rather than
+    # rolls, and they are mega packs -- five cards, choose two -- where the
+    # simulator used to open a normal one of three. Charm and Meteor pick
+    # between two identical centres with a bare math.random, which reads the
+    # live stream rather than a pool of its own.
+    def _tag_pack_key(self, tag: Tag) -> str:
+        if tag is Tag.CHARM:
+            return "p_arcana_mega_%d" % int(self.rng.math_random(1, 2))
+        if tag is Tag.METEOR:
+            return "p_celestial_mega_%d" % int(self.rng.math_random(1, 2))
+        return {Tag.ETHEREAL: "p_spectral_normal_1",
+                Tag.STANDARD: "p_standard_mega_1",
+                Tag.BUFFOON: "p_buffoon_mega_1"}[tag]
+
+    def _open_pack(self, spec: PackSpec, free: bool = False) -> None:
+        """Fill a pack the way Card:open fills it.
+
+        The contents used to be drawn uniformly from a whole card set, which
+        offered Tarots the run had already been given and Planet X for hands
+        nobody had played, and -- because a real pack takes a known number of
+        rolls from known pools -- left every later draw in the run standing in
+        the wrong place. shop_pool.pack_contents is checked against the engine
+        card for card.
+        """
         self.pack = spec
         self.pack_picks_left = spec.picks
-        tag = f"packopen_{self.round_number}_{spec.name}"
-        if spec.kind is PackKind.ARCANA:
-            pool = cons.by_kind(ConsumableKind.TAROT)
-            self.pack_options = [self.rng.choice(tag, pool) for _ in range(spec.options)]
-        elif spec.kind is PackKind.CELESTIAL:
-            pool = cons.by_kind(ConsumableKind.PLANET)
-            self.pack_options = [self.rng.choice(tag, pool) for _ in range(spec.options)]
-        elif spec.kind is PackKind.SPECTRAL:
-            pool = cons.by_kind(ConsumableKind.SPECTRAL)
-            self.pack_options = [self.rng.choice(tag, pool) for _ in range(spec.options)]
-        elif spec.kind is PackKind.BUFFOON:
-            self.pack_options = [
-                JokerInstance(shop_mod.random_joker_spec(self.rng, f"{tag}_{i}"))
-                for i in range(spec.options)
-            ]
-        else:  # standard playing cards
-            self.pack_options = [self._random_playing_card(f"{tag}_{i}")
-                                 for i in range(spec.options)]
+        played = [h.label for h, n in self.hand_levels.plays.items() if n > 0]
+        owned = {"m_%s" % c.enhancement.value for c in self.full_deck}
+        contents = shop_pool.pack_contents(
+            self.rng, spec.kind.value.title(), spec.options, self.ante,
+            played_hands=played, seen=self.seen_centers,
+            seen_jokers=self.seen_centers, owned_enhancements=owned,
+            showman=any(j.name == "Showman" for j in self.jokers))
+
+        self.pack_options = []
+        for entry in contents:
+            self.seen_centers.add(entry.get("key", ""))
+            self.pack_options.append(self._pack_card(entry))
         self.phase = Phase.PACK
 
-    def _random_playing_card(self, tag: str) -> Card:
-        card = Card(self.rng.choice(f"{tag}_rank", list(Rank)),
-                    self.rng.choice(f"{tag}_suit", list(Suit)))
-        if self.rng.chance(f"{tag}_enh", 2, 5):
-            card.enhancement = self.rng.choice(
-                f"{tag}_which", [e for e in Enhancement if e is not Enhancement.NONE])
-        card.edition = shop_mod.random_edition(self.rng, f"{tag}_ed")
-        return card
+    def _pack_card(self, entry: dict):
+        """One entry from shop_pool.pack_contents, as a simulator object."""
+        if entry["set"] == "Joker":
+            spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[entry["key"]]]
+            return JokerInstance(spec,
+                                 edition=_EDITION_BY_NAME[entry["edition"]])
+        if entry["set"] == "Playing":
+            card = Card(_RANK_BY_CODE[entry["rank"]], _SUIT_BY_CODE[entry["suit"]])
+            if entry["enhancement"]:
+                card.enhancement = Enhancement(entry["enhancement"][2:])
+            card.edition = _EDITION_BY_NAME[entry["edition"]]
+            if entry["seal"]:
+                card.seal = Seal(entry["seal"].lower())
+            return card
+        return cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[entry["key"]]]
 
     def _close_pack(self) -> None:
         self.pack = None

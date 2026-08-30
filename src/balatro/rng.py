@@ -95,6 +95,12 @@ class RunRng:
         seed = self.seed
         self.hashed_seed = pseudohash(seed)
         self.pools: dict[str, float] = {}
+        # Lua has one math.random stream and pseudorandom reseeds it on every
+        # call, so a bare math.random continues from wherever the last named
+        # draw left it. Most of the game goes through a pool and does not care,
+        # but a few places -- the opening Buffoon pack is one -- call
+        # math.random with no seed at all, and those read this.
+        self.live: TW223 | None = None
 
     def pseudoseed(self, key: str) -> float:
         """Advance `key`'s pool and return a seed for math.random."""
@@ -105,9 +111,21 @@ class RunRng:
         self.pools[key] = state
         return (state + self.hashed_seed) / 2
 
+    def seeded(self, key: str) -> TW223:
+        """math.randomseed(pseudoseed(key)), keeping the stream for later."""
+        self.live = TW223(self.pseudoseed(key))
+        return self.live
+
+    def math_random(self, low: float | None = None,
+                    high: float | None = None) -> float:
+        """math.random with no reseed, continuing the live stream."""
+        if self.live is None:
+            raise RuntimeError("math.random before anything seeded it")
+        return self.live.random(low, high)
+
     def pseudorandom(self, key: str, low: float | None = None,
                      high: float | None = None) -> float:
-        return TW223(self.pseudoseed(key)).random(low, high)
+        return self.seeded(key).random(low, high)
 
     def random_element(self, items: Sequence, key: str):
         """The game's pseudorandom_element: draw from an ordered sequence.
@@ -116,7 +134,7 @@ class RunRng:
         sorted by sort_id (or by key) first -- an unsorted pool draws
         reproducibly from the wrong place.
         """
-        index = int(TW223(self.pseudoseed(key)).random(len(items)))
+        index = int(self.seeded(key).random(len(items)))
         return items[index - 1]
 
     def chance(self, key: str, numerator: float, denominator: float) -> bool:
@@ -143,7 +161,7 @@ class RunRng:
         in a different starting order shuffles reproducibly into a different
         deck.
         """
-        rng = TW223(self.pseudoseed(key))
+        rng = self.seeded(key)
         for i in range(len(items), 1, -1):
             j = int(rng.random(i))
             items[i - 1], items[j - 1] = items[j - 1], items[i - 1]

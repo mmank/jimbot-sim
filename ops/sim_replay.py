@@ -27,8 +27,11 @@ sys.path.insert(0, "src")
 
 from balatro.game import Action, ActionType, GameState, Phase   # noqa: E402
 from balatro.joker_data import JOKER_DATA                       # noqa: E402
+from balatro.shop_pool import NAME_BY_CONSUMABLE_KEY            # noqa: E402
 
 KEY_BY_JOKER = {name: key for name, (key, *_r) in JOKER_DATA.items()}
+KEY_BY_CONSUMABLE = {name: key
+                     for key, name in NAME_BY_CONSUMABLE_KEY.items()}
 RANK_CODE = {"Two": "2", "Three": "3", "Four": "4", "Five": "5", "Six": "6",
              "Seven": "7", "Eight": "8", "Nine": "9", "Ten": "10",
              "Jack": "Jack", "Queen": "Queen", "King": "King", "Ace": "Ace"}
@@ -112,6 +115,35 @@ def match_hand_order(game, recorded_ids, deck_index):
     game.hand[:] = ordered + leftover
 
 
+def match_joker_order(game, recorded_keys):
+    """Put the simulator's joker row into the order the recording shows.
+
+    Jokers are dragged as often as cards are, and the order is not cosmetic:
+    Blueprint copies the joker to its right, so the same five jokers in a
+    different arrangement score differently. Like the hand, the arrangement
+    is not a function call and cannot be recorded, but every snapshot carries
+    the result.
+
+    Only a reordering is applied. If the two sides hold different jokers that
+    is a real divergence and the comparison should see it, so anything that
+    does not line up is left where it is.
+    """
+    if not recorded_keys:
+        return
+    by_key = {}
+    for joker in game.jokers:
+        by_key.setdefault(KEY_BY_JOKER.get(joker.name, joker.name),
+                          []).append(joker)
+    ordered, leftover = [], list(game.jokers)
+    for key in recorded_keys:
+        pool = by_key.get(key)
+        if pool:
+            joker = pool.pop(0)
+            ordered.append(joker)
+            leftover.remove(joker)
+    game.jokers[:] = ordered + leftover
+
+
 def apply(game, action, params, selected):
     """Do to the simulator what the recording says the player did.
 
@@ -192,8 +224,11 @@ def buy(game, params):
             return "no slot %d; the simulator's shop has %d" % (index + 1,
                                                                 len(shop.slots))
         slot = shop.slots[index]
+        # Both sides in the game's vocabulary: the recording names a centre
+        # key, the simulator holds an object with a display name.
         holding = (KEY_BY_JOKER.get(slot.joker.name) if slot.joker
-                   else getattr(slot.consumable, "name", None))
+                   else KEY_BY_CONSUMABLE.get(
+                       getattr(slot.consumable, "name", None)))
         if wanted and holding and wanted != holding:
             return ("shop slot %d holds %s, the recording bought %s"
                     % (index + 1, holding, wanted))
@@ -225,6 +260,7 @@ def main() -> None:
     for i, entry in enumerate(actions, start=1):
         recorded = entry.get("before") or {}
         match_hand_order(game, recorded.get("hand_ids"), deck_index)
+        match_joker_order(game, recorded.get("jokers"))
 
         # Nothing to compare on the cash-out screen: the simulator does not
         # have one. It takes the payout the moment a blind is beaten, so by
