@@ -145,6 +145,9 @@ class GameState:
     beaten_blind: Blind | None = None
     pending_payout: int = 0
     beaten_was_boss: bool = False
+    # Which sort the player last asked for. The game keeps this on the hand's
+    # CardArea and reapplies it to every draw.
+    hand_sort: str = "rank"
     hands_played: int = 0          # total for the run, as G.GAME.hands_played
     # Run totals that jokers scale on. The game keeps these on G.GAME, and a
     # joker that counts them scores zero without them -- which looks like
@@ -445,7 +448,25 @@ class GameState:
         cards by position, so an unsorted hand turns the same choice into a
         different play.
         """
-        self.hand.sort(key=lambda c: c.sort_value, reverse=True)
+        key = (Card.suit_sort_value.fget if self.hand_sort == "suit"
+               else Card.sort_value.fget)
+        self.hand.sort(key=key, reverse=True)
+
+    def sort_hand(self, by: str = "rank") -> None:
+        """Reorder the hand the way the sort buttons do, and keep doing it.
+
+        Not cosmetic: actions address cards by position, so sorting changes
+        what every later choice means. Treating these as no-ops because "the
+        hand is already sorted" was wrong -- by suit is a different order.
+
+        The choice sticks, as it does in the game: CardArea keeps the method
+        on itself and applies it to every later draw, so a hand sorted by suit
+        stays that way as cards come in. Sorting once and letting the next
+        draw undo it puts the cards back in rank order behind the player's
+        back.
+        """
+        self.hand_sort = "suit" if by == "suit" else "rank"
+        self._sort_hand()
 
     def _draw_to_hand_size(self) -> None:
         while len(self.hand) < self.hand_size and self.draw_pile:

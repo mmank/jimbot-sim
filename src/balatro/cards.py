@@ -127,6 +127,19 @@ class Card:
         return (self.rank.chips + SUIT_NOMINAL[self.suit]
                 + FACE_NOMINAL.get(self.rank, 0.0))
 
+    @property
+    def suit_sort_value(self) -> float:
+        """get_nominal('suit'), which is what the sort-by-suit button uses.
+
+        The game multiplies the suit term by a thousand for this, so the suit
+        dominates and the rank only breaks ties within it. Everything else is
+        the same as the ordinary sort.
+        """
+        if self.is_stone:
+            return -1000 * SUIT_NOMINAL[self.suit] + self.rank.chips
+        return (1000 * SUIT_NOMINAL[self.suit] + self.rank.chips
+                + FACE_NOMINAL.get(self.rank, 0.0))
+
     def counts_as_suit(self, suit: Suit) -> bool:
         """Wild cards count as every suit; stone cards have no suit."""
         if self.debuffed or self.is_stone:
