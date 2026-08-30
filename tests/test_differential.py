@@ -22,6 +22,10 @@ Three failure modes to keep apart, all of which have already happened here:
                      so a disagreement is not automatically the simulator's.
 """
 
+import functools
+import hashlib
+import json
+import pathlib
 from dataclasses import dataclass
 
 import pytest
@@ -248,8 +252,7 @@ def engine():
     return HeadlessBalatro().boot()
 
 
-@pytest.fixture(scope="module")
-def joker_keys(engine):
+def _joker_keys(engine):
     """The game's own key-to-name map, so nothing is hand-maintained."""
     raw = engine.eval(
         '(function()'
@@ -263,6 +266,54 @@ def joker_keys(engine):
         '  return table.concat(t, "|") end)()')
     return {name: key for key, name in
             (pair.split("=", 1) for pair in raw.split("|"))}
+
+
+@pytest.fixture(scope="module")
+def joker_keys(engine):
+    return _joker_keys(engine)
+
+
+def inputs_fingerprint() -> str:
+    """What the recorded answers were produced from.
+
+    Adding a joker or a position has to invalidate the file rather than quietly
+    check the old set against the new code, so the fingerprint covers both --
+    and the excuse lists too, since moving a joker between them changes what
+    is expected of it.
+    """
+    import hashlib
+
+    parts = [
+        "|".join(sorted(REGISTRY)),
+        "|".join("%s:%s:%s:%s:%s:%s" % (c.name, c.hand, c.play, c.money,
+                                        c.discards_left, c.boss)
+                 for c in CASES),
+        "|".join(sorted(KNOWN_BAD)),
+        "|".join(sorted(NEEDS_SETUP)),
+        "|".join(sorted(COVERED_ELSEWHERE)),
+        "|".join(sorted(NOT_A_SCORING_EFFECT)),
+    ]
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
+
+
+RECORDED_PATH = pathlib.Path(__file__).parent / "data" / "joker_expectations.json"
+
+
+@functools.lru_cache(maxsize=1)
+def _recorded():
+    """The engine's answers, written down by ops/record_expectations.py.
+
+    Cached: the file is over a megabyte and every joker asks for it, so
+    parsing it once a test turned a second of comparison into fifteen.
+    """
+    if not RECORDED_PATH.exists():
+        pytest.skip("no recorded answers; run ops/record_expectations.py")
+    data = json.loads(RECORDED_PATH.read_text(encoding="utf-8"))
+    if data.get("fingerprint") != inputs_fingerprint():
+        pytest.fail(
+            "the recorded answers were made from a different set of jokers or "
+            "positions -- run ops/record_expectations.py again")
+    return data["expectations"]
 
 
 def _engine_state(engine):
@@ -449,25 +500,45 @@ def baselines(engine):
     return out
 
 
-# A sample that runs every time, so the fast suite is not blind to the thing
-# this file exists for. Chosen to span the shapes rather than to be short:
-# a plain adder, a suit scorer, a retrigger, a copier's target, a scaling
-# joker, one that reads held cards, one that rolls a chance, and one whose
-# growth is rewritten before every hand.
-SAMPLE = ["Joker", "Greedy Joker", "Hanging Chad", "Baron", "Ice Cream",
-          "Raised Fist", "Bloodstone", "Obelisk", "Splash", "Misprint"]
+@pytest.mark.parametrize("name", sorted(REGISTRY))
+def test_the_simulator_matches_the_recorded_answers(name):
+    """Every joker, every position, against what the engine said.
 
+    No Lua and no run: the engine's answer for a joker in a position is the
+    same today as yesterday, so it is written down once by
+    ops/record_expectations.py and checked from there. That is what the whole
+    sweep used to cost -- BOT.start_run at 35ms, three and a half thousand
+    times -- and none of it was telling us anything new.
 
-@pytest.mark.parametrize("name", SAMPLE)
-def test_a_sample_of_jokers_agrees(engine, joker_keys, baselines, name):
-    """The same check as below, on ten jokers rather than a hundred and fifty.
-
-    Two minutes of joker checks do not get run between edits. Twenty seconds
-    of them do, and a break in any of these shapes almost certainly breaks
-    more, so the full sweep has something to be prompted by.
+    The engine is still the authority. It is consulted when the file is made,
+    and test_the_recorded_answers_still_match_the_engine goes back to it.
     """
-    test_joker_scores_what_the_engine_scores(engine, joker_keys, baselines,
-                                             name)
+    if name in NEEDS_SETUP:
+        pytest.skip(NEEDS_SETUP[name])
+    if name in COVERED_ELSEWHERE:
+        pytest.skip("no scoring effect on a lone hand: %s"
+                    % COVERED_ELSEWHERE[name])
+    if name in NOT_A_SCORING_EFFECT:
+        pytest.skip(NOT_A_SCORING_EFFECT[name])
+    if name in KNOWN_BAD:
+        pytest.xfail(KNOWN_BAD[name])
+
+    rows = _recorded().get(name)
+    assert rows, "%s has no recorded answers -- rerun the recorder" % name
+
+    active = []
+    for case in CASES:
+        row = rows[case.name]
+        expected = tuple(row["outcome"])
+        actual = _sim_score(name, case, row["state"])
+        assert expected == actual, (
+            "%s on %r: engine %s, simulator %s (score, money, consumables)"
+            % (name, case.name, expected, actual))
+        if expected != tuple(_recorded()["__baselines__"][case.name]):
+            active.append(case.name)
+    assert active, (
+        "%s never changed a score across %d hands, so agreeing with the engine "
+        "proves nothing about it" % (name, len(CASES)))
 
 
 @pytest.mark.slow
@@ -485,9 +556,23 @@ def test_joker_scores_what_the_engine_scores(engine, joker_keys, baselines, name
         pytest.skip(NOT_A_SCORING_EFFECT[name])
 
     key = joker_keys[name]
+    recorded = _recorded().get(name)
     active = []
     for case in CASES:
         expected, state = _engine_score(engine, case, key)
+
+        # The everyday tests read the recorded answers instead of running the
+        # engine, so the recording has to be checked against the engine
+        # somewhere or it can quietly go stale -- the fingerprint catches a
+        # changed joker list or a changed position, but not a changed engine.
+        # This is that check, and it costs nothing here because the engine has
+        # already been asked.
+        if recorded and case.name in recorded:
+            assert tuple(recorded[case.name]["outcome"]) == expected, (
+                "the recorded answer for %s on %r is stale: it says %s and "
+                "the engine now says %s -- rerun ops/record_expectations.py"
+                % (name, case.name, recorded[case.name]["outcome"], expected))
+
         actual = _sim_score(name, case, state)
         assert expected == actual, (
             "%s on %r: engine %s, simulator %s (score, money, consumables)"
