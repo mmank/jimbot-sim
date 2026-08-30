@@ -33,6 +33,7 @@ from .consumable_data import CONSUMABLE_DATA, EXCLUDED_FROM_POOLS
 from .joker_data import JOKER_DATA, pool_for_rarity
 from .pack_data import PACK_DATA
 from .tag_data import TAG_DATA
+from .voucher_data import VOUCHER_DATA
 from .rng import TW223, RunRng
 
 UNAVAILABLE = "UNAVAILABLE"
@@ -492,3 +493,44 @@ def pack_contents(rng: RunRng, kind: str, cards: int, ante: int,
             made.add(card["key"])
         out.append(card)
     return out
+
+
+# --------------------------------------------------------------------------
+# vouchers
+# --------------------------------------------------------------------------
+
+NAME_BY_VOUCHER_KEY = {row[0]: row[1] for row in VOUCHER_DATA}
+
+
+def build_voucher_pool(redeemed: Iterable[str] = (),
+                       on_offer: Iterable[str] = ()) -> list[str]:
+    """The voucher pool, blanked the same way as every other.
+
+    Three things take an entry out. A voucher already redeemed cannot come
+    again -- unlike a joker, there is no Showman that brings it back. An
+    upgrade is gated on its base having been redeemed, so half the list is
+    blank at the start of a run. And a voucher already sitting in the shop is
+    withheld, which matters when a Voucher Tag adds a second one.
+    """
+    owned, offered = set(redeemed), set(on_offer)
+    pool = []
+    for key, _name, _cost, requires, _extra in VOUCHER_DATA:
+        if key in owned or key in offered:
+            pool.append(UNAVAILABLE)
+        elif requires and requires not in owned:
+            pool.append(UNAVAILABLE)
+        else:
+            pool.append(key)
+    return pool
+
+
+def draw_voucher(rng: RunRng, ante: int, redeemed: Iterable[str] = (),
+                 on_offer: Iterable[str] = (), from_tag: bool = False) -> str:
+    """The voucher this round's shop offers, as get_next_voucher_key rolls it.
+
+    Rolled when the round starts rather than when the shop opens, which is
+    why it is drawn against the ante and not the shop.
+    """
+    pool = _or_fallback(build_voucher_pool(redeemed, on_offer), "Voucher")
+    key = "Voucher_fromtag" if from_tag else "Voucher%d" % ante
+    return _draw(rng, pool, key)

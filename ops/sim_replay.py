@@ -47,6 +47,8 @@ def sim_view(game):
         "hand_size": len(game.hand),
         "ante": game.ante,
         "jokers": [KEY_BY_JOKER.get(j.name, j.name) for j in game.jokers],
+        "consumables": [KEY_BY_CONSUMABLE.get(c.name, c.name)
+                        for c in game.consumables],
         "last_hand": game.last_hand,
         "blind": game.blind_name,
         "blind_chips": game.blind_target,
@@ -64,8 +66,13 @@ def sim_view(game):
 # The blind is worth comparing and was not: a run that beats a blind early
 # resets its counters, and without the target in view that reads as the
 # counters being wrong rather than the round having ended too soon.
+# Consumables belong here as much as jokers do, and leaving them out hid a
+# real divergence for a while: the two sides held different cards in the
+# consumable slots, so "use the first one" used a different card on each side
+# and the run carried on looking fine until the effects diverged.
 COMPARED = ("dollars", "chips", "hands_left", "discards_left", "hand_size",
-            "ante", "jokers", "last_hand", "blind", "blind_chips", "round")
+            "ante", "jokers", "consumables", "last_hand", "blind",
+            "blind_chips", "round")
 
 
 def differences(recorded, sim):
@@ -197,6 +204,15 @@ def apply(game, action, params, selected):
             game.step(Action(ActionType.BUY_PACK, index=index))
         elif area == "pack_cards":
             game.step(Action(ActionType.PICK_PACK, index=index))
+        elif area == "shop_vouchers":
+            offered = game.shop.voucher if game.shop else None
+            key = getattr(offered, "key", None)
+            if key is None:
+                return "the simulator's shop offers no voucher"
+            if name and key != name:
+                return ("the shop offers %s, the recording redeemed %s"
+                        % (key, name))
+            game.step(Action(ActionType.BUY_VOUCHER))
         else:
             return "using from %s is not modelled" % area
     else:
@@ -220,6 +236,18 @@ def buy(game, params):
         return "the simulator has no shop open"
 
     if area == "shop_jokers":
+        # One press in the game, two things: the card is bought and used
+        # without ever reaching a consumable slot. A simulator that only buys
+        # it leaves it sitting in a slot the run never had it in.
+        if params.get("buy_and_use"):
+            if index >= len(shop.slots):
+                return "no slot %d to buy and use" % (index + 1)
+            game.step(Action(ActionType.BUY, index=index))
+            if not game.consumables:
+                return "buying %s put nothing in a consumable slot" % wanted
+            game.step(Action(ActionType.USE_CONSUMABLE,
+                             index=len(game.consumables) - 1))
+            return None
         if index >= len(shop.slots):
             return "no slot %d; the simulator's shop has %d" % (index + 1,
                                                                 len(shop.slots))

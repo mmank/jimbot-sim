@@ -41,6 +41,10 @@ _SUIT_BY_CODE = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
 from .consumables import ConsumableKind, ConsumableSpec
 from .hands import PLANET_FOR_HAND, HandLevels, HandType, evaluate
 from .jokers import REGISTRY as JOKER_REGISTRY, JokerInstance, Rarity
+
+# The game's rarity numbers, which its pools are keyed by.
+_RARITY_INDEX = {Rarity.COMMON: 1, Rarity.UNCOMMON: 2, Rarity.RARE: 3,
+                 Rarity.LEGENDARY: 4}
 from .rng import RunRng
 from .scoring import score_hand, shattered_glass
 from .shop import PackKind, PackSpec, Shop, ShopSlot, Voucher
@@ -172,6 +176,9 @@ class GameState:
 
     base_hand_size: int = BASE_HAND_SIZE
     joker_slots: int = BASE_JOKER_SLOTS
+    # The Nebula Deck takes a consumable slot away, the Painted Deck a joker
+    # slot; both are set once from the deck rather than derived.
+    extra_consumable_slots: int = 0
 
     blind: Blind | None = None
     # Held between beating a blind and cashing out: the game shows the payout
@@ -230,6 +237,8 @@ class GameState:
     # circuiting before any roll -- see get_pack. This remembers whether that
     # has happened, which is G.GAME.first_shop_buffoon.
     first_shop_buffoon: bool = False
+    # The voucher this round's shop will offer, drawn when the round starts.
+    round_voucher: str = ""
     pack_options: list = field(default_factory=list)
     pack_picks_left: int = 0
 
@@ -279,6 +288,12 @@ class GameState:
         self.money += config.get("dollars", 0)
         if not self.full_deck:
             self.full_deck = standard_deck()
+        self._apply_deck_config(config)
+        # The order the game starts a run in: the boss, then the voucher, then
+        # the two skip tags. Every one of them draws, so the order is part of
+        # the seed.
+        self._roll_voucher()
+        self._roll_ante_tags()
         self._next_blind()
 
     # ------------------------------------------------------------------
@@ -325,16 +340,35 @@ class GameState:
             if len(self.consumables) < self.consumable_slots:
                 self.consumables.append(spec)
 
-    def add_random_joker(self, source: str = "", rarity: Rarity | None = None) -> None:
+    def add_random_joker(self, source: str = "", rarity: Rarity | None = None,
+                         legendary: bool = False, append: str = "") -> None:
+        """A joker from the game's own pool, not from a list of every joker.
+
+        `append` is the key_append the thing creating it uses -- "jud" for
+        Judgement, "sou" for The Soul, "wra" for Wraith -- and it names the
+        stream, so getting it wrong draws the right joker from the wrong
+        place. A forced rarity skips the rarity roll entirely, which is how
+        Wraith is always rare and never legendary.
+        """
         if len(self.jokers) >= self.joker_slots:
             return
-        if rarity is None:
-            spec = shop_mod.random_joker_spec(self.rng, "granted")
-        else:
-            pool = [s for s in JOKER_REGISTRY.values() if s.rarity is rarity]
-            spec = self.rng.choice("granted_rarity", pool)
+        key = shop_pool.draw_joker(
+            self.rng, self.ante, seen_jokers=self.seen_centers,
+            rarity=4 if legendary else _RARITY_INDEX.get(rarity),
+            append=append,
+            owned_enhancements={"m_%s" % c.enhancement.value
+                                for c in self.full_deck})
+        self.seen_centers.add(key)
+        spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
         self.jokers.append(JokerInstance(spec))
         self.log(f"{source}: gained {spec.name}")
+
+    def add_joker_copy(self, joker: JokerInstance, source: str = "") -> None:
+        """A copy of a joker already held, editions and all."""
+        if len(self.jokers) >= self.joker_slots:
+            return
+        self.jokers.append(copy.deepcopy(joker))
+        self.log(f"{source}: copied {joker.name}")
 
     # ------------------------------------------------------------------
     # derived state
@@ -350,7 +384,8 @@ class GameState:
 
     @property
     def consumable_slots(self) -> int:
-        return BASE_CONSUMABLE_SLOTS + sum(v.consumable_slots for v in self.vouchers)
+        return (BASE_CONSUMABLE_SLOTS + self.extra_consumable_slots
+                + sum(v.consumable_slots for v in self.vouchers))
 
     @property
     def hand_size(self) -> int:
@@ -385,19 +420,58 @@ class GameState:
     # blind flow
     # ------------------------------------------------------------------
 
+    def _apply_deck_config(self, config: dict) -> None:
+        """What the chosen deck starts the run holding.
+
+        The deck's numbers were being read where they were needed -- hand
+        size, ante scaling, the spectral rate -- but the things it *gives* a
+        run were not applied at all. The Ghost Deck starts with a Hex, the
+        Magic Deck with two Fools and Crystal Ball already redeemed, the
+        Nebula Deck with Telescope. Missing the cards is worse than missing
+        the effect: every consumable slot after the first is numbered one
+        place out, so "use the first consumable" uses the wrong card for the
+        rest of the run.
+        """
+        for key in config.get("consumables", ()):
+            name = shop_pool.NAME_BY_CONSUMABLE_KEY.get(key)
+            if name in cons.REGISTRY:
+                self.consumables.append(cons.REGISTRY[name])
+
+        starting = list(config.get("vouchers", ()))
+        if config.get("voucher"):
+            starting.append(config["voucher"])
+        for key in starting:
+            voucher = shop_mod.VOUCHER_BY_KEY.get(key)
+            if voucher is not None:
+                self.vouchers.append(voucher)
+
+        self.joker_slots += config.get("joker_slot", 0)
+        self.extra_consumable_slots += config.get("consumable_slot", 0)
+
+    def _roll_ante_tags(self) -> None:
+        """Both skip rewards for the ante, rolled together.
+
+        The game shows them both on the blind select screen -- deciding
+        whether to skip the Small Blind means knowing what skipping the Big
+        one would pay -- so both are drawn at once, at run start and again
+        when a boss falls.
+        """
+        self.ante_tag_keys = [shop_pool.draw_tag(self.rng, self.ante)
+                              for _ in range(2)]
+        self.ante_tags = [TAG_BY_KEY.get(k) for k in self.ante_tag_keys]
+
+    def _roll_voucher(self) -> None:
+        """The voucher every shop this ante will offer.
+
+        Once per ante, not once per shop: the game rolls it as the boss falls
+        and all three shops of the next ante show the same one. Rolling per
+        shop gave a run three vouchers an ante and put every later voucher
+        draw in the wrong place.
+        """
+        self.round_voucher = shop_pool.draw_voucher(
+            self.rng, self.ante, redeemed=[v.key for v in self.vouchers])
+
     def _next_blind(self) -> None:
-        if self.blind_index == 0:
-            # Both skip rewards for the ante are rolled up front, because the
-            # real game shows them on the blind select screen -- deciding
-            # whether to skip the Small Blind means knowing both tags.
-            # The game's own roll, from all twenty-four, through the pool
-            # machinery every other draw uses. Rolling from a pool of eight
-            # with a name of our own handed runs tags they were never
-            # offered -- and an Uncommon or Rare tag hands over a joker with
-            # it, which is how a phantom Duo turned up replaying a real game.
-            self.ante_tag_keys = [shop_pool.draw_tag(self.rng, self.ante)
-                                  for _ in range(2)]
-            self.ante_tags = [TAG_BY_KEY.get(k) for k in self.ante_tag_keys]
         kind = [BlindKind.SMALL, BlindKind.BIG, BlindKind.BOSS][self.blind_index]
         boss = self._pick_boss() if kind is BlindKind.BOSS else None
         self.blind = make_blind(
@@ -695,6 +769,11 @@ class GameState:
                                      max(0, self.money) // 5)
                                + gold)
 
+        # The voucher for the next ante is rolled the moment the boss falls,
+        # before the cash-out screen and well before the shop that shows it.
+        if self.blind.kind is BlindKind.BOSS:
+            self._roll_voucher()
+
         # Every card returns to the deck as the round closes, which is why the
         # engine reads fifty-two here and a simulator that only rebuilds the
         # deck when the next round starts reads whatever was left.
@@ -732,6 +811,12 @@ class GameState:
         assert self.beaten_blind is not None
         self.add_money(self.pending_payout, f"{self.beaten_blind.name} payout")
         self.pending_payout = 0
+
+        # A beaten boss ends the ante, and the next one's two skip tags are
+        # rolled here, on the cash-out screen -- after the voucher, which went
+        # a moment earlier when the boss fell.
+        if self.beaten_blind.kind is BlindKind.BOSS:
+            self._roll_ante_tags()
 
         # End-of-round joker money is part of what the cash-out screen pays,
         # not something already in the bankroll when it appears. Golden Joker's
@@ -805,9 +890,21 @@ class GameState:
                         consumable=cons.by_kind(ConsumableKind.TAROT)[0])
 
     def _shop_rates(self) -> dict:
-        """The run's card-type rates, which the deck and vouchers move."""
+        """The run's card-type rates, which the deck and vouchers move.
+
+        A voucher *sets* its rate rather than adding to it -- Tarot Tycoon
+        replaces Tarot Merchant's number rather than stacking with it -- so
+        the last one redeemed wins, which for an upgrade is always the bigger.
+        """
         rates = dict(shop_pool.BASE_RATES)
         rates["Spectral"] += self.deck_config.get("spectral_rate", 0)
+        for voucher in self.vouchers:
+            if voucher.tarot_rate:
+                rates["Tarot"] = voucher.tarot_rate
+            if voucher.planet_rate:
+                rates["Planet"] = voucher.planet_rate
+            if voucher.playing_card_rate:
+                rates["Base"] = voucher.playing_card_rate
         return rates
 
     def _fill_shop(self, shop: Shop) -> None:
@@ -820,9 +917,8 @@ class GameState:
         shop = Shop()
         self._fill_shop(shop)
         shop.packs = [self._roll_pack() for _ in range(2)]
-        owned = {v.name for v in self.vouchers}
-        available = [v for v in shop_mod.VOUCHERS if v.name not in owned]
-        shop.voucher = self.rng.choice("voucher", available) if available else None
+        shop.voucher = (shop_mod.VOUCHER_BY_KEY[self.round_voucher]
+                        if self.round_voucher else None)
         self.shop = shop
         self.phase = Phase.SHOP
         self._apply_shop_tags()
@@ -903,6 +999,20 @@ class GameState:
         # are modelled yet, and they stay in self.tags rather than being
         # silently dropped.
         return
+
+    def _redeem_voucher(self, voucher: Voucher) -> None:
+        """What redeeming does beyond the fields read off self.vouchers.
+
+        Most of a voucher is passive -- shop size, hand size, interest cap and
+        the rest are summed wherever they are needed. Two are not. Hieroglyph
+        and Petroglyph take an ante away there and then, and Grabber and
+        Wasteful hand over their extra hand or discard for the round in
+        progress rather than only from the next one.
+        """
+        if voucher.ante_shift:
+            self.ante = max(1, self.ante + voucher.ante_shift)
+        self.hands_left += voucher.extra_hands
+        self.discards_left += voucher.extra_discards
 
     def _leave_shop(self) -> None:
         # The blind index and the ante moved on at cash-out; leaving the shop
@@ -1280,10 +1390,13 @@ class GameState:
             self._buy(action.index)
         elif t is ActionType.BUY_VOUCHER:
             assert self.shop is not None and self.shop.voucher is not None
-            self.add_money(-self.price(self.shop.voucher.cost),
-                           f"bought {self.shop.voucher.name}")
-            self.vouchers.append(self.shop.voucher)
+            voucher = self.shop.voucher
+            self.add_money(-self.price(voucher.cost),
+                           f"bought {voucher.name}")
+            self.vouchers.append(voucher)
             self.shop.voucher_bought = True
+            self.shop.voucher = None
+            self._redeem_voucher(voucher)
         elif t is ActionType.REROLL:
             assert self.shop is not None
             discount = sum(v.reroll_discount for v in self.vouchers)

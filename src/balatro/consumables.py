@@ -149,7 +149,7 @@ def _emperor(game: "GameState", cards: list[Card]) -> None:
 
 
 def _judgement(game: "GameState", cards: list[Card]) -> None:
-    game.add_random_joker("Judgement")
+    game.add_random_joker("Judgement", append="jud")
 
 
 def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
@@ -278,16 +278,82 @@ def _cryptid(game: "GameState", cards: list[Card]) -> None:
             game.add_card(card.copy())
 
 
+def _ankh(game: "GameState", cards: list[Card]) -> None:
+    """Copy a random joker, destroy the others.
+
+    The copy is chosen from every joker held, but only the ones that can be
+    destroyed are destroyed -- an eternal joker survives even when it was not
+    the one chosen, which is the edge case the game's own comment calls out.
+    """
+    if not game.jokers:
+        return
+    chosen = game.rng.choice("ankh_choice", game.jokers)
+    for joker in list(game.jokers):
+        if joker is not chosen and not joker.eternal:
+            game.destroy_joker(joker, "Ankh")
+    game.add_joker_copy(chosen, "Ankh")
+
+
+def _hex(game: "GameState", cards: list[Card]) -> None:
+    """Make one joker Polychrome and destroy the rest.
+
+    The one chosen is drawn from the jokers with no edition yet, not from all
+    of them, so a run whose jokers are already editioned loses nothing and
+    gains nothing.
+    """
+    plain = [j for j in game.jokers if j.edition is Edition.NONE]
+    if not plain:
+        return
+    chosen = game.rng.choice("hex", plain)
+    chosen.edition = Edition.POLYCHROME
+    for joker in list(game.jokers):
+        if joker is not chosen and not joker.eternal:
+            game.destroy_joker(joker, "Hex")
+    game.log("Hex: %s is now polychrome" % chosen.name)
+
+
+def _ouija(game: "GameState", cards: list[Card]) -> None:
+    """Every card in hand becomes one random rank. Costs a hand size."""
+    rank = game.rng.choice("ouija", list(Rank))
+    for card in game.hand:
+        card.rank = rank
+    game.base_hand_size -= 1
+    game.log("Ouija: the hand is all %ss" % rank.name.title())
+
+
+def _sigil(game: "GameState", cards: list[Card]) -> None:
+    """Every card in hand becomes one random suit."""
+    suit = game.rng.choice("sigil", list(Suit))
+    for card in game.hand:
+        card.suit = suit
+    game.log("Sigil: the hand is all %s" % suit.name.title())
+
+
+def _the_soul(game: "GameState", cards: list[Card]) -> None:
+    game.add_random_joker("The Soul", legendary=True, append="sou")
+
+
+def _wraith(game: "GameState", cards: list[Card]) -> None:
+    """A random Rare joker, and every dollar you had.
+
+    The rarity is not rolled: the game passes 0.99, which lands in the rare
+    band, so this is always rare and never legendary.
+    """
+    from .jokers import Rarity          # jokers imports this module
+    game.add_random_joker("Wraith", rarity=Rarity.RARE, append="wra")
+    game.add_money(-game.money, "Wraith")
+
+
 _tarot("The Fool", "Copy the last Tarot or Planet card used this run", 0, _fool)
 
-_spectral("Ankh", "Copy a random Joker, destroy the others", 0, None)
+_spectral("Ankh", "Copy a random Joker, destroy the others", 0, _ankh)
 _spectral("Cryptid", "Create 2 copies of a selected card", 1, _cryptid)
 _spectral("Grim", "Destroy 1 card, add 2 random Aces", 1, _grim)
-_spectral("Hex", "Add Polychrome to a random Joker, destroy the others", 0, None)
+_spectral("Hex", "Add Polychrome to a random Joker, destroy the others", 0, _hex)
 _spectral("Incantation", "Destroy 1 card, add 4 random numbered cards", 1,
           _incantation)
 _spectral("Ouija", "Convert all cards in hand to a single random rank, -1 hand size",
-          0, None)
-_spectral("Sigil", "Convert all cards in hand to a single random suit", 0, None)
-_spectral("The Soul", "Create a Legendary Joker", 0, None)
-_spectral("Wraith", "Create a random Rare Joker, set money to $0", 0, None)
+          0, _ouija)
+_spectral("Sigil", "Convert all cards in hand to a single random suit", 0, _sigil)
+_spectral("The Soul", "Create a Legendary Joker", 0, _the_soul)
+_spectral("Wraith", "Create a random Rare Joker, set money to $0", 0, _wraith)
