@@ -148,6 +148,10 @@ class GameState:
     # Which sort the player last asked for. The game keeps this on the hand's
     # CardArea and reapplies it to every draw.
     hand_sort: str = "rank"
+    # The poker hand most recently played, which is what the game shows and
+    # what a recording carries. Cheap to keep and the fastest way to see that
+    # two engines played different cards from the same choice.
+    last_hand: str = ""
     hands_played: int = 0          # total for the run, as G.GAME.hands_played
     # Run totals that jokers scale on. The game keeps these on G.GAME, and a
     # joker that counts them scores zero without them -- which looks like
@@ -355,6 +359,12 @@ class GameState:
         self.blind = make_blind(
             kind, self.ante, boss,
             ante_scaling=self.deck_config.get("ante_scaling", 1))
+        # The counters, not the cards. A recording's first snapshot reads
+        # hands_left 4 and discards_left 3 with hand_size 0 and an empty hand
+        # -- nothing is dealt until the blind is taken, but the allowance is
+        # already on the HUD. Waiting until the round starts left the
+        # simulator reporting nought of each against a screen showing both.
+        self.hands_left, self.discards_left = self._round_allowance()
         self.phase = Phase.BLIND_SELECT
 
     @property
@@ -543,6 +553,7 @@ class GameState:
         self.hands_played += 1
         self.hand_levels.plays[result.hand] += 1
 
+        self.last_hand = result.hand.label
         ctx = score_hand(self, result, played, held)
         # Jokers that make a card off the back of a hand -- Superposition,
         # Séance, Vagabond -- run once the hand has resolved, so they can ask

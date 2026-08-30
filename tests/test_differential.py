@@ -449,6 +449,28 @@ def baselines(engine):
     return out
 
 
+# A sample that runs every time, so the fast suite is not blind to the thing
+# this file exists for. Chosen to span the shapes rather than to be short:
+# a plain adder, a suit scorer, a retrigger, a copier's target, a scaling
+# joker, one that reads held cards, one that rolls a chance, and one whose
+# growth is rewritten before every hand.
+SAMPLE = ["Joker", "Greedy Joker", "Hanging Chad", "Baron", "Ice Cream",
+          "Raised Fist", "Bloodstone", "Obelisk", "Splash", "Misprint"]
+
+
+@pytest.mark.parametrize("name", SAMPLE)
+def test_a_sample_of_jokers_agrees(engine, joker_keys, baselines, name):
+    """The same check as below, on ten jokers rather than a hundred and fifty.
+
+    Two minutes of joker checks do not get run between edits. Twenty seconds
+    of them do, and a break in any of these shapes almost certainly breaks
+    more, so the full sweep has something to be prompted by.
+    """
+    test_joker_scores_what_the_engine_scores(engine, joker_keys, baselines,
+                                             name)
+
+
+@pytest.mark.slow
 @pytest.mark.parametrize("name", sorted(REGISTRY))
 def test_joker_scores_what_the_engine_scores(engine, joker_keys, baselines, name):
     if name in NEEDS_SETUP:
