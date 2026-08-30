@@ -44,6 +44,12 @@ WIN_ANTE = 8
 class Phase(Enum):
     BLIND_SELECT = "blind_select"
     PLAYING = "playing"
+    # Between beating a blind and entering the shop the game sits on the
+    # cash-out screen, with the payout shown but not yet paid and the deck
+    # already restored. Collapsing that into the winning hand made the
+    # simulator richer than the engine and its deck shorter, at the same
+    # instant, for the whole of that gap.
+    ROUND_EVAL = "round_eval"
     SHOP = "shop"
     PACK = "pack"
     GAME_OVER = "game_over"
@@ -51,6 +57,7 @@ class Phase(Enum):
 
 
 class ActionType(Enum):
+    CASH_OUT = "cash_out"
     SELECT_BLIND = "select_blind"
     SKIP_BLIND = "skip_blind"
     PLAY = "play"
@@ -129,6 +136,10 @@ class GameState:
     joker_slots: int = BASE_JOKER_SLOTS
 
     blind: Blind | None = None
+    # Held between beating a blind and cashing out: the game shows the payout
+    # on that screen before any of it is paid.
+    beaten_blind: Blind | None = None
+    pending_payout: int = 0
     hands_played: int = 0          # total for the run, as G.GAME.hands_played
     # Run totals that jokers scale on. The game keeps these on G.GAME, and a
     # joker that counts them scores zero without them -- which looks like
@@ -171,6 +182,24 @@ class GameState:
     logs: list[str] = field(default_factory=list)
     verbose: bool = False
     _satisfiable_cache: tuple | None = field(default=None, repr=False)
+
+    @property
+    def blind_target(self) -> int:
+        """The chips required *right now*, which is zero outside a round.
+
+        `blind` holds the next blind through the select screen and the shop so
+        that it can be offered and skipped, but it is not in force until the
+        round starts -- the game reports no target until then, and reading the
+        pending one as active made the simulator look like it was mid-round
+        while sitting in a shop.
+        """
+        if self.blind is None:
+            return 0
+        # A run that ends does so *during* a blind, and the game still reports
+        # that blind's target on the game-over screen.
+        if self.phase not in (Phase.PLAYING, Phase.GAME_OVER):
+            return 0
+        return self.blind.target
 
     @property
     def deck_config(self) -> dict:
@@ -323,19 +352,7 @@ class GameState:
             if joker.spec.on_round_start is not None:
                 joker.spec.on_round_start(joker, self)
 
-        config = self.deck_config
-        hands = BASE_HANDS + sum(v.extra_hands for v in self.vouchers)
-        hands += sum(j.spec.extra_hands for j in self.jokers)
-        hands += config.get("hands", 0)
-        discards = BASE_DISCARDS + sum(v.extra_discards for v in self.vouchers)
-        discards += sum(j.spec.extra_discards for j in self.jokers)
-        discards += config.get("discards", 0)
-        boss = self.boss
-        if boss is not None:
-            hands = max(1, hands + boss.hands_delta) if boss.hands_delta > -50 else 1
-            discards = max(0, discards + boss.discards_delta) if boss.discards_delta > -50 else 0
-        self.hands_left = hands
-        self.discards_left = discards
+        self.hands_left, self.discards_left = self._round_allowance()
 
         self.draw_pile = list(self.full_deck)
         # The game shuffles with pseudoseed("nr" .. ante) at the start of a
@@ -363,6 +380,23 @@ class GameState:
                 card.debuffed = True
             if boss.debuff_previously_played and card.uid in self.played_this_ante:
                 card.debuffed = True
+
+    def _round_allowance(self) -> tuple[int, int]:
+        """Hands and discards for a round, from the deck, vouchers and boss."""
+        config = self.deck_config
+        hands = BASE_HANDS + sum(v.extra_hands for v in self.vouchers)
+        hands += sum(j.spec.extra_hands for j in self.jokers)
+        hands += config.get("hands", 0)
+        discards = BASE_DISCARDS + sum(v.extra_discards for v in self.vouchers)
+        discards += sum(j.spec.extra_discards for j in self.jokers)
+        discards += config.get("discards", 0)
+        boss = self.boss
+        if boss is not None:
+            hands = (max(1, hands + boss.hands_delta)
+                     if boss.hands_delta > -50 else 1)
+            discards = (max(0, discards + boss.discards_delta)
+                        if boss.discards_delta > -50 else 0)
+        return hands, discards
 
     def _sort_hand(self) -> None:
         """Keep the hand in the order the game shows it.
@@ -528,28 +562,55 @@ class GameState:
         self._draw_to_hand_size()
 
     def _beat_blind(self) -> None:
-        assert self.blind is not None
-        reward = self.blind.reward
-        unused = max(0, self.hands_left)
-        interest = min(self.interest_cap, max(0, self.money) // 5)
-        self.add_money(reward, f"{self.blind.name} reward")
-        self.add_money(unused, "unused hands")
-        self.add_money(interest, "interest")
+        """Close the round and stop on the cash-out screen.
 
-        for card in self.hand:
-            if card.enhancement is Enhancement.GOLD:
-                self.add_money(3, "gold card")
+        The payout is worked out here but not paid: the game shows it and
+        waits, and paying early makes the two engines disagree about money for
+        the whole of that window. The deck comes back now, though -- the
+        engine has all fifty-two cards again the moment the round ends.
+        """
+        assert self.blind is not None
+        gold = sum(3 for c in self.hand
+                   if c.enhancement is Enhancement.GOLD)
+        self.pending_payout = (self.blind.reward
+                               + max(0, self.hands_left)
+                               + min(self.interest_cap,
+                                     max(0, self.money) // 5)
+                               + gold)
 
         for joker in list(self.jokers):
             if joker.spec.round_end is not None:
                 joker.spec.round_end(joker, self)
 
-        # The hand is gone once the blind is beaten, so targeted consumables
-        # cannot be used again until the next round starts.
+        # Every card returns to the deck as the round closes, which is why the
+        # engine reads fifty-two here and a simulator that only rebuilds the
+        # deck when the next round starts reads whatever was left.
         self.discard_pile.extend(self.hand)
         self.hand = []
+        self.draw_pile = list(self.full_deck)
+        self.discard_pile = []
 
-        was_boss = self.blind.kind is BlindKind.BOSS
+        self.beaten_blind = self.blind
+        self.blind = None
+        self.phase = Phase.ROUND_EVAL
+
+    def _cash_out(self) -> None:
+        """Take the payout and move on, as pressing Cash Out does."""
+        assert self.beaten_blind is not None
+        self.add_money(self.pending_payout, f"{self.beaten_blind.name} payout")
+        self.pending_payout = 0
+
+        # Cashing out is also where the round's counters go back: the engine
+        # already reads a full complement of hands and discards, and no chips
+        # scored, before the shop opens.
+        self.chips_scored = 0
+        self.hands_left, self.discards_left = self._round_allowance()
+
+        # The blind stays cleared through the shop -- the engine reports no
+        # blind and no target until the next one is chosen, so putting it back
+        # here left the simulator still showing the beaten blind's target.
+        was_boss = self.beaten_blind.kind is BlindKind.BOSS
+        self.beaten_blind = None
         if was_boss:
             if Tag.INVESTMENT in self.tags:
                 self.tags.remove(Tag.INVESTMENT)
@@ -767,6 +828,9 @@ class GameState:
                         for i, j in enumerate(self.jokers) if not j.eternal]
             return actions
 
+        if self.phase is Phase.ROUND_EVAL:
+            return [Action(ActionType.CASH_OUT)]
+
         if self.phase is Phase.SHOP:
             assert self.shop is not None
             actions = [Action(ActionType.LEAVE_SHOP)]
@@ -913,6 +977,9 @@ class GameState:
                         and not self.jokers[index].eternal)
             return False
 
+        if self.phase is Phase.ROUND_EVAL:
+            return [Action(ActionType.CASH_OUT)]
+
         if self.phase is Phase.SHOP:
             shop = self.shop
             if shop is None:
@@ -1021,6 +1088,8 @@ class GameState:
             self._pick_pack(action.index, action.cards)
         elif t is ActionType.SKIP_PACK:
             self._close_pack()
+        elif t is ActionType.CASH_OUT:
+            self._cash_out()
         elif t is ActionType.LEAVE_SHOP:
             self._leave_shop()
         else:  # pragma: no cover

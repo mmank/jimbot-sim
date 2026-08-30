@@ -40,7 +40,11 @@ def engine_state(engine):
               'return table.concat(t, " ")')
     jokers = ev('local t = {} for i, c in ipairs(G.jokers.cards) do '
                 't[i] = c.config.center.key end return table.concat(t, " ")')
+    phase = {7: "blind_select", 1: "playing", 8: "round_eval", 5: "shop",
+             2: "playing", 3: "playing", 4: "game_over"}.get(
+                 int(ev("return G.STATE")), "other")
     return {
+        "phase": phase,
         "ante": int(ev("return G.GAME.round_resets.ante")),
         "round": int(ev("return G.GAME.round")),
         "dollars": int(ev("return G.GAME.dollars")),
@@ -57,12 +61,13 @@ def engine_state(engine):
 def sim_state(game):
     return {
         "ante": game.ante,
+        "phase": game.phase.value,
         "round": game.round_number,
         "dollars": game.money,
         "hands_left": game.hands_left,
         "discards_left": game.discards_left,
         "chips": game.chips_scored,
-        "blind_chips": game.blind.target if game.blind else 0,
+        "blind_chips": game.blind_target,
         "deck": len(game.draw_pile),
         "hand": ["%s/%s" % (RANK_NAME[c.rank.name.title()], c.suit.name.title())
                  for c in game.hand],
@@ -112,6 +117,22 @@ def main() -> None:
     print("comparing %s, %s\n" % (args.seed, args.deck))
     state_of = lambda: int(engine.eval("(function() return G.STATE end)()"))
 
+    settled = (BLIND_SELECT, SELECTING_HAND, SHOP, ROUND_EVAL,
+               GAME_OVER)
+
+    def settle():
+        """Let the engine finish resolving before comparing.
+
+        A played hand passes through HAND_PLAYED and DRAW_TO_HAND
+        before the game decides whether the round is over, so
+        comparing the instant the pump returns catches the engine
+        mid-thought and reports it as the simulator being wrong.
+        """
+        for _ in range(40):
+            if state_of() in settled:
+                return
+            engine.execute("api.pump(60)")
+
     for step in range(1, args.steps + 1):
         phase = state_of()
 
@@ -139,6 +160,7 @@ def main() -> None:
                         "api.pump(10); api.discard_selected(); api.pump(600)"
                         % ",".join(str(i + 1) for i in junk))
                     game.step(Action(ActionType.DISCARD, cards=tuple(junk)))
+                    settle()
                     left, right = engine_state(engine), sim_state(game)
                     problems = differences(left, right)
                     if problems:
@@ -159,7 +181,7 @@ def main() -> None:
             what = "play %s" % list(picks)
         elif phase == ROUND_EVAL:
             engine.execute("api.cash_out(); api.pump(400)")
-            game.step(Action(ActionType.LEAVE_SHOP))   # sim cashes out here
+            game.step(Action(ActionType.CASH_OUT))
             what = "cash_out"
         elif phase == SHOP:
             engine.execute("api.leave_shop(); api.pump(300)")
@@ -170,6 +192,7 @@ def main() -> None:
                   "drive yet" % (step, phase))
             return
 
+        settle()
         left, right = engine_state(engine), sim_state(game)
         problems = differences(left, right)
         if problems:
