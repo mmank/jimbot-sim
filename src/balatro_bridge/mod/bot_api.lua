@@ -804,8 +804,19 @@ function BotAPI.state()
           cost = card.cost or 0,
           edition = edition_id(card),
           seal = seal_id(card),
+          -- check_for_buy_space answers for a card that is about to be
+          -- *stored*: a joker needs a joker slot, a consumable a consumable
+          -- one. A booster pack is neither. It is opened, and what comes out
+          -- of it is what needs room -- which is checked when a card is
+          -- picked, not when the pack is bought.
+          --
+          -- Asking it about a pack therefore returned false for every pack
+          -- in every shop, so `buyable` was zero, so the mask never offered
+          -- the buy, so no policy trained here has ever opened one. Packs
+          -- are most of where jokers and planets come from.
           buyable = ((card.cost or 0) <= G.GAME.dollars
-                     and buy_space(card)) and 1 or 0,
+                     and (card.config.center.set == 'Booster'
+                          or buy_space(card))) and 1 or 0,
           -- The shop's second button. Legal where plain buying is not: the
           -- card is used rather than stored, so it needs no free slot.
           buy_and_usable = (card.ability.consumeable

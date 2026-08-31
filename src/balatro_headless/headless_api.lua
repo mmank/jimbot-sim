@@ -291,6 +291,20 @@ function api.cash_out()
   api.pump_until(function()
     return G.STATE == G.STATES.ROUND_EVAL and G.round_eval ~= nil
   end, 600)
+  -- The screen existing is not the same as the screen being filled in. Its
+  -- rows -- the blind's reward, the interest, the unspent hands -- are added
+  -- by queued events, and the *total* only lands in current_round.dollars
+  -- when the cash-out row among them runs. G.FUNCS.cash_out pays whatever
+  -- that field holds at the moment it is pressed.
+  --
+  -- Pressing on `round_eval ~= nil` therefore paid zero, every round, for
+  -- the whole life of this environment: owed read 0 before the rows arrived,
+  -- so the guard below could not fire either, and the field was filled in
+  -- immediately afterwards with the amount nobody received. A run reached
+  -- its first shop on the deck's starting stake alone.
+  api.pump_until(function()
+    return (G.GAME.current_round.dollars or 0) > 0
+  end, 600)
   local owed = G.GAME.current_round.dollars or 0
   local before = G.GAME.dollars
   G.FUNCS.cash_out({ config = {} })
@@ -737,8 +751,12 @@ function api.shop_contents()
           affordable = (card.cost or 0) <= G.GAME.dollars,
           -- The game's own space check: joker slots for jokers, consumable
           -- slots for consumables and for the packs that yield them.
+          -- A booster is opened rather than stored, so buy_space -- which
+          -- asks whether there is a slot to put it in -- is the wrong
+          -- question and always answered no. See the note in bot_api.lua.
           buyable = ((card.cost or 0) <= G.GAME.dollars)
-                    and buy_space(card),
+                    and (card.config.center.set == 'Booster'
+                         or buy_space(card)),
         }
       end
     end
