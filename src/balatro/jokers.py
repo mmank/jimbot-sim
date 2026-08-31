@@ -138,7 +138,12 @@ class JokerInstance:
         polychrome, which is five dollars on its price and two on its sell
         value, and Temperance pays out the sell value of every joker held.
         """
-        cost = self.spec.cost + self._EDITION_VALUE[self.edition]
+        # A rental costs a dollar however expensive the joker is, and the
+        # sell value is half of what it costs -- so a rental sells for one,
+        # not for half its face price. set_cost applies the rental override
+        # before it works out sell_cost.
+        cost = 1 if self.rental else (self.spec.cost
+                                      + self._EDITION_VALUE[self.edition])
         return max(1, cost // 2) + int(self.extra_sell_value)
 
     def __repr__(self) -> str:
