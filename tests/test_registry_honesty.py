@@ -35,7 +35,8 @@ HOOKS = ("update", "scored", "held", "independent", "round_end", "discarded",
 DECLARATIONS = ("hand_size", "extra_hands", "extra_discards", "free_rerolls",
                 "debt_limit", "interest_bonus", "free_planets",
                 "allows_duplicates", "prevents_death",
-                "disables_boss_on_sell", "enhancement_gate")
+                "disables_boss_on_sell", "enhancement_gate",
+                "hand_size_from_counter")
 
 # Correct with no hook: the run or the evaluator reads these directly.
 READ_ELSEWHERE = {

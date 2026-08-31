@@ -717,7 +717,12 @@ class GameState:
     def hand_size(self) -> int:
         size = self.base_hand_size
         size += sum(v.hand_size for v in self.vouchers)
-        size += sum(j.spec.hand_size for j in self.active_jokers)
+        # Turtle Bean's contribution is its counter, which shrinks by one
+        # every round, rather than a number fixed on the spec -- summing the
+        # spec gave nothing at all, so a run holding one dealt five cards
+        # fewer than the game did.
+        size += sum(int(j.counter) if j.spec.hand_size_from_counter
+                    else j.spec.hand_size for j in self.active_jokers)
         size += self.deck_config.get("hand_size", 0)
         if self.boss is not None:
             size += self.boss.hand_size_delta

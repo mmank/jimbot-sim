@@ -83,6 +83,9 @@ class JokerSpec:
     # error the policy would learn from.
     enhancement_gate: str = ""
     hand_size: int = 0
+    # True when the hand size this joker gives is its counter rather than a
+    # fixed number -- Turtle Bean starts at five and loses one a round.
+    hand_size_from_counter: bool = False
     extra_hands: int = 0
     extra_discards: int = 0
 
@@ -972,6 +975,7 @@ register("Troubadour", Rarity.UNCOMMON, "+2 hand size, -1 hand each round",
          cost=6, hand_size=2, extra_hands=-1)
 register("Turtle Bean", Rarity.UNCOMMON,
          "+5 hand size, reduced by 1 every round", cost=6, init_counter=5.0,
+         hand_size_from_counter=True,
          round_end=lambda j, g: _decay(j, -1, g))
 register("Burglar", Rarity.UNCOMMON,
          "When Blind is selected, gain +3 Hands and lose all discards",
