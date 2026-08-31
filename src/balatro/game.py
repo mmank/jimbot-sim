@@ -429,7 +429,7 @@ class GameState:
             owned_enhancements={"m_%s" % c.enhancement.value
                                 for c in self.full_deck})
         spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
-        self.jokers.append(JokerInstance(spec))
+        self.gain_joker(JokerInstance(spec))
         self.log(f"{source}: gained {spec.name}")
 
     def refuses_use(self, spec: ConsumableSpec) -> bool:
@@ -462,7 +462,7 @@ class GameState:
         spec = slot.consumable
         if spec is None:                     # a joker: buy-and-use is a buy
             if slot.joker is not None:
-                self.jokers.append(slot.joker)
+                self.gain_joker(slot.joker)
             return
         if self.refuses_use(spec):
             self.log(f"{spec.name}: No Room -- bought, used by nothing, lost")
@@ -498,11 +498,24 @@ class GameState:
                 if joker.name == "Constellation":
                     joker.counter += 0.1
 
+    def gain_joker(self, joker: JokerInstance) -> None:
+        """Put a joker in the row, stamped with when it arrived.
+
+        The game records hands_played_at_create on every card it builds, and
+        the jokers that count hands measure from there rather than from the
+        start of the run -- Loyalty Card's X4 lands on the sixth hand since it
+        was bought, not the sixth of the run. Nothing was stamping it, so
+        every joker behaved as though it had been there from the beginning and
+        Loyalty Card fired on the wrong hand for the whole game.
+        """
+        joker.hands_at_create = self.hands_played
+        self.jokers.append(joker)
+
     def add_joker_copy(self, joker: JokerInstance, source: str = "") -> None:
         """A copy of a joker already held, editions and all."""
         if len(self.jokers) >= self.joker_slots:
             return
-        self.jokers.append(copy.deepcopy(joker))
+        self.gain_joker(copy.deepcopy(joker))
         self.log(f"{source}: copied {joker.name}")
 
     # ------------------------------------------------------------------
@@ -1037,7 +1050,6 @@ class GameState:
                 if joker.spec.before_hand is not None:
                     joker.spec.before_hand(joker, played, self)
         self.hands_left -= 1
-        self.hands_played += 1
         self.hand_levels.plays[result.hand] += 1
 
         self.last_hand = result.hand.label
@@ -1053,6 +1065,14 @@ class GameState:
                 1, self.hand_levels.levels[result.hand] - 1)
 
         ctx = score_hand(self, result, played, held)
+
+        # The run's hand count goes up once the hand has scored, not before:
+        # the game raises it alongside draw_from_play_to_discard, after the
+        # scoring is done. Loyalty Card works out where it is in its cycle
+        # from that number, so counting the hand first put it one hand along
+        # and its X4 landed on the wrong hand for the whole run.
+        self.hands_played += 1
+
         # Jokers that make a card off the back of a hand -- Superposition,
         # Séance, Vagabond -- run once the hand has resolved, so they can ask
         # what it turned out to be.
@@ -1625,7 +1645,7 @@ class GameState:
     def _pick_pack(self, index: int, card_indices: tuple[int, ...]) -> None:
         choice = self.pack_options[index]
         if isinstance(choice, JokerInstance):
-            self.jokers.append(choice)
+            self.gain_joker(choice)
             self.log(f"Pack: took {choice.name}")
         elif isinstance(choice, Card):
             self.add_card(choice)
@@ -1958,6 +1978,9 @@ class GameState:
         elif t is ActionType.PICK_PACK:
             self._pick_pack(action.index, action.cards)
         elif t is ActionType.SKIP_PACK:
+            for joker in list(self.jokers):
+                if joker.spec.on_pack_skip is not None:
+                    joker.spec.on_pack_skip(joker, self)
             self._close_pack()
         elif t is ActionType.CASH_OUT:
             # A no-op: beating a blind cashes out by itself. Kept as an action
@@ -1974,7 +1997,7 @@ class GameState:
         slot = self.shop.slots.pop(index)
         self.add_money(-slot.price, f"bought {slot.label}")
         if slot.joker is not None:
-            self.jokers.append(slot.joker)
+            self.gain_joker(slot.joker)
         elif slot.consumable is not None:
             self.consumables.append(slot.consumable)
         elif slot.card is not None:

@@ -30,7 +30,7 @@ from balatro.jokers import REGISTRY
 # which is how thirteen implemented jokers were briefly still counted hollow.
 HOOKS = ("update", "scored", "held", "independent", "round_end", "discarded",
          "retrigger_scored", "retrigger_held", "copier",
-         "on_blind_select", "on_round_start", "on_sell", "on_reroll",
+         "on_blind_select", "on_round_start", "on_sell", "on_reroll", "on_pack_skip",
          "before_hand", "after_hand", "on_first_discard")
 DECLARATIONS = ("hand_size", "extra_hands", "extra_discards", "free_rerolls",
                 "debt_limit", "interest_bonus", "free_planets",

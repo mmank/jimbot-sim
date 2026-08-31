@@ -71,6 +71,7 @@ class JokerSpec:
     on_round_start: RoundHook | None = None    # Certificate
     on_sell: RoundHook | None = None           # Diet Cola, Luchador
     on_reroll: RoundHook | None = None         # Flash Card
+    on_pack_skip: RoundHook | None = None      # Red Card
     before_hand: object = None                 # DNA, Sixth Sense
     after_hand: IndepHook | None = None        # Superposition, Séance
     on_first_discard: DiscardHook | None = None   # Burnt Joker, Trading Card
@@ -895,8 +896,13 @@ register("Matador", Rarity.UNCOMMON,
          independent=lambda j, ctx: ctx.__setattr__(
              "money_gained", ctx.money_gained + 8)
          if ctx.game.boss is not None else None)
+def _red_card(j: JokerInstance, game: "GameState") -> None:
+    j.counter += 3.0
+
+
 register("Red Card", Rarity.COMMON,
          "Gains +3 Mult when any Booster Pack is skipped", cost=5,
+         on_pack_skip=_red_card,
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
 register("Madness", Rarity.UNCOMMON,
          "Gains X0.5 Mult when a Small or Big Blind is selected, and destroys "
