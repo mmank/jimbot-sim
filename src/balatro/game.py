@@ -1708,6 +1708,26 @@ class GameState:
             self.hand_levels.levels[result.hand] = max(
                 1, self.hand_levels.levels[result.hand] - 1)
 
+        # And the two bosses that move money do it here as well, for the same
+        # reason. Both live in Blind:press_play, which the game runs before
+        # evaluate_play, so the money is already gone by the time a joker
+        # reads it -- and Bootstraps reads it, at two mult for every five
+        # dollars held.
+        #
+        # The Tooth takes a dollar per card played. Recording 8 stopped on
+        # exactly that at step 393: three cards into a Tooth left $9002, so
+        # the game scored 2 * floor(9002/5) = 3600 mult of Bootstraps where
+        # this scored 3602 off the $9005 it still thought it had. 435 chips on
+        # a hand worth 808411, from three dollars charged in the wrong order.
+        if boss is not None:
+            if boss.money_per_card_played:
+                self.add_money(boss.money_per_card_played * len(played),
+                               boss.name)
+            if (boss.zero_money_on_most_played
+                    and self._is_most_played(result.hand)):
+                self.money = 0
+                self.log(f"{boss.name}: money set to $0")
+
         # A boss can zero the hand outright. The game skips the whole scoring
         # block when debuff_hand answers yes -- `mult = mod_mult(0);
         # hand_chips = mod_chips(0)` -- so no joker and no card triggers at
@@ -1741,14 +1761,6 @@ class GameState:
                      f"({ctx.chips:g} x {ctx.mult:g}) -> {self.chips_scored}")
             if ctx.money_gained:
                 self.add_money(ctx.money_gained, "cards")
-
-        boss = self.boss
-        if boss is not None:
-            if boss.money_per_card_played:
-                self.add_money(boss.money_per_card_played * len(played), boss.name)
-            if boss.zero_money_on_most_played and self._is_most_played(result.hand):
-                self.money = 0
-                self.log(f"{boss.name}: money set to $0")
 
         self.hands_played_this_round.add(result.hand)
         for card in played:

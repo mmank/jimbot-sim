@@ -8,7 +8,7 @@ rather than only generated ones.
 
 import pytest
 
-from balatro.game import GameState
+from balatro.game import Action, ActionType, GameState
 from balatro.jokers import REGISTRY as JOKER_REGISTRY
 from balatro.jokers import JokerInstance
 from balatro.rng import RunRng
@@ -208,3 +208,48 @@ def test_a_copier_with_nothing_to_copy_adds_no_retrigger():
     game.gain_joker(JokerInstance(JOKER_REGISTRY["Brainstorm"]))
     card = Card(Rank.KING, Suit.DIAMONDS, seal=Seal.NONE)
     assert held_triggers(game, card) == 1
+
+
+# ------------------------------------------------------------------
+# the bosses that move money do it before the hand scores
+# ------------------------------------------------------------------
+
+def test_the_tooth_charges_before_the_hand_scores():
+    """Blind:press_play runs before evaluate_play, so a Tooth has already
+    taken its dollar a card by the time a joker reads the money -- and
+    Bootstraps reads it, at two mult for every five dollars held.
+
+    Recording 8 stopped on it: three cards into a Tooth leaves $9002, so the
+    game scores 2*floor(9002/5) = 3600 mult where charging afterwards scores
+    3602 off the $9005 it still thinks it has. 435 chips on a hand worth
+    808411, from three dollars charged in the wrong order.
+    """
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.money = 100
+    game.gain_joker(JokerInstance(JOKER_REGISTRY["Bootstraps"]))
+    game.ante_boss = "bl_tooth"
+    game.blind_index = 2
+    game._next_blind()
+    game._start_round()
+    assert game.boss is not None and game.boss.money_per_card_played == -1
+
+    before = game.money
+    played = list(game.hand[:3])
+    game.step(Action(ActionType.PLAY, cards=(0, 1, 2)))
+    assert game.money == before - len(played), (
+        "The Tooth charged %d, expected %d" % (before - game.money, len(played)))
+
+
+def test_bootstraps_reads_the_money_the_tooth_has_already_taken():
+    """The point of the ordering, stated as a number rather than an order."""
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.money = 100
+    game.gain_joker(JokerInstance(JOKER_REGISTRY["Bootstraps"]))
+    game.ante_boss = "bl_tooth"
+    game.blind_index = 2
+    game._next_blind()
+    game._start_round()
+
+    game.step(Action(ActionType.PLAY, cards=(0, 1, 2)))
+    # $100 becomes $97 before scoring: 2*floor(97/5) = 38, not 2*floor(100/5).
+    assert game.money == 97
