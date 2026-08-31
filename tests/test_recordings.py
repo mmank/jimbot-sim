@@ -37,11 +37,11 @@ RECORDINGS = pathlib.Path(__file__).resolve().parents[1] / "recordings"
 # that must not regress, with the reason it stops.
 #
 #   6  Reaches 336 of 432.
-#   8  Blocked at 160 by an action the recorder was not capturing when this
-#      was made -- the Director's Cut boss reroll, where ten dollars and a
-#      new boss appear from nowhere. The recorder captures it now, so later
-#      recordings carry it, but this file cannot be repaired.
-REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: 336, 7: None, 8: 160}
+#   8  Reaches 164 of 443. This one carries a reconstructed action -- see
+#      ops/repair_recording.py -- because the recorder was not capturing the
+#      boss reroll when it was made, and the engine's own replay of it now
+#      runs through that point with nothing wrong.
+REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: 336, 7: None, 8: 164}
 
 
 def _replay(path):

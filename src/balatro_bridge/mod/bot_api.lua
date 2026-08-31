@@ -1193,8 +1193,15 @@ end
 
 function BotAPI.reroll_boss()
   -- The Director's Cut / Retcon button. Ten dollars and a new boss.
-  if not G.blind_select then
-    error("cannot reroll the boss: the blind select screen is not up", 0)
+  --
+  -- Gated on the state rather than on G.blind_select. The headless engine
+  -- replaces the blind select screen with its own entry function and never
+  -- builds that UIBox, so testing for it refuses a press the game would
+  -- allow -- the same trap as the booster pack that would not deal until it
+  -- had slid into view.
+  if G.STATE ~= G.STATES.BLIND_SELECT then
+    error("cannot reroll the boss: not on the blind select screen (state "
+          .. tostring(G.STATE) .. ")", 0)
   end
   local before = G.GAME.round_resets.blind_choices
                  and G.GAME.round_resets.blind_choices.Boss
