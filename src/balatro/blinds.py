@@ -74,6 +74,15 @@ class BossEffect:
     lock_first_hand_type: bool = False
     debuff_previously_played: bool = False
     halve_base: bool = False
+    # The finishers, and one ordinary boss, that do something to the run
+    # rather than to a card. These were all left blank on the grounds that
+    # face-down cards mean nothing to an engine with full information, which
+    # is true of four of them and not of these five.
+    always_draw_three: bool = False    # The Serpent
+    shuffles_jokers: bool = False      # Amber Acorn
+    debuff_until_sale: bool = False    # Verdant Leaf
+    debuff_a_joker: bool = False       # Crimson Heart
+    forces_a_card: bool = False        # Cerulean Bell
     is_finisher: bool = False
 
 
@@ -98,7 +107,7 @@ BOSSES: list[BossEffect] = [
     BossEffect("The Mouth", "Play only one hand type this round",
                lock_first_hand_type=True),
     BossEffect("The Plant", "All face cards are debuffed", debuff_face=True),
-    BossEffect("The Serpent", "After play or discard, always draw 3 cards"),
+    BossEffect("The Serpent", "After play or discard, always draw 3 cards", always_draw_three=True),
     BossEffect("The Pillar", "Cards played earlier this ante are debuffed",
                debuff_previously_played=True),
     BossEffect("The Needle", "Play only 1 hand", hands_delta=-99),
@@ -109,13 +118,13 @@ BOSSES: list[BossEffect] = [
 ]
 
 FINISHER_BOSSES: list[BossEffect] = [
-    BossEffect("Amber Acorn", "Flips and shuffles all Jokers", is_finisher=True),
+    BossEffect("Amber Acorn", "Flips and shuffles all Jokers", is_finisher=True, shuffles_jokers=True),
     BossEffect("Verdant Leaf", "All cards debuffed until a Joker is sold",
-               is_finisher=True),
+               is_finisher=True, debuff_until_sale=True),
     BossEffect("Violet Vessel", "Very large blind", chip_mult=6.0, is_finisher=True),
-    BossEffect("Crimson Heart", "One random Joker disabled each hand", is_finisher=True),
+    BossEffect("Crimson Heart", "One random Joker disabled each hand", is_finisher=True, debuff_a_joker=True),
     BossEffect("Cerulean Bell", "Forces one card to always be selected",
-               is_finisher=True),
+               is_finisher=True, forces_a_card=True),
 ]
 
 

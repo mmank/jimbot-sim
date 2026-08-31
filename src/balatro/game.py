@@ -266,6 +266,8 @@ class GameState:
     last_tarot_planet: str = ""
     # round_resets.blind_choices.Boss: this ante's boss, drawn at its start.
     ante_boss: str = ""
+    # The card Cerulean Bell nominates: every hand must include it.
+    forced_card: object = None
     # round_resets.boss_rerolled: Director's Cut allows one reroll an ante and
     # this is what remembers that it has been spent. Reset when a boss falls.
     boss_rerolled: bool = False
@@ -937,6 +939,14 @@ class GameState:
                 joker.spec.on_blind_select(joker, self)
         self.hands_left, self.discards_left = self._round_allowance()
 
+        boss = self.boss
+        if boss is not None and boss.shuffles_jokers and len(self.jokers) > 1:
+            # Amber Acorn shuffles the joker row, twice, under its own pool
+            # name -- and joker order decides the order effects resolve in, so
+            # this is a real change rather than a cosmetic one.
+            for _ in range(2):
+                self.rng.shuffle(self.jokers, "aajk")
+
         self.draw_pile = list(self.full_deck)
         # The game shuffles with pseudoseed("nr" .. ante) at the start of a
         # round, and draws from the end of the result. The pool is named by
@@ -960,11 +970,33 @@ class GameState:
         self.phase = Phase.PLAYING
         self.log(f"--- Ante {self.ante} {self.blind.name}: need {self.blind.target} ---")
 
+    def _nominate_forced_card(self) -> None:
+        """Cerulean Bell picks a card the player must always include.
+
+        Chosen when the hand is dealt, and only when the hand does not
+        already hold the one it chose -- so it survives a discard that leaves
+        it in place and is replaced when it goes.
+        """
+        boss = self.boss
+        if boss is None or not boss.forces_a_card or not self.hand:
+            self.forced_card = None if boss is None else self.forced_card
+            return
+        if self.forced_card in self.hand:
+            return
+        self.forced_card = self.rng.random_element(
+            sorted(self.hand, key=lambda c: c.uid), "cerulean_bell")
+
     def _apply_debuffs(self) -> None:
         boss = self.boss
         for card in self.full_deck:
             card.debuffed = False
         if boss is None:
+            return
+        if boss.debuff_until_sale:
+            # Verdant Leaf debuffs every card -- not the jokers -- until a
+            # joker is sold, which disables the blind.
+            for card in self.full_deck:
+                card.debuffed = True
             return
         for card in self.full_deck:
             if boss.debuff_suit is not None and card.suit is boss.debuff_suit:
@@ -1067,9 +1099,19 @@ class GameState:
         self._sort_hand()
 
     def _draw_to_hand_size(self) -> None:
+        boss = self.boss
+        if (boss is not None and boss.always_draw_three
+                and (self.hands_played_this_round or self.discards_used)):
+            # The Serpent: after the first play or discard of the round the
+            # hand is topped up with exactly three cards, whatever room there
+            # was -- so the hand grows past its limit and keeps growing.
+            self._draw_cards(min(3, len(self.draw_pile)))
+            self._nominate_forced_card()
+            return
         while len(self.hand) < self.hand_size and self.draw_pile:
             self.hand.append(self.draw_pile.pop())
         self._sort_hand()
+        self._nominate_forced_card()
         if not self.hand and self.phase is Phase.PLAYING:
             # Deck exhausted mid-blind: nothing left to play with.
             self.phase = Phase.GAME_OVER
@@ -1138,6 +1180,18 @@ class GameState:
         # is not. Applying it only at the start of the round let a converted
         # card score through a blind that should have silenced it.
         self._apply_debuffs()
+        boss = self.boss
+        if boss is not None and boss.debuff_a_joker and self.jokers:
+            # Crimson Heart disables one joker each hand, chosen from the ones
+            # not already disabled, and releases the one it held before.
+            eligible = [j for j in self.jokers if not j.debuffed] or self.jokers
+            for joker in self.jokers:
+                joker.debuffed = False
+            chosen = self.rng.random_element(
+                sorted(eligible, key=lambda j: self.jokers.index(j)),
+                "crimson_heart")
+            chosen.debuffed = True
+
         played = [self.hand[i] for i in indices]
         held = [c for i, c in enumerate(self.hand) if i not in indices]
         result = self.evaluate_selection(played)
@@ -1953,6 +2007,12 @@ class GameState:
             return True
         if boss.min_cards_played and len(cards) != boss.min_cards_played:
             return False
+        if boss.forces_a_card and self.forced_card is not None:
+            # Cerulean Bell nominates a card and every hand played or
+            # discarded has to include it.
+            if not any(self.hand[i] is self.forced_card for i in cards
+                       if i < len(self.hand)):
+                return False
         if boss.no_repeat_hand or boss.lock_first_hand_type:
             hand = self.evaluate_selection([self.hand[i] for i in cards]).hand
             if boss.no_repeat_hand and hand in self.hands_played_this_round:
@@ -2009,7 +2069,9 @@ class GameState:
                 return (self._restriction_ok(cards)
                         or not self._restriction_satisfiable())
             if t is ActionType.DISCARD:
-                return self.discards_left > 0 and self._valid_indices(cards, MAX_PLAYED)
+                return (self.discards_left > 0
+                        and self._valid_indices(cards, MAX_PLAYED)
+                        and self._restriction_ok(cards))
             if t is ActionType.USE_CONSUMABLE:
                 return self._consumable_legal(index, cards)
             if t is ActionType.SELL_JOKER:
@@ -2106,6 +2168,11 @@ class GameState:
             # after it has left the list, as the game does it.
             if joker.spec.disables_boss_on_sell:
                 self.disable_blind(joker.name)
+            boss = self.boss
+            if boss is not None and boss.debuff_until_sale:
+                # Verdant Leaf lifts the moment any joker is sold, not just
+                # Luchador -- that is the whole shape of the blind.
+                self.disable_blind("a joker was sold")
             if joker.spec.on_sell is not None:
                 joker.spec.on_sell(joker, self)
         elif t is ActionType.SELL_CONSUMABLE:
