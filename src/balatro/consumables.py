@@ -136,12 +136,26 @@ def _death(game: "GameState", cards: list[Card]) -> None:
     left.rank, left.suit = right.rank, right.suit
     left.enhancement, left.edition, left.seal = (
         right.enhancement, right.edition, right.seal)
-    # And the permanent chips a Hiker left on it. copy_card walks every field
-    # of the card's ability table, so anything living there comes across --
-    # perma_bonus included. Copying the visible properties and stopping there
-    # loses five chips a trigger, quietly, on a card that then gets played
-    # for the rest of the run.
+    # copy_card walks every field of the card's ability table, so everything
+    # living there comes across, not just what is printed on the card. Two of
+    # those fields matter:
+    #
+    #   perma_bonus         the chips a Hiker left. Copying the visible
+    #                       properties and stopping loses five chips a
+    #                       trigger on a card played for the rest of the run.
+    #   played_this_ante    whether the card has already been played this
+    #                       ante, which is exactly what The Pillar debuffs.
+    #                       So a Death can debuff a fresh card by copying a
+    #                       spent one onto it, and launder a spent one by
+    #                       copying a fresh one the other way.
+    #
+    # The rest of the table is the enhancement's own numbers -- bonus, mult,
+    # h_dollars and so on -- which come across with the enhancement itself.
     left.extra_chips = right.extra_chips
+    if right.uid in game.played_this_ante:
+        game.played_this_ante.add(left.uid)
+    else:
+        game.played_this_ante.discard(left.uid)
 
 
 def _hermit(game: "GameState", cards: list[Card]) -> None:
