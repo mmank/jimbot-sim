@@ -216,9 +216,20 @@ def _seal(seal: Seal) -> ApplyHook:
 
 
 def _aura(game: "GameState", cards: list[Card]) -> None:
+    """A random edition on one card in hand.
+
+    poll_edition('aura', nil, true, true) -- the guaranteed form, bands
+    widened twenty-five times so something always lands, and no negative.
+    Picking uniformly from three, which is what this did, gives polychrome
+    far more often than the game does.
+    """
+    from .shop_pool import poll_edition
     for card in cards:
-        card.edition = game.rng.choice(
-            "aura", [Edition.FOIL, Edition.HOLOGRAPHIC, Edition.POLYCHROME])
+        name = poll_edition(game.rng, "aura", no_negative=True,
+                            guaranteed=True)
+        card.edition = {"foil": Edition.FOIL, "holo": Edition.HOLOGRAPHIC,
+                        "polychrome": Edition.POLYCHROME,
+                        "none": Edition.NONE}[name]
 
 
 def _black_hole(game: "GameState", cards: list[Card]) -> None:
@@ -227,8 +238,16 @@ def _black_hole(game: "GameState", cards: list[Card]) -> None:
 
 
 def _immolate(game: "GameState", cards: list[Card]) -> None:
-    for card in game.rng.sample("immolate", game.full_deck,
-                                min(5, len(game.full_deck))):
+    """Destroy 5 random cards *in hand*, and gain twenty dollars.
+
+    Not five from the deck, which is what this took: the game copies
+    G.hand.cards, shuffles that copy under the pool name "immolate" and takes
+    the first five. Cards still in the deck are never at risk, so the card the
+    player is looking at is exactly the card that can burn.
+    """
+    doomed = sorted(game.hand, key=lambda card: card.uid)
+    game.rng.shuffle(doomed, "immolate")
+    for card in doomed[:5]:
         game.remove_card(card)
     game.add_money(20, "Immolate")
 

@@ -183,7 +183,36 @@ DECK_RANK_ORDER = (Rank.TWO, Rank.THREE, Rank.FOUR, Rank.FIVE, Rank.SIX,
                    Rank.KING, Rank.QUEEN, Rank.TEN)
 
 
-def standard_deck() -> list[Card]:
-    """The 52-card Red/Blue deck, in the game's own build order."""
+def standard_deck(no_faces: bool = False, erratic=None) -> list[Card]:
+    """The 52-card deck, in the game's own build order.
+
+    Two decks change the build rather than what happens afterwards, and both
+    have to be done here because a card's place in this list is the id the
+    game gives it.
+
+    The Abandoned Deck drops the Kings, Queens and Jacks before the protos are
+    sorted, so it is a forty card deck and every id after the first Jack
+    shifts. The Erratic Deck replaces each card's face with a draw from
+    G.P_CARDS under the pool name "erratic" -- fifty-two draws, keeping
+    duplicates -- so pass a generator to get one.
+    """
+    faces = {Rank.JACK, Rank.QUEEN, Rank.KING}
+    if erratic is not None:
+        fronts = ["%s_%s" % (s, r) for s in ("C", "D", "H", "S")
+                  for r in ("2", "3", "4", "5", "6", "7", "8", "9",
+                            "A", "J", "K", "Q", "T")]
+        by_rank = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR,
+                   "5": Rank.FIVE, "6": Rank.SIX, "7": Rank.SEVEN,
+                   "8": Rank.EIGHT, "9": Rank.NINE, "T": Rank.TEN,
+                   "J": Rank.JACK, "Q": Rank.QUEEN, "K": Rank.KING,
+                   "A": Rank.ACE}
+        by_suit = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
+                   "S": Suit.SPADES}
+        out = []
+        for _ in range(52):
+            suit, rank = erratic.random_element(fronts, "erratic").split("_")
+            out.append(Card(by_rank[rank], by_suit[suit]))
+        return out
     return [Card(rank, suit)
-            for suit in DECK_SUIT_ORDER for rank in DECK_RANK_ORDER]
+            for suit in DECK_SUIT_ORDER for rank in DECK_RANK_ORDER
+            if not (no_faces and rank in faces)]

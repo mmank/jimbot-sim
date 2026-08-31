@@ -321,7 +321,9 @@ class GameState:
         config = self.deck_config
         self.money += config.get("dollars", 0)
         if not self.full_deck:
-            self.full_deck = standard_deck()
+            self.full_deck = standard_deck(
+                no_faces=config.get("remove_faces", False),
+                erratic=self.rng if config.get("randomize_rank_suit") else None)
         self._apply_deck_config(config)
         # The order the game starts a run in: the boss, then the voucher, then
         # the two skip tags. Every one of them draws, so the order is part of
@@ -1274,10 +1276,19 @@ class GameState:
                     for _ in range(held_triggers(self, card)):
                         self.add_consumables(
                             [cons.REGISTRY[PLANET_FOR_HAND[hand]]])
+        # The Green Deck pays per unspent hand *and* per unspent discard, and
+        # pays more per hand than the usual dollar -- money_per_hand and
+        # money_per_discard. It also earns no interest at all, which is the
+        # trade. All three were in the deck data and none was applied.
+        config = self.deck_config
+        per_hand = config.get("extra_hand_bonus", 1)
+        per_discard = config.get("extra_discard_bonus", 0)
+        interest = (0 if config.get("no_interest")
+                    else min(self.interest_cap, max(0, self.money) // 5))
         self.pending_payout = (self.blind.reward
-                               + max(0, self.hands_left)
-                               + min(self.interest_cap,
-                                     max(0, self.money) // 5)
+                               + max(0, self.hands_left) * per_hand
+                               + max(0, self.discards_left) * per_discard
+                               + interest
                                + gold)
 
         # Every card returns to the deck as the round closes -- but in the
@@ -1724,7 +1735,14 @@ class GameState:
             played_hands=played, seen=self.seen_centers,
             seen_jokers=self.seen_centers, owned_enhancements=owned,
             showman=any(j.name == "Showman" for j in self.jokers),
-            stickers=self.sticker_rules)
+            stickers=self.sticker_rules,
+            # Two vouchers change what a pack holds rather than what it
+            # costs: Telescope forces the first card of a Celestial pack to
+            # the planet for the hand the run has played most, and Omen Globe
+            # turns one in five Arcana cards into a Spectral.
+            telescope=any(v.key == "v_telescope" for v in self.vouchers),
+            omen_globe=any(v.key == "v_omen_globe" for v in self.vouchers),
+            most_played_planet=self._most_played_planet())
 
         self.pack_options = []
         for entry in contents:
@@ -1739,6 +1757,15 @@ class GameState:
         if spec.kind in (PackKind.ARCANA, PackKind.SPECTRAL) and not self.hand:
             self._pack_dealt_hand = True
             self._draw_to_hand_size()
+
+    def _most_played_planet(self) -> str | None:
+        """The Planet for the hand this run has played most, for Telescope."""
+        plays = {h: n for h, n in self.hand_levels.plays.items() if n > 0}
+        if not plays:
+            return None
+        best = max(plays, key=lambda h: plays[h])
+        name = PLANET_FOR_HAND.get(best)
+        return shop_pool.KEY_BY_CONSUMABLE_NAME.get(name) if name else None
 
     def _pack_card(self, entry: dict):
         """One entry from shop_pool.pack_contents, as a simulator object."""
