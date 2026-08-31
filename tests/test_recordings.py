@@ -59,8 +59,6 @@ def _replay(path):
         recorded = entry.get("before") or {}
         sim_replay.match_hand_order(game, recorded.get("hand_ids"), index)
         sim_replay.match_joker_order(game, recorded.get("jokers"))
-        if entry["action"] == "cash_out":
-            continue          # the simulator has no cash-out screen
         problems = sim_replay.differences(recorded, sim_replay.sim_view(game))
         if problems:
             return step, len(actions), "\n".join(problems)
