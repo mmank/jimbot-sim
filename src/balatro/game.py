@@ -61,6 +61,16 @@ BASE_INTEREST_CAP = 5
 PERISHABLE_ROUNDS = 5
 # What the Director's Cut / Retcon button charges to re-roll the boss.
 BOSS_REROLL_COST = 10
+
+# The consumables whose use is gated on something other than how many cards
+# are selected. Grouped by what they need, from Card:can_use_consumeable.
+FREE_JOKER_NEEDED = frozenset({"Judgement", "The Soul", "Wraith"})
+FREE_CONSUMABLE_NEEDED = frozenset({"The Emperor", "The High Priestess",
+                                    "The Fool"})
+PLAIN_JOKER_NEEDED = frozenset({"The Wheel of Fortune", "Ectoplasm", "Hex"})
+# These destroy a card picked at random, and want one to spare.
+SPARE_CARD_NEEDED = frozenset({"Familiar", "Grim", "Incantation", "Immolate",
+                               "Sigil", "Ouija"})
 RENTAL_RATE = 3
 WIN_ANTE = 8
 
@@ -266,6 +276,9 @@ class GameState:
     shop_free: bool = False
     # G.GAME.last_tarot_planet -- the key The Fool copies.
     last_tarot_planet: str = ""
+    # G.GAME.ecto_minus. Ectoplasm's hand-size cost is not a flat one: it
+    # starts at one and rises by one with every Ectoplasm used in the run.
+    ecto_minus: int = 1
     # round_resets.blind_choices.Boss: this ante's boss, drawn at its start.
     ante_boss: str = ""
     # The card Cerulean Bell nominates: every hand must include it.
@@ -534,6 +547,55 @@ class GameState:
         spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
         self.gain_joker(JokerInstance(spec))
         self.log(f"{source}: gained {spec.name}")
+
+    def can_use_consumable(self, spec: ConsumableSpec,
+                           targets: tuple = ()) -> bool:
+        """Card:can_use_consumeable, branch for branch.
+
+        Only the count of selected cards was being checked, so the simulator
+        offered a good deal the game refuses -- a Judgement with no room for
+        the joker, a Sigil in the shop, an Aura onto a card that is already
+        polychrome. For a policy that is not a harmless extra option: it is a
+        move that appears legal, gets taken, and does nothing.
+
+        The branch that matters most is the last one. Anything that selects
+        cards is gated on `G.STATE == SELECTING_HAND or one of the three pack
+        states`, so a targeting Tarot cannot be used in a shop or on the
+        cash-out screen at all -- only in a round, or out of an Arcana or
+        Spectral pack, which is why those two deal a hand when they open.
+        """
+        # A hand to work on: in a round, or inside a pack that dealt one.
+        hand_dealt = self.phase in (Phase.PLAYING, Phase.PACK)
+        plain_jokers = [j for j in self.jokers if j.edition is Edition.NONE]
+
+        if spec.name in FREE_JOKER_NEEDED:
+            return len(self.jokers) < self.joker_slots
+        if spec.name in FREE_CONSUMABLE_NEEDED:
+            # `or self.area == G.consumeables`: using it frees the slot it is
+            # sitting in, so holding it is always enough. Only a copy taken
+            # straight out of a pack can be blocked.
+            room = (len(self.consumables) < self.consumable_slots
+                    or spec in self.consumables)
+            if spec.name != "The Fool":
+                return room
+            return (room and bool(self.last_tarot_planet)
+                    and self.last_tarot_planet != "c_fool")
+        if spec.name in PLAIN_JOKER_NEEDED:
+            return bool(plain_jokers)
+        if spec.name == "Ankh":
+            # Deliberately not a free slot -- that is check_use, and the
+            # disagreement between the two is the Ankh bug. See refuses_use.
+            return bool(self.jokers) and self.joker_slots > 1
+        if spec.name == "Aura":
+            return (hand_dealt and len(targets) == 1
+                    and targets[0].edition is Edition.NONE)
+        if spec.name in SPARE_CARD_NEEDED:
+            # They destroy a card at random, and the game will not let the
+            # hand go empty that way.
+            return hand_dealt and len(self.hand) > 1
+        if spec.targets:
+            return hand_dealt and spec.accepts(len(targets))
+        return True
 
     def refuses_use(self, spec: ConsumableSpec) -> bool:
         """Card:check_use -- the one card the game refuses at the last moment.
@@ -2282,12 +2344,16 @@ class GameState:
         actions: list[Action] = []
         for i, spec in enumerate(self.consumables):
             if spec.targets == 0:
-                actions.append(Action(ActionType.USE_CONSUMABLE, index=i))
+                if self.can_use_consumable(spec):
+                    actions.append(Action(ActionType.USE_CONSUMABLE, index=i))
                 continue
             if not self.hand:
                 continue
             for subset in self._card_subsets(spec.max_targets or spec.targets):
-                if spec.accepts(len(subset)):
+                if not spec.accepts(len(subset)):
+                    continue
+                if self.can_use_consumable(
+                        spec, tuple(self.hand[j] for j in subset)):
                     actions.append(Action(ActionType.USE_CONSUMABLE, index=i,
                                           cards=subset))
         return actions
@@ -2346,8 +2412,12 @@ class GameState:
         if not spec.accepts(len(cards)):
             return False
         if spec.targets == 0:
-            return not cards
-        return self._valid_indices(cards, spec.max_targets or spec.targets)
+            if cards:
+                return False
+        elif not self._valid_indices(cards, spec.max_targets or spec.targets):
+            return False
+        return self.can_use_consumable(
+            spec, tuple(self.hand[i] for i in cards))
 
     def is_legal(self, action: Action) -> bool:
         """Exact membership test for `legal_actions()` without building the list."""

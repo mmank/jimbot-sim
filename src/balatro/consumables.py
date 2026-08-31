@@ -284,10 +284,21 @@ def _immolate(game: "GameState", cards: list[Card]) -> None:
 
 
 def _ectoplasm(game: "GameState", cards: list[Card]) -> None:
+    """Negative onto a joker with no edition, and a growing bite out of the hand.
+
+    The cost is not the flat -1 the card prints. G.GAME.ecto_minus starts at
+    one and rises by one after every use, so a run's second Ectoplasm costs
+    two hand size and its third costs three. Measured: eight becomes seven on
+    the first use with ecto_minus left reading two.
+
+    A run whose jokers all carry an edition cannot use it at all -- see
+    GameState.can_use_consumable -- so the empty case here is belt and braces.
+    """
     plain = [j for j in game.jokers if j.edition is Edition.NONE]
     if plain:
         game.rng.choice("ectoplasm", plain).edition = Edition.NEGATIVE
-        game.base_hand_size -= 1
+        game.base_hand_size -= game.ecto_minus
+        game.ecto_minus += 1
 
 
 SUITS_BY_LETTER = {"S": Suit.SPADES, "H": Suit.HEARTS,
