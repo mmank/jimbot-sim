@@ -1269,9 +1269,35 @@ class GameState:
         if kind in ("Tarot", "Planet", "Spectral"):
             spec = cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]]
             return ShopSlot("consumable", self.price(spec.cost), consumable=spec)
-        # A playing card slot, which only appears once a voucher enables it.
-        return ShopSlot("consumable", self.price(1),
-                        consumable=cons.by_kind(ConsumableKind.TAROT)[0])
+        # A playing card, which only appears once Magic Trick or Illusion has
+        # raised the playing card rate. This used to hand back an arbitrary
+        # Tarot as a placeholder, so a shop that offered a card offered the
+        # wrong thing entirely and the purchase went to the wrong slot.
+        #
+        # Illusion is the reason the type is decided by a roll: with it, a
+        # shop card is Enhanced rather than Base six times in ten, and may
+        # carry an edition and a seal besides. Without it the roll is not
+        # made at all -- the game short-circuits on used_vouchers.
+        illusion = any(v.key == "v_illusion" for v in self.vouchers)
+        enhanced = illusion and self.rng.pseudorandom("illusion") > 0.6
+        enhancement = Enhancement.NONE
+        if enhanced:
+            key = self.rng.random_element(
+                shop_pool.ENHANCEMENTS,
+                "Enhanced%s%d" % (shop_pool.SHOP_APPEND, self.ante))
+            enhancement = Enhancement(key[2:])
+        front = self.rng.random_element(
+            shop_pool.FRONTS,
+            "front%s%d" % (shop_pool.SHOP_APPEND, self.ante))
+        suit, rank = front.split("_")
+        card = Card(_RANK_BY_CODE[rank], _SUIT_BY_CODE[suit])
+        card.enhancement = enhancement
+        if illusion and self.rng.pseudorandom("illusion") > 0.8:
+            roll = self.rng.pseudorandom("illusion")
+            card.edition = (Edition.POLYCHROME if roll > 1 - 0.15
+                            else Edition.HOLOGRAPHIC if roll > 0.5
+                            else Edition.FOIL)
+        return ShopSlot("card", self.price(1), card=card)
 
     def _shop_rates(self) -> dict:
         """The run's card-type rates, which the deck and vouchers move.

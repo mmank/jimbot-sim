@@ -354,9 +354,17 @@ def buy(game, params):
         slot = shop.slots[index]
         # Both sides in the game's vocabulary: the recording names a centre
         # key, the simulator holds an object with a display name.
-        holding = (KEY_BY_JOKER.get(slot.joker.name) if slot.joker
-                   else KEY_BY_CONSUMABLE.get(
-                       getattr(slot.consumable, "name", None)))
+        if slot.joker is not None:
+            holding = KEY_BY_JOKER.get(slot.joker.name)
+        elif slot.consumable is not None:
+            holding = KEY_BY_CONSUMABLE.get(slot.consumable.name)
+        else:
+            # A playing card. The recording names its centre -- c_base for a
+            # plain one, m_glass and the rest for an enhanced one.
+            enhancement = getattr(slot.card, "enhancement", None)
+            holding = ("c_base" if enhancement is None
+                       or enhancement.value == "none"
+                       else "m_%s" % enhancement.value)
         if wanted and holding and wanted != holding:
             return ("shop slot %d holds %s, the recording bought %s"
                     % (index + 1, holding, wanted))
