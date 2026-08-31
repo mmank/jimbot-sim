@@ -285,6 +285,10 @@ class GameState:
     # A snapshot taken when a boss round ends, not a live count -- it starts
     # at High Card and is only ever rewritten there.
     most_played_hand: HandType = HandType.HIGH_CARD
+    # G.GAME.round_scores.hand.amt -- the biggest single hand scored this run.
+    # A high score the game only ever raises, and the one number that says how
+    # strong a build has become rather than how far it has got.
+    best_hand: int = 0
     cards_sold: int = 0
     glass_destroyed: int = 0
     lucky_triggers: int = 0
@@ -1636,6 +1640,8 @@ class GameState:
                 joker.spec.after_hand(joker, ctx)
         gained = ctx.score
         self.chips_scored += gained
+        # check_and_set_high_score only ever raises this.
+        self.best_hand = max(self.best_hand, int(gained))
         self.log(f"{result.hand.label} scored {gained} "
                  f"({ctx.chips:g} x {ctx.mult:g}) -> {self.chips_scored}")
         if ctx.money_gained:
@@ -1993,9 +1999,21 @@ class GameState:
         if was_boss:
             for card in self.full_deck:
                 card.played_this_ante = False
-            if self.ante >= WIN_ANTE:
+            # The ante has already moved on -- _beat_blind raises it the
+            # moment a boss falls -- so the run is won once it reads *past*
+            # WIN_ANTE, not at it. The game's own test is
+            # `round_resets.ante == win_ante and blind:get_type() == 'Boss'`,
+            # checked before the ante turns over, which is the same instant.
+            #
+            # Reading `>=` here declared victory an ante early: beating the
+            # ante-seven boss took the ante to eight and ended the run. It
+            # cost the whole of ante eight, which is the hardest ante there
+            # is, and it was invisible until the simulator was driven as a
+            # training environment and started reporting wins the engine
+            # never gave for the same policy.
+            if self.ante > WIN_ANTE:
                 self.phase = Phase.WON
-                self.log(f"Run won at ante {self.ante}")
+                self.log(f"Run won after ante {WIN_ANTE}")
                 return
 
 
