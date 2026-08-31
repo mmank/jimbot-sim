@@ -151,15 +151,30 @@ def match_hand_order(game, recorded_ids, deck_index):
     # -- see the note in the README. Pulling the named cards in keeps the
     # recording useful for everything downstream of the pack instead of
     # stopping the replay dead on a known gap.
-    if len(game.hand) == len(recorded_ids):
+    # Only for a hand a pack dealt. During a round the simulator deals from a
+    # deck it shuffled itself and the cards are its own business; if they
+    # disagree with the recording there, that is a divergence worth stopping
+    # on rather than papering over.
+    if getattr(game, "_pack_dealt_hand", False)             and len(game.hand) == len(recorded_ids):
         in_hand = {deck_index.get(id(c)) for c in game.hand}
         wrong = [w for w in recorded_ids if w not in in_hand]
         if wrong:
             spare = [c for c in game.hand
                      if deck_index.get(id(c)) not in set(recorded_ids)]
             for want in wrong:
-                found = next((c for c in game.draw_pile
-                              if deck_index.get(id(c)) == want), None)
+                if want < len(deck_index):
+                    found = next((c for c in game.draw_pile
+                                  if deck_index.get(id(c)) == want), None)
+                else:
+                    # An id past the starting deck names a card the run made,
+                    # and the simulator numbers its own, so the number cannot
+                    # be matched. Only when there is exactly one such card to
+                    # choose from is the choice not a guess -- and a guess
+                    # here turns "the deck order differs" into a divergence
+                    # somewhere later that looks like something else.
+                    spares = [c for c in game.draw_pile
+                              if id(c) not in deck_index]
+                    found = spares[0] if len(spares) == 1 else None
                 if found is None or not spare:
                     break
                 loser = spare.pop()

@@ -998,10 +998,6 @@ class GameState:
                 self.money = 0
                 self.log(f"{boss.name}: money set to $0")
 
-        for card in held:
-            if card.seal is Seal.BLUE:
-                self.add_consumables([cons.REGISTRY[PLANET_FOR_HAND[result.hand]]])
-
         self.hands_played_this_round.add(result.hand)
         for card in played:
             self.played_this_ante.add(card.uid)
@@ -1071,6 +1067,19 @@ class GameState:
         assert self.blind is not None
         gold = sum(3 for c in self.hand
                    if c.enhancement is Enhancement.GOLD)
+
+        # A blue seal makes the Planet for the *last hand played this round*,
+        # once, at the end of it, for each sealed card still in hand. The
+        # simulator fired it on every hand played instead, which is both too
+        # often and a round too early -- and it read the hand being played
+        # rather than the one the round ended on.
+        if self.last_hand is not None:
+            hand = next((h for h in HandType if h.label == self.last_hand),
+                        None)
+            for card in self.hand:
+                if card.seal is Seal.BLUE and hand is not None:
+                    self.add_consumables(
+                        [cons.REGISTRY[PLANET_FOR_HAND[hand]]])
         self.pending_payout = (self.blind.reward
                                + max(0, self.hands_left)
                                + min(self.interest_cap,
