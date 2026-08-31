@@ -1386,8 +1386,14 @@ class GameState:
         engine has all fifty-two cards again the moment the round ends.
         """
         assert self.blind is not None
+        # A gold card pays the moment the round ends -- ease_dollars, right
+        # there in the hand loop -- rather than as a row on the cash-out
+        # screen. Folding it into the payout left the run three dollars short
+        # for the length of that screen, per gold card held.
         gold = sum(3 * held_triggers(self, c) for c in self.hand
                    if c.enhancement is Enhancement.GOLD)
+        if gold:
+            self.add_money(gold, "gold cards")
 
         # A blue seal makes the Planet for the *last hand played this round*,
         # once, at the end of it, for each sealed card still in hand. The
@@ -1414,8 +1420,7 @@ class GameState:
         self.pending_payout = (self.blind.reward
                                + max(0, self.hands_left) * per_hand
                                + max(0, self.discards_left) * per_discard
-                               + interest
-                               + gold)
+                               + interest)
 
         # Every card returns to the deck as the round closes -- but in the
         # game's order, not in the order the deck was built. The hand goes to
@@ -1465,15 +1470,38 @@ class GameState:
         self._reset_round_cards()
         self._reroll_todo_hands()
 
-        # The cash-out screen holds nothing the policy decides. You can
-        # reorder or sell jokers there, which is real but niche, and the
-        # env has never offered it as a choice -- it advances by itself. So
-        # the simulator does too, and the two stay in step without a screen
-        # existing on one side and not the other.
+        # calculate_joker({end_of_round}) -- decay, growth and destruction,
+        # all of it the instant the round closes and before the cash-out
+        # screen appears. A Popcorn that has run out is gone by the time the
+        # player sees the score.
+        for joker in list(self.jokers):
+            if joker.spec.round_end is not None:
+                joker.spec.round_end(joker, self)
+
+        # The stake's stickers are paid for when the round ends, not when the
+        # money is taken: calculate_rental and calculate_perishable run in
+        # evaluate_round, so the rent is already gone by the time the
+        # cash-out screen appears. A rental takes three dollars a round and a
+        # perishable counts one round closer to being switched off.
+        for joker in self.jokers:
+            if joker.rental:
+                self.add_money(-RENTAL_RATE, f"{joker.name} rental")
+            if joker.perishable and joker.perish_tally > 0:
+                joker.perish_tally -= 1
+                if joker.perish_tally == 0:
+                    joker.debuffed = True
+                    self.log(f"{joker.name} perished")
+
+        # And now the run stands on the cash-out screen and waits.
         #
-        # Recorded in the README as a thing to revisit if selling on the
-        # cash-out screen ever matters.
-        self._cash_out()
+        # This used to cash out by itself, on the grounds that the screen
+        # holds nothing a policy decides. Two of the eight recordings say
+        # otherwise, and not in the way that was assumed: what a player does
+        # there is *use a Planet card*, having just seen which hand they
+        # played. Three times in one run. So the screen is a real place with
+        # real choices on it, and skipping it left the simulator a whole
+        # screen ahead -- fresh counters and no chips against a scoreboard
+        # still showing two hundred thousand.
 
     def _cash_out(self) -> None:
         """Take the payout and move on, as pressing Cash Out does."""
@@ -1501,25 +1529,12 @@ class GameState:
             self.boss_rerolled = False
             self._roll_boss()
 
-        # End-of-round joker money is part of what the cash-out screen pays,
-        # not something already in the bankroll when it appears. Golden Joker's
-        # $4 is listed there beside the blind's reward; running these when the
-        # blind was beaten paid it a whole screen early.
+        # The money rows on the cash-out screen -- calculate_dollar_bonus --
+        # are paid when the button is pressed. What happens the moment the
+        # round *closes* is the other hook, and that runs in _beat_blind.
         for joker in list(self.jokers):
-            if joker.spec.round_end is not None:
-                joker.spec.round_end(joker, self)
-
-        # The stake's stickers are paid for here: a rental takes three
-        # dollars every round, and a perishable counts one round closer to
-        # being switched off for good.
-        for joker in self.jokers:
-            if joker.rental:
-                self.add_money(-RENTAL_RATE, f"{joker.name} rental")
-            if joker.perishable and joker.perish_tally > 0:
-                joker.perish_tally -= 1
-                if joker.perish_tally == 0:
-                    joker.debuffed = True
-                    self.log(f"{joker.name} perished")
+            if joker.spec.round_money is not None:
+                joker.spec.round_money(joker, self)
 
         # Cashing out is also where the round's counters go back: the engine
         # already reads a full complement of hands and discards, and no chips
@@ -1984,6 +1999,18 @@ class GameState:
         return [Action(ActionType.PLAY, cards=s) for s in subsets]
 
     def legal_actions(self) -> list[Action]:
+        if self.phase is Phase.ROUND_EVAL:
+            # Take the money, or spend what you are holding first. A player
+            # who has just seen which hand they played will often level it
+            # here rather than wait for the shop.
+            actions = [Action(ActionType.CASH_OUT)]
+            actions += self._consumable_actions()
+            actions += [Action(ActionType.SELL_CONSUMABLE, index=i)
+                        for i in range(len(self.consumables))]
+            actions += [Action(ActionType.SELL_JOKER, index=i)
+                        for i, j in enumerate(self.jokers) if not j.eternal]
+            return actions
+
         if self.phase is Phase.BLIND_SELECT:
             actions = [Action(ActionType.SELECT_BLIND)]
             if self.blind is not None and self.blind.kind is not BlindKind.BOSS:
@@ -2129,6 +2156,20 @@ class GameState:
     def is_legal(self, action: Action) -> bool:
         """Exact membership test for `legal_actions()` without building the list."""
         t, index, cards = action.type, action.index, action.cards
+
+        if self.phase is Phase.ROUND_EVAL:
+            # The game lets you use and sell what you are holding before you
+            # take the money, and nothing else.
+            if t is ActionType.CASH_OUT:
+                return True
+            if t is ActionType.USE_CONSUMABLE:
+                return self._consumable_legal(index, cards)
+            if t is ActionType.SELL_CONSUMABLE:
+                return 0 <= index < len(self.consumables)
+            if t is ActionType.SELL_JOKER:
+                return (0 <= index < len(self.jokers)
+                        and not self.jokers[index].eternal)
+            return False
 
         if self.phase is Phase.BLIND_SELECT:
             if t is ActionType.SELECT_BLIND:
@@ -2311,10 +2352,7 @@ class GameState:
                     joker.spec.on_pack_skip(joker, self)
             self._close_pack()
         elif t is ActionType.CASH_OUT:
-            # A no-op: beating a blind cashes out by itself. Kept as an action
-            # so a caller written against the old shape is not broken, and so
-            # it reads as deliberate rather than missing.
-            pass
+            self._cash_out()
         elif t is ActionType.LEAVE_SHOP:
             self._leave_shop()
         else:  # pragma: no cover

@@ -70,6 +70,9 @@ class JokerSpec:
     on_blind_select: RoundHook | None = None   # Cartomancer, Marble Joker
     on_round_start: RoundHook | None = None    # Certificate
     on_sell: RoundHook | None = None           # Diet Cola, Luchador
+    # Money listed on the cash-out screen, as against `round_end` which is
+    # decay and growth the moment the round closes.
+    round_money: RoundHook | None = None       # Golden Joker, Rocket
     on_reroll: RoundHook | None = None         # Flash Card
     on_pack_skip: RoundHook | None = None      # Red Card
     on_pack_open: RoundHook | None = None      # Hallucination
@@ -410,7 +413,7 @@ register("Swashbuckler", Rarity.COMMON, "+Mult equal to sell value of other Joke
                  if o is not j), j.name))
 
 register("Golden Joker", Rarity.COMMON, "Earn $4 at end of round", cost=6,
-         round_end=lambda j, g: g.add_money(4, "Golden Joker"))
+         round_money=lambda j, g: g.add_money(4, "Golden Joker"))
 
 register("Faceless Joker", Rarity.COMMON, "Earn $5 if 3+ face cards discarded", cost=4,
          discarded=lambda j, cards, g: g.add_money(5, "Faceless Joker")
@@ -959,7 +962,13 @@ register("Madness", Rarity.UNCOMMON,
 
 
 def _round_money(amount) -> RoundHook:
-    """Pay at the end of a round, which is where the game pays these."""
+    """Money listed on the cash-out screen, paid when the button is pressed.
+
+    A different moment from `round_end`, which is the game's
+    calculate_joker({end_of_round}) -- decay, growth and destruction, all of
+    which happen the instant the round closes and before the screen appears.
+    These are calculate_dollar_bonus, and they are rows on that screen.
+    """
     def hook(j: JokerInstance, game: "GameState") -> None:
         value = amount(j, game) if callable(amount) else amount
         if value:
@@ -989,16 +998,16 @@ register("Burglar", Rarity.UNCOMMON,
 
 register("Cloud 9", Rarity.UNCOMMON,
          "Earn $1 for each 9 in your full deck at end of round", cost=7,
-         round_end=_round_money(
+         round_money=_round_money(
              lambda j, g: sum(1 for c in g.full_deck if c.rank is Rank.NINE)))
 register("Rocket", Rarity.UNCOMMON,
          "Earn $1 at end of round, increasing by $2 per Boss Blind defeated",
          cost=6, init_counter=1.0,
-         round_end=_round_money(lambda j, g: j.counter))
+         round_money=_round_money(lambda j, g: j.counter))
 register("Satellite", Rarity.UNCOMMON,
          "Earn $1 at end of round per unique Planet card used this run",
          cost=6,
-         round_end=_round_money(lambda j, g: len(g.unique_planets)))
+         round_money=_round_money(lambda j, g: len(g.unique_planets)))
 register("Egg", Rarity.COMMON, "Gains $3 of sell value at end of round",
          cost=4,
          round_end=lambda j, g: setattr(j, "extra_sell_value",
@@ -1014,7 +1023,7 @@ register("Gift Card", Rarity.UNCOMMON,
 register("Delayed Gratification", Rarity.COMMON,
          "Earn $2 per discard if no discards are used by end of the round",
          cost=4,
-         round_end=_round_money(
+         round_money=_round_money(
              lambda j, g: 2 * g.discards_left if g.discards_used == 0 else 0))
 register("Mail-In Rebate", Rarity.COMMON,
          "Earn $5 for each discarded card of a rank that changes every round",

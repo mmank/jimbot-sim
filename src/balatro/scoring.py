@@ -65,13 +65,34 @@ def effective_specs(jokers: list[JokerInstance]) -> list[JokerSpec]:
     return specs
 
 
-def _apply_edition(edition: Edition, ctx: ScoreContext, source: str) -> None:
+def _edition_before(edition: Edition, ctx: ScoreContext, source: str) -> None:
+    """A joker's foil and holo, which land before its own effect.
+
+    The game evaluates a joker's edition twice and in two places. The chips
+    and the mult -- foil and holo -- go in before the joker does anything,
+    and the X-mult of a polychrome goes in after, once the joker-on-joker
+    effects have run too. Applying the whole edition afterwards, which is
+    what this did, gets polychrome right and holo wrong: a holographic
+    Loyalty Card should give its ten mult and *then* be multiplied by four,
+    not the other way round, which is a third of the hand.
+    """
     if edition is Edition.FOIL:
         ctx.add_chips(50, f"{source} foil")
     elif edition is Edition.HOLOGRAPHIC:
         ctx.add_mult(10, f"{source} holo")
-    elif edition is Edition.POLYCHROME:
+
+
+def _edition_after(edition: Edition, ctx: ScoreContext, source: str) -> None:
+    """And the polychrome X-mult, which lands last."""
+    if edition is Edition.POLYCHROME:
         ctx.times_mult(1.5, f"{source} polychrome")
+
+
+def _apply_edition(edition: Edition, ctx: ScoreContext, source: str) -> None:
+    """Both halves at once -- right for a playing card, which the game does
+    evaluate in one pass, in eval_card rather than in the joker loop."""
+    _edition_before(edition, ctx, source)
+    _edition_after(edition, ctx, source)
 
 
 def _score_card_once(card: Card, ctx: ScoreContext) -> None:
@@ -168,9 +189,10 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
                     spec.held(joker, card, ctx)
 
     for joker, spec in pairs:
+        _edition_before(joker.edition, ctx, joker.name)
         if spec.independent is not None:
             spec.independent(joker, ctx)
-        _apply_edition(joker.edition, ctx, joker.name)
+        _edition_after(joker.edition, ctx, joker.name)
 
     # Observatory: a Planet card sitting in a consumable slot gives X1.5 Mult
     # for its own hand type. It is the one voucher whose effect is a scoring

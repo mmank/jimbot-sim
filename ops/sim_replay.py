@@ -217,7 +217,7 @@ def apply(game, action, params, selected):
     elif action == "sort_hand_suit":
         game.sort_hand("suit")
     elif action == "cash_out":
-        pass                       # the simulator cashes out by itself
+        game.step(Action(ActionType.CASH_OUT))
     elif action == "reroll_boss":
         game.step(Action(ActionType.REROLL_BOSS))
     elif action == "skip_booster":
@@ -360,14 +360,6 @@ def main() -> None:
         recorded = entry.get("before") or {}
         match_hand_order(game, recorded.get("hand_ids"), deck_index)
         match_joker_order(game, recorded.get("jokers"))
-
-        # Nothing to compare on the cash-out screen: the simulator does not
-        # have one. It takes the payout the moment a blind is beaten, so by
-        # the time the recording presses the button the simulator has already
-        # reset the round -- see GameState._beat_blind and the note in the
-        # README about that being deliberate.
-        if entry["action"] == "cash_out":
-            continue
 
         problems = differences(recorded, sim_view(game))
         if problems:

@@ -36,15 +36,13 @@ RECORDINGS = pathlib.Path(__file__).resolve().parents[1] / "recordings"
 # How far each recording gets. `None` means all the way; a number is a floor
 # that must not regress, with the reason it stops.
 #
-#   6  The simulator reaches 278 of 432. The *engine's* own replay of this one
-#      diverges at 218, earlier, on a hand the player dragged into an order
-#      the replayer cannot reproduce -- so past that point nothing can
-#      arbitrate what the run should look like, the simulator included.
-#   8  Blocked at 160 by an action the recorder was not capturing when this
-#      was made: the Director's Cut boss reroll. Ten dollars and a new boss
-#      appear from nowhere. The recorder captures it now, so recordings made
-#      after this one carry it, but this file cannot be repaired.
-REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: 278, 7: None, 8: 160}
+#   6  Reaches 336 of 432.
+#   8  Reaches 80 of 442. It is blocked at 160 in any case by an action the
+#      recorder was not capturing when this was made -- the Director's Cut
+#      boss reroll, where ten dollars and a new boss appear from nowhere. The
+#      recorder captures it now, so later recordings carry it, but this file
+#      cannot be repaired.
+REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: 336, 7: None, 8: 80}
 
 
 def _replay(path):
