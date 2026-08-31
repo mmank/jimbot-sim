@@ -449,7 +449,9 @@ def _sim_score(name, case, state):
     game.idol_suit = _SUIT_BY_GAME_NAME.get(state["idol_suit"])
     game.ancient_suit = _SUIT_BY_GAME_NAME.get(state["ancient_suit"])
     game.castle_suit = _SUIT_BY_GAME_NAME.get(state["castle_suit"])
-    game.todo_hand = _HAND_BY_GAME_NAME.get(state["todo_hand"])
+    # ability.to_do_poker_hand lives on the joker, not on the run.
+    for joker in game.jokers:
+        joker.named_hand = _HAND_BY_GAME_NAME.get(state["todo_hand"])
     if case.boss:
         # Match the engine on which boss is in play. The simulator resolves
         # Chicot itself, so handing it the blind rather than the effect keeps
@@ -467,7 +469,9 @@ def _sim_score(name, case, state):
     game.idol_suit = _SUIT_BY_GAME_NAME.get(state["idol_suit"])
     game.ancient_suit = _SUIT_BY_GAME_NAME.get(state["ancient_suit"])
     game.castle_suit = _SUIT_BY_GAME_NAME.get(state["castle_suit"])
-    game.todo_hand = _HAND_BY_GAME_NAME.get(state["todo_hand"])
+    # ability.to_do_poker_hand lives on the joker, not on the run.
+    for joker in game.jokers:
+        joker.named_hand = _HAND_BY_GAME_NAME.get(state["todo_hand"])
     game.draw_pile = standard_deck()[:state["draw_pile"]]
     # _apply_debuffs walks full_deck, so the cards under test have to be in it
     # or a boss that debuffs a suit silently debuffs nothing.

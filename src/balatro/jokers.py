@@ -143,6 +143,9 @@ class JokerInstance:
     secondary: float = 0.0
     # Egg grows this on its own; Gift Card grows every joker's.
     extra_sell_value: float = 0.0
+    # To Do List's poker hand. The game keeps it in the joker's own ability
+    # table -- ability.to_do_poker_hand -- so two of them name two hands.
+    named_hand: object = None
 
     def __post_init__(self) -> None:
         if self.counter == 0.0:
@@ -997,7 +1000,7 @@ register("To Do List", Rarity.COMMON,
          rerolls_a_hand=True,
          independent=lambda j, ctx: ctx.__setattr__(
              "money_gained", ctx.money_gained + 4)
-         if ctx.hand is ctx.game.todo_hand else None)
+         if ctx.hand is j.named_hand else None)
 
 
 # -- the rest of the scoring batch ------------------------------------------
@@ -1106,13 +1109,23 @@ register("Turtle Bean", Rarity.UNCOMMON,
          hand_size_from_counter=True,
          round_end=lambda j, g: _decay(j, -1, g))
 def _burglar(j: JokerInstance, game: "GameState") -> None:
-    """Three hands for every discard you had. The losing half was missing."""
+    """Three hands, and every discard gone.
+
+    Both halves land here rather than in the round's allowance, and the
+    difference is only visible against a boss that dictates the allowance
+    itself. Burglar is ease_hands_played(+3) on setting_blind, which runs
+    *after* the blind has set the round up -- so The Needle, which allows one
+    hand, allows four with a Burglar held. Folding the +3 into the base let
+    The Needle overwrite it and the run played a single hand. Measured on the
+    engine: four.
+    """
+    game.hands_left += 3
     game.discards_left = 0
 
 
 register("Burglar", Rarity.UNCOMMON,
          "When Blind is selected, gain +3 Hands and lose all discards",
-         cost=6, extra_hands=3, on_blind_select=_burglar)
+         cost=6, on_blind_select=_burglar)
 
 
 # -- money at the end of a round --------------------------------------------

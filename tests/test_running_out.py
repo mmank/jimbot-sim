@@ -229,8 +229,12 @@ def test_to_the_moon_doubles_interest_past_the_cap():
     assert (paid(0), paid(1), paid(2)) == (5, 10, 15)
 
 
-def test_a_debuffed_to_the_moon_still_pays():
-    """interest_amount is a run counter set on acquisition, not a hook."""
+def test_a_debuffed_to_the_moon_pays_nothing_extra():
+    """Debuffing a joker runs remove_from_deck, which takes the counter with it.
+
+    Measured: interest_amount reads 1 with no To the Moon, 2 while one is
+    held, and 1 again the moment it is debuffed.
+    """
     game = _run("To the Moon")
     game.jokers[0].debuffed = True
     game.money = 100
@@ -239,4 +243,4 @@ def test_a_debuffed_to_the_moon_still_pays():
     game.hand[:] = [Card(Rank.TWO, Suit.CLUBS)]
     reward = game.blind.reward
     game.step(Action(ActionType.PLAY, cards=(0,)))
-    assert game.pending_payout - reward == 10
+    assert game.pending_payout - reward == 5

@@ -39,7 +39,8 @@ _RANK_BY_CODE = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR,
 _SUIT_BY_CODE = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
                  "S": Suit.SPADES}
 from .consumables import ConsumableKind, ConsumableSpec
-from .hands import PLANET_FOR_HAND, HandLevels, HandType, evaluate
+from .hands import (HANDLIST, PLANET_FOR_HAND, SECRET_HANDS, HandLevels,
+                    HandType, evaluate)
 from .jokers import EDITION_VALUE, REGISTRY as JOKER_REGISTRY, JokerInstance, Rarity
 
 # The game's rarity numbers, which its pools are keyed by.
@@ -224,7 +225,6 @@ class GameState:
     idol_rank: object = None
     idol_suit: object = None
     ancient_suit: object = None
-    todo_hand: object = None
     mail_rank: object = None
     castle_suit: object = None
 
@@ -484,7 +484,7 @@ class GameState:
                     ConsumableKind.PLANET: "Planet",
                     ConsumableKind.SPECTRAL: "Spectral"}[kind]
         played = [h.label for h, n in self.hand_levels.plays.items() if n > 0]
-        showman = any(j.spec.allows_duplicates for j in self.jokers)
+        showman = any(j.spec.allows_duplicates for j in self.active_jokers)
         # The game tests for a free slot *before* it creates the card, so a
         # full row of consumables costs nothing at all. Drawing and then
         # dropping the card, which is what this did, spends a roll the game
@@ -781,6 +781,28 @@ class GameState:
         return -sum(j.spec.debt_limit for j in self.active_jokers)
 
     @property
+    def spendable(self) -> int:
+        """What the run may lay out, which is not what it holds.
+
+        Every affordability test in the game is `cost > dollars -
+        bankrupt_at`, and Credit Card exists only to move bankrupt_at. Testing
+        against money alone -- which is what every check here did -- made
+        Credit Card an entirely inert purchase, and it is a joker whose whole
+        text is the twenty dollars of credit. They stack, too: measured on the
+        engine at $0, one allows a $20 buy and refuses $21, two allow $40 and
+        refuse $41.
+        """
+        return self.money - self.bankrupt_at
+
+    def affords(self, cost: int) -> bool:
+        """The game's test, including its free-item escape.
+
+        `(cost > dollars - bankrupt_at) and (cost > 0)` -- so something free
+        is always takeable, even by a run already past its floor.
+        """
+        return cost <= 0 or cost <= self.spendable
+
+    @property
     def can_reroll_boss(self) -> bool:
         """Whether the Director's Cut / Retcon button is live.
 
@@ -914,20 +936,40 @@ class GameState:
     # blind flow
     # ------------------------------------------------------------------
 
+    @property
+    def visible_hands(self) -> list[HandType]:
+        """The hands the run knows about.
+
+        Five of a Kind, Flush House and Flush Five start `visible = false` and
+        are switched on in evaluate_play the first time one is made. Anything
+        choosing a poker hand at random draws from the visible ones only, so
+        the difference is not cosmetic: it is a nine-entry pool rather than a
+        twelve-entry one, which changes both the hand picked and where the
+        stream lands afterwards.
+
+        Returned in HANDLIST order -- see the note there on why the engine's
+        own order for this is not reproducible.
+        """
+        return [h for h in HANDLIST
+                if h not in SECRET_HANDS or self.hand_levels.plays[h] > 0]
+
     def _reroll_todo_hands(self) -> None:
         """To Do List names a poker hand, and picks a new one every round.
 
-        Drawn from the hands it is *not* already on, so it never repeats
-        itself two rounds running, and each copy rolls separately. The field
-        it reads was declared on the run and never written, so the joker paid
-        out for whatever HandType happened to be None -- which is nothing.
+        Drawn from the visible hands it is *not* already on, so it never
+        repeats itself two rounds running. The hand belongs to the joker --
+        the game keeps it in ability.to_do_poker_hand -- so two To Do Lists
+        name two different hands and roll separately. Holding it on the run
+        instead made a second copy overwrite the first, and the field it read
+        was declared and never written, so the joker paid out for whatever
+        HandType happened to be None: nothing.
         """
-        visible = [h for h in HandType]
+        visible = self.visible_hands
         for joker in self.jokers:
             if not joker.spec.rerolls_a_hand:
                 continue
-            pool = [h for h in visible if h is not self.todo_hand]
-            self.todo_hand = self.rng.random_element(pool, "to_do")
+            pool = [h for h in visible if h is not joker.named_hand]
+            joker.named_hand = self.rng.random_element(pool, "to_do")
 
     def _reset_round_cards(self) -> None:
         """Re-roll the card and the suits that some jokers name.
@@ -1495,7 +1537,7 @@ class GameState:
         assert self.blind is not None
         if self.blind.target > 0:
             for joker in list(self.jokers):
-                if (joker.spec.prevents_death
+                if (joker.spec.prevents_death and not joker.debuffed
                         and self.chips_scored / self.blind.target >= 0.25):
                     self.log(f"{joker.name} saved the run")
                     self.destroy_joker(joker)
@@ -1545,14 +1587,17 @@ class GameState:
         config = self.deck_config
         per_hand = config.get("extra_hand_bonus", 1)
         per_discard = config.get("extra_discard_bonus", 0)
-        # G.GAME.interest_amount: one by default, raised by To the Moon on
-        # acquisition and lowered on sale. It multiplies the number of
-        # five-dollar blocks *after* the cap has bitten, so the cap does not
-        # limit the bonus -- measured on the engine at $100 against the $25
-        # cap, where one To the Moon pays $10 and two pay $15 against a base
-        # of $5. It is a run-level counter rather than a scoring hook, so a
-        # debuffed To the Moon still pays; every joker held counts.
-        per_block = 1 + sum(j.spec.interest_bonus for j in self.jokers)
+        # G.GAME.interest_amount: one by default, raised by To the Moon in
+        # add_to_deck and lowered in remove_from_deck. It multiplies the
+        # number of five-dollar blocks *after* the cap has bitten, so the cap
+        # does not limit the bonus -- measured on the engine at $100 against
+        # the $25 cap, where one To the Moon pays $10 and two pay $15 against
+        # a base of $5.
+        #
+        # Debuffing a joker runs remove_from_deck(true), so the counter comes
+        # off with it: active_jokers, not jokers. That is true of every one of
+        # these run-level counters -- see test_declared_flags.
+        per_block = 1 + sum(j.spec.interest_bonus for j in self.active_jokers)
         interest = (0 if config.get("no_interest")
                     else per_block * min(self.interest_cap,
                                          max(0, self.money) // 5))
@@ -1944,7 +1989,7 @@ class GameState:
             return 0
         if (slot.consumable is not None
                 and slot.consumable.kind is ConsumableKind.PLANET
-                and any(j.spec.free_planets for j in self.jokers)):
+                and any(j.spec.free_planets for j in self.active_jokers)):
             return 0
         return slot.price
 
@@ -2022,7 +2067,7 @@ class GameState:
             self.rng, spec.kind.value.title(), spec.options, self.ante,
             played_hands=played, seen=self.seen_centers,
             seen_jokers=self.seen_centers, owned_enhancements=owned,
-            showman=any(j.spec.allows_duplicates for j in self.jokers),
+            showman=any(j.spec.allows_duplicates for j in self.active_jokers),
             stickers=self.sticker_rules,
             # Two vouchers change what a pack holds rather than what it
             # costs: Telescope forces the first card of a Celestial pack to
@@ -2047,11 +2092,20 @@ class GameState:
             self._draw_to_hand_size()
 
     def _most_played_planet(self) -> str | None:
-        """The Planet for the hand this run has played most, for Telescope."""
+        """The Planet for the hand this run has played most, for Telescope.
+
+        Walked in G.handlist order with a strict `>`, so the first hand to
+        hold the maximum keeps it -- and handlist runs strongest first. A tie
+        between a Pair and a Two Pair, which is most of an early run, goes to
+        the Two Pair. Python's max over a dict keyed in enum order gave the
+        first *weakest* instead, so Telescope forced the wrong planet.
+        """
         plays = {h: n for h, n in self.hand_levels.plays.items() if n > 0}
         if not plays:
             return None
-        best = max(plays, key=lambda h: plays[h])
+        # max keeps the first maximum it meets, and HANDLIST is
+        # strongest-first, which is the strict > exactly.
+        best = max(HANDLIST, key=lambda h: plays.get(h, 0))
         name = PLANET_FOR_HAND.get(best)
         return shop_pool.KEY_BY_CONSUMABLE_NAME.get(name) if name else None
 
@@ -2173,7 +2227,7 @@ class GameState:
             assert self.shop is not None
             actions = [Action(ActionType.LEAVE_SHOP)]
             for i, slot in enumerate(self.shop.slots):
-                if self.slot_price(slot) > self.money:
+                if not self.affords(self.slot_price(slot)):
                     continue
                 if slot.kind == "joker" and len(self.jokers) >= self.joker_slots:
                     continue
@@ -2181,13 +2235,13 @@ class GameState:
                     continue
                 actions.append(Action(ActionType.BUY, index=i))
             for i, pack in enumerate(self.shop.packs):
-                if self.price(pack.cost) <= self.money:
+                if self.affords(self.price(pack.cost)):
                     actions.append(Action(ActionType.BUY_PACK, index=i))
             if (self.shop.voucher is not None and not self.shop.voucher_bought
-                    and self.price(self.shop.voucher.cost) <= self.money):
+                    and self.affords(self.price(self.shop.voucher.cost))):
                 actions.append(Action(ActionType.BUY_VOUCHER))
             discount = sum(v.reroll_discount for v in self.vouchers)
-            if self.shop.reroll_cost(discount) <= self.money:
+            if self.affords(self.shop.reroll_cost(discount)):
                 actions.append(Action(ActionType.REROLL))
             actions += self._consumable_actions()
             actions += [Action(ActionType.SELL_JOKER, index=i)
@@ -2349,7 +2403,7 @@ class GameState:
                 if not 0 <= index < len(shop.slots):
                     return False
                 slot = shop.slots[index]
-                if self.slot_price(slot) > self.money:
+                if not self.affords(self.slot_price(slot)):
                     return False
                 if slot.kind == "joker":
                     return len(self.jokers) < self.joker_slots
@@ -2358,13 +2412,13 @@ class GameState:
                 return True
             if t is ActionType.BUY_PACK:
                 return (0 <= index < len(shop.packs)
-                        and self.price(shop.packs[index].cost) <= self.money)
+                        and self.affords(self.price(shop.packs[index].cost)))
             if t is ActionType.BUY_VOUCHER:
                 return (shop.voucher is not None and not shop.voucher_bought
-                        and self.price(shop.voucher.cost) <= self.money)
+                        and self.affords(self.price(shop.voucher.cost)))
             if t is ActionType.REROLL:
                 discount = sum(v.reroll_discount for v in self.vouchers)
-                return shop.reroll_cost(discount) <= self.money
+                return self.affords(shop.reroll_cost(discount))
             if t is ActionType.USE_CONSUMABLE:
                 return self._consumable_legal(index, cards)
             if t is ActionType.SELL_JOKER:
@@ -2425,7 +2479,9 @@ class GameState:
             # Selling is the whole point of some jokers -- Luchador disables
             # the boss, Diet Cola leaves a tag behind -- so the effect fires
             # after it has left the list, as the game does it.
-            if joker.spec.disables_boss_on_sell:
+            if joker.spec.disables_boss_on_sell and not joker.debuffed:
+                # selling_self is a calculate_joker context, and that returns
+                # nothing at all for a debuffed joker.
                 self.disable_blind(joker.name)
             boss = self.boss
             if boss is not None and boss.debuff_until_sale:
@@ -2482,7 +2538,7 @@ class GameState:
             pack = self.shop.packs.pop(action.index)
             free = self.shop_free or (
                 pack.kind is PackKind.CELESTIAL
-                and any(j.spec.free_planets for j in self.jokers))
+                and any(j.spec.free_planets for j in self.active_jokers))
             cost = 0 if free else self.price(pack.cost)
             self.add_money(-cost, f"bought {pack.name}")
             self._open_pack(pack)

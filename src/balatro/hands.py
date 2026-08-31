@@ -67,6 +67,35 @@ LEVEL_GAIN: dict[HandType, tuple[int, int]] = {
     HandType.FLUSH_FIVE: (50, 3),
 }
 
+# The three the game starts with `visible = false`. evaluate_play switches a
+# hand visible the first time it is made, and anything picking a poker hand at
+# random -- To Do List, Telescope -- draws from the visible ones only.
+SECRET_HANDS = frozenset({HandType.FIVE_OF_A_KIND, HandType.FLUSH_HOUSE,
+                          HandType.FLUSH_FIVE})
+
+# G.handlist, strongest first. What anything walking the hands in the game's
+# stated order sees -- Telescope reads it with ipairs and a strict >, so a tie
+# on plays goes to the strongest hand rather than the weakest.
+HANDLIST = tuple(sorted(HandType, reverse=True))
+
+# To Do List builds its pool by walking `pairs(G.GAME.hands)` and appending,
+# then indexes into the result -- so the iteration order decides which hand a
+# given roll names. That order is not defined: it is a Lua hash table, and
+# measuring it three times in three processes gave
+#
+#   Straight Flush | Four of a Kind | ... | Pair | High Card
+#   High Card | Straight Flush | Four of a Kind | ... | Pair
+#   Straight Flush | Four of a Kind | ... | Pair | High Card
+#
+# -- the same within one process, rotated between them, because LuaJIT seeds
+# its string hash per process. So the hand To Do List names is not
+# reproducible from the run's seed in the real game either, and no simulator
+# can match it every time. The stream is fine -- the raw draws agree exactly;
+# it is only which name that index lands on that moves.
+#
+# HANDLIST is what we use instead: the game's own stated order, deterministic,
+# and the one the two matching processes above happened to produce.
+
 # Planet card that levels each hand, for shop generation.
 PLANET_FOR_HAND: dict[HandType, str] = {
     HandType.HIGH_CARD: "Pluto",
