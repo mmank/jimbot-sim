@@ -32,6 +32,23 @@ AUTO_PUMP_STEP = 12
 # rerolling and leaving.
 SHOP_PATIENCE = 60
 
+# How long to wait for the game's own use-suppression counter to clear.
+#
+# stop_use() raises G.GAME.STOP_USE and queues a chain of seven nested events
+# to lower it again -- a guard so that a card cannot be used part-way through
+# an animation. Nothing in headless is animating, but the chain still needs
+# seven ticks of the event manager, and a driver that stops pumping the moment
+# a decision phase is reached hands the policy a state where the counter is
+# still up.
+#
+# While it is up, Card:can_sell_card and Card:can_use_consumeable both return
+# false for everything. Measured at a blind select holding one joker: every
+# other condition clear, STOP_USE = 1, and the joker unsellable. So the agent
+# could neither sell a joker nor use a consumable on the blind select screen,
+# which is where a player does both -- selling before a boss, using a Tarot on
+# the deck. It is not a rule of the game; it is the driver reading too early.
+STOP_USE_PATIENCE = 30
+
 
 class Driver(Protocol):
     """What advancing a phase needs, in whichever runtime."""
@@ -72,6 +89,11 @@ def advance(state, driver: Driver, settled: int = 0) -> bool:
         # with them. Settle it, then let the policy choose.
         driver.settle_pack()
         return False
+    if (state.get("stop_use") or 0) > 0 and settled < STOP_USE_PATIENCE:
+        # Bounded, like the shop wait: if it somehow never clears, deciding
+        # with a stale guard is better than hanging the run.
+        driver.wait()
+        return True
     if (name == "SHOP" and not state["shop_ready"]
             and settled < SHOP_PATIENCE):
         # Open is not the same as stocked. Deciding before the cards arrive
