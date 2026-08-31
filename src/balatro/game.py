@@ -397,11 +397,19 @@ class GameState:
         # along -- which is how a purple seal handed over Strength where the
         # run was given the Wheel of Fortune.
         room = self.consumable_slots - len(self.consumables)
+        # Each card made blanks itself from the pool the next one draws from
+        # -- a card marks its centre used the moment it is built. The Emperor
+        # makes two Tarots and they cannot be the same Tarot; drawing both
+        # against the pool as it stood at the start gave the run two copies
+        # of one card.
+        made = set(self.seen_centers)
         out = []
         for _ in range(max(0, min(count, room))):
             key = shop_pool.draw_consumable(
                 self.rng, card_set, self.ante, played_hands=played,
-                seen=self.seen_centers, showman=showman, append=append)
+                seen=made, showman=showman, append=append)
+            if not showman:
+                made.add(key)
             out.append(cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]])
         return out
 
