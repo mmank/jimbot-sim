@@ -381,6 +381,28 @@ class GameState:
         # therefore the last one you will see, not the next.
         self.full_deck.append(card)
         self.draw_pile.insert(0, card)
+        self.note_card_created(card)
+
+    def add_card_to_hand(self, card: Card) -> None:
+        """A card made straight into the hand -- Cryptid, Certificate, Grim.
+
+        It joins the deck as well, so it comes round again in later rounds,
+        and it counts as a card added: playing_card_joker_effects fires for
+        every playing card the run builds, wherever it lands.
+        """
+        self.full_deck.append(card)
+        self.hand.append(card)
+        self.note_card_created(card)
+
+    def note_card_created(self, card: Card) -> None:
+        """Tell the jokers that count cards added that one has been.
+
+        Three effects built cards straight into the deck and the hand without
+        going through here, so Hologram -- X0.25 for every playing card added
+        -- undercounted by however many Cryptid copies and Certificate cards
+        a run made. The deck size stayed right, which is what made it hard to
+        see: Hologram counts *additions*, not cards.
+        """
         for joker in self.jokers:
             if joker.name == "Hologram":
                 joker.counter += 0.25

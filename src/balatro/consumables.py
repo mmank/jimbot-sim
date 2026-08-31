@@ -136,6 +136,12 @@ def _death(game: "GameState", cards: list[Card]) -> None:
     left.rank, left.suit = right.rank, right.suit
     left.enhancement, left.edition, left.seal = (
         right.enhancement, right.edition, right.seal)
+    # And the permanent chips a Hiker left on it. copy_card walks every field
+    # of the card's ability table, so anything living there comes across --
+    # perma_bonus included. Copying the visible properties and stopping there
+    # loses five chips a trigger, quietly, on a card that then gets played
+    # for the rest of the run.
+    left.extra_chips = right.extra_chips
 
 
 def _hermit(game: "GameState", cards: list[Card]) -> None:
@@ -300,8 +306,7 @@ def _destroy_and_make(game: "GameState", count: int, ranks: list[str],
         card = Card(rank, suit)
         card.enhancement = Enhancement(
             game.rng.random_element(_SPE_POOL, "spe_card")[2:])
-        game.full_deck.append(card)
-        game.hand.append(card)
+        game.add_card_to_hand(card)
 
 
 def _familiar(game: "GameState", cards: list[Card]) -> None:
@@ -369,8 +374,7 @@ def _cryptid(game: "GameState", cards: list[Card]) -> None:
     for card in cards:
         for _ in range(2):
             copy = card.copy()
-            game.full_deck.append(copy)
-            game.hand.append(copy)
+            game.add_card_to_hand(copy)
 
 
 def _ankh(game: "GameState", cards: list[Card]) -> None:

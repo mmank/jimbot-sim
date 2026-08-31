@@ -1100,8 +1100,7 @@ def _certificate(j: JokerInstance, game: "GameState") -> None:
     # fifty-three cards from here on and every later draw comes off a
     # different deck. Putting it only in the hand loses it at the end of the
     # round.
-    game.full_deck.append(card)
-    game.hand.append(card)
+    game.add_card_to_hand(card)
 
 
 register("Certificate", Rarity.UNCOMMON,
@@ -1169,8 +1168,7 @@ register("Sixth Sense", Rarity.UNCOMMON,
 def _dna(j: JokerInstance, played: list, game: "GameState") -> None:
     if len(played) == 1:
         copy = played[0].copy()
-        game.full_deck.append(copy)
-        game.hand.append(copy)
+        game.add_card_to_hand(copy)
 
 
 register("DNA", Rarity.RARE,
