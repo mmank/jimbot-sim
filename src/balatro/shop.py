@@ -177,8 +177,20 @@ class Shop:
     voucher: Voucher | None = None
     voucher_bought: bool = False
     rerolls: int = 0
+    # Chaos the Clown's free reroll. current_round.free_rerolls in the game,
+    # topped up as the shop opens.
+    free_rerolls: int = 0
 
     def reroll_cost(self, discount: int = 0) -> int:
+        """What the next reroll costs.
+
+        A free reroll is free *and* does not raise the price of the next one:
+        calculate_reroll_cost returns before it increments, so Chaos the
+        Clown's reroll is genuinely a spare rather than a discount on the
+        first of a series.
+        """
+        if self.free_rerolls > 0:
+            return 0
         return max(0, 5 + self.rerolls - discount)
 
 

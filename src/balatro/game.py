@@ -358,6 +358,9 @@ class GameState:
             return
         if joker in self.jokers:
             self.jokers.remove(joker)
+            if joker.spec.free_rerolls and self.shop is not None:
+                self.shop.free_rerolls = max(
+                    0, self.shop.free_rerolls - joker.spec.free_rerolls)
             self.log(f"{joker.name} destroyed{f' ({reason})' if reason else ''}")
 
     def remove_card(self, card: Card) -> None:
@@ -536,6 +539,13 @@ class GameState:
         """
         joker.hands_at_create = self.hands_played
         self.jokers.append(joker)
+        # Chaos the Clown hands over its free reroll the moment it joins the
+        # row -- Card:add_to_deck does it -- so buying one in a shop you are
+        # standing in gives you a reroll in that shop. Topping up only when
+        # the shop opens misses exactly that, which is when anyone would buy
+        # it.
+        if joker.spec.free_rerolls and self.shop is not None:
+            self.shop.free_rerolls += joker.spec.free_rerolls
 
     def add_joker_copy(self, joker: JokerInstance, source: str = "") -> None:
         """A copy of a joker already held, editions and all."""
@@ -1535,6 +1545,8 @@ class GameState:
 
     def _open_shop(self) -> None:
         shop = Shop()
+        shop.free_rerolls = sum(j.spec.free_rerolls
+                                for j in self.active_jokers)
         self._fill_shop(shop)
         shop.packs = [self._roll_pack() for _ in range(2)]
         shop.voucher = (shop_mod.VOUCHER_BY_KEY[self.round_voucher]
@@ -2057,6 +2069,9 @@ class GameState:
             self.use_consumable(spec, targets)
         elif t is ActionType.SELL_JOKER:
             joker = self.jokers.pop(action.index)
+            if joker.spec.free_rerolls and self.shop is not None:
+                self.shop.free_rerolls = max(
+                    0, self.shop.free_rerolls - joker.spec.free_rerolls)
             self.add_money(self.sell_value(joker), f"sold {joker.name}")
             self.note_card_sold()
             # Selling is the whole point of some jokers -- Luchador disables
@@ -2098,7 +2113,10 @@ class GameState:
             assert self.shop is not None
             discount = sum(v.reroll_discount for v in self.vouchers)
             self.add_money(-self.shop.reroll_cost(discount), "reroll")
-            self.shop.rerolls += 1
+            if self.shop.free_rerolls > 0:
+                self.shop.free_rerolls -= 1
+            else:
+                self.shop.rerolls += 1
             # The jokers that count rerolls are told before the new cards are
             # made, which is the game's order -- calculate_joker fires on the
             # button, not on the shop that comes back.
