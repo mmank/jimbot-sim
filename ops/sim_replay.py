@@ -138,7 +138,7 @@ def match_hand_order(game, recorded_ids, deck_index):
     by_id = {}
     made = []                       # cards created during the run
     for card in game.hand:
-        index = deck_index.get(id(card))
+        index = deck_index.get(card.uid)
         if index is None:
             made.append(card)
         else:
@@ -156,15 +156,15 @@ def match_hand_order(game, recorded_ids, deck_index):
     # disagree with the recording there, that is a divergence worth stopping
     # on rather than papering over.
     if getattr(game, "_pack_dealt_hand", False)             and len(game.hand) == len(recorded_ids):
-        in_hand = {deck_index.get(id(c)) for c in game.hand}
+        in_hand = {deck_index.get(c.uid) for c in game.hand}
         wrong = [w for w in recorded_ids if w not in in_hand]
         if wrong:
             spare = [c for c in game.hand
-                     if deck_index.get(id(c)) not in set(recorded_ids)]
+                     if deck_index.get(c.uid) not in set(recorded_ids)]
             for want in wrong:
                 if want < len(deck_index):
                     found = next((c for c in game.draw_pile
-                                  if deck_index.get(id(c)) == want), None)
+                                  if deck_index.get(c.uid) == want), None)
                 else:
                     # An id past the starting deck names a card the run made,
                     # and the simulator numbers its own, so the number cannot
@@ -173,7 +173,7 @@ def match_hand_order(game, recorded_ids, deck_index):
                     # here turns "the deck order differs" into a divergence
                     # somewhere later that looks like something else.
                     spares = [c for c in game.draw_pile
-                              if id(c) not in deck_index]
+                              if c.uid not in deck_index]
                     found = spares[0] if len(spares) == 1 else None
                 if found is None or not spare:
                     break
@@ -186,24 +186,33 @@ def match_hand_order(game, recorded_ids, deck_index):
             by_id = {}
             made = []
             for card in game.hand:
-                index = deck_index.get(id(card))
+                index = deck_index.get(card.uid)
                 if index is None:
                     made.append(card)
                 else:
                     by_id.setdefault(index, []).append(card)
+
+    # Cards the run made cannot be matched by number -- the simulator numbers
+    # its own -- but they can be matched by *order*. Both sides hand out ids
+    # in creation order, so the nth-oldest made card in the recording is the
+    # nth-oldest here. Sorting both by age and pairing them off is what tells
+    # a Cryptid copy from the purple-sealed card that was made three rounds
+    # earlier, which decides which card a position discards.
+    made.sort(key=lambda card: card.uid)
+    # An id past the starting deck is a card the run made. Testing against
+    # the deck's size rather than against what happens to be in hand matters:
+    # a starting card the simulator has misplaced would otherwise be counted
+    # as a made one and shift the whole pairing.
+    made_ids = sorted(w for w in recorded_ids if w >= len(deck_index))
+    by_made = dict(zip(made_ids, made))
 
     ordered, leftover = [], list(game.hand)
     for want in recorded_ids:
         pool = by_id.get(want)
         if pool:
             card = pool.pop(0)
-        elif made:
-            # An id the starting deck does not have belongs to a card the run
-            # made -- Certificate's, a Tarot's copy, a card from a Standard
-            # pack. Its number cannot be matched, but its *place* can: it is
-            # whatever the recording has here that the deck cannot account
-            # for, and where it sits decides which cards a position plays.
-            card = made.pop(0)
+        elif want in by_made:
+            card = by_made.pop(want)
         else:
             continue
         ordered.append(card)
@@ -375,7 +384,11 @@ def main() -> None:
     # A starting card's place in the deck is the id the game gives it, and
     # the simulator builds its deck in the same order -- see
     # cards.standard_deck.
-    deck_index = {id(card): i for i, card in enumerate(game.full_deck)}
+    # Keyed by the simulator's own card id, not by id(). Python reuses
+    # addresses: a card destroyed by a Tarot frees its slot and the next card
+    # made can land on it, which silently gave a card the deck position of a
+    # card that no longer exists.
+    deck_index = {card.uid: i for i, card in enumerate(game.full_deck)}
 
     for i, entry in enumerate(actions, start=1):
         recorded = entry.get("before") or {}
