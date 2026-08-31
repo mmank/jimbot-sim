@@ -1556,6 +1556,18 @@ class GameState:
         Wasteful hand over their extra hand or discard for the round in
         progress rather than only from the next one.
         """
+        if voucher.shop_slots and self.shop is not None:
+            # change_shop_size fills the shop back up to its new maximum
+            # there and then -- and it fills *every* empty slot, not just the
+            # one it added. Redeem Overstock in a shop you have already
+            # emptied and three new cards appear. The simulator only raised
+            # the count for the next shop, so a purchase from the slot the
+            # voucher had just created found nothing there.
+            while len(self.shop.slots) < self._shop_slot_count():
+                forced = self._forced_shop_slot()
+                slot = forced if forced is not None else self._roll_slot()
+                self.shop.slots.append(self._modify_shop_slot(slot))
+
         if voucher.ante_shift:
             self.ante = max(1, self.ante + voucher.ante_shift)
         self.hands_left += voucher.extra_hands
