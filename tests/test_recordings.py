@@ -37,12 +37,11 @@ RECORDINGS = pathlib.Path(__file__).resolve().parents[1] / "recordings"
 # that must not regress, with the reason it stops.
 #
 #   6  Reaches 336 of 432.
-#   8  Reaches 80 of 442. It is blocked at 160 in any case by an action the
-#      recorder was not capturing when this was made -- the Director's Cut
-#      boss reroll, where ten dollars and a new boss appear from nowhere. The
-#      recorder captures it now, so later recordings carry it, but this file
-#      cannot be repaired.
-REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: 336, 7: None, 8: 80}
+#   8  Blocked at 160 by an action the recorder was not capturing when this
+#      was made -- the Director's Cut boss reroll, where ten dollars and a
+#      new boss appear from nowhere. The recorder captures it now, so later
+#      recordings carry it, but this file cannot be repaired.
+REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: 336, 7: None, 8: 160}
 
 
 def _replay(path):

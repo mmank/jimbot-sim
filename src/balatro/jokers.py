@@ -917,10 +917,24 @@ register("To Do List", Rarity.COMMON,
 
 # -- the rest of the scoring batch ------------------------------------------
 
+def _midas_mask(j: JokerInstance, ctx: ScoreContext) -> None:
+    """Turn every scoring face card to Gold before anything scores.
+
+    context.before, not per-card: the game walks the scoring hand once, up
+    front, and calls set_ability(m_gold) on each face card. That matters
+    because a card only has one enhancement -- a glass King turned gold by a
+    Midas Mask never gets to be glass, so its X2 is simply gone. Converting
+    per card as it scored let the first trigger keep the old enhancement,
+    which is a whole X2 on the hand.
+    """
+    for card in ctx.scoring:
+        if is_face(card, ctx):
+            ctx.game.set_enhancement(card, Enhancement.GOLD)
+
+
 register("Midas Mask", Rarity.UNCOMMON,
          "All played face cards become Gold cards when scored", cost=7,
-         scored=lambda j, c, ctx: ctx.game.set_enhancement(c, Enhancement.GOLD)
-         if is_face(c, ctx) else None)
+         update=_midas_mask, update_before_scoring=True)
 register("Seltzer", Rarity.UNCOMMON,
          "Retrigger all played cards for the next 10 hands", cost=6,
          init_counter=10.0,
