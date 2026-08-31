@@ -46,7 +46,7 @@ from .jokers import REGISTRY as JOKER_REGISTRY, JokerInstance, Rarity
 _RARITY_INDEX = {Rarity.COMMON: 1, Rarity.UNCOMMON: 2, Rarity.RARE: 3,
                  Rarity.LEGENDARY: 4}
 from .rng import RunRng
-from .scoring import score_hand, shattered_glass
+from .scoring import held_triggers, score_hand, shattered_glass
 from .shop import PackKind, PackSpec, Shop, ShopSlot, Voucher
 
 MAX_PLAYED = 5
@@ -266,6 +266,9 @@ class GameState:
     last_tarot_planet: str = ""
     # round_resets.blind_choices.Boss: this ante's boss, drawn at its start.
     ante_boss: str = ""
+    # round_resets.boss_rerolled: Director's Cut allows one reroll an ante and
+    # this is what remembers that it has been spent. Reset when a boss falls.
+    boss_rerolled: bool = False
     # The stake, one to eight. It is not a difficulty label: it changes the
     # chips every ante asks for, the discards a round starts with, whether
     # the Small Blind pays, and what stickers the shop puts on its jokers.
@@ -645,6 +648,30 @@ class GameState:
             keys.add(joker_key(name) or cons_key(name))
         keys.discard(None)
         return keys
+
+    @property
+    def bankrupt_at(self) -> int:
+        """How far into debt the run may go. Credit Card lowers the floor."""
+        return -sum(j.spec.debt_limit for j in self.active_jokers)
+
+    @property
+    def can_reroll_boss(self) -> bool:
+        """Whether the Director's Cut / Retcon button is live.
+
+        Without either voucher there is no button at all. Director's Cut
+        allows one reroll an ante -- boss_rerolled remembers it, and
+        reset_blinds clears it when a boss falls. Retcon allows any number.
+        Either way you must be able to afford the ten dollars, measured
+        against the debt floor rather than against zero.
+        """
+        owned = {v.key for v in self.vouchers}
+        if "v_retcon" in owned:
+            pass
+        elif "v_directors_cut" in owned and not self.boss_rerolled:
+            pass
+        else:
+            return False
+        return (self.money - self.bankrupt_at) - BOSS_REROLL_COST >= 0
 
     @property
     def sticker_rules(self) -> dict:
@@ -1172,7 +1199,7 @@ class GameState:
         engine has all fifty-two cards again the moment the round ends.
         """
         assert self.blind is not None
-        gold = sum(3 for c in self.hand
+        gold = sum(3 * held_triggers(self, c) for c in self.hand
                    if c.enhancement is Enhancement.GOLD)
 
         # A blue seal makes the Planet for the *last hand played this round*,
@@ -1185,8 +1212,9 @@ class GameState:
                         None)
             for card in self.hand:
                 if card.seal is Seal.BLUE and hand is not None:
-                    self.add_consumables(
-                        [cons.REGISTRY[PLANET_FOR_HAND[hand]]])
+                    for _ in range(held_triggers(self, card)):
+                        self.add_consumables(
+                            [cons.REGISTRY[PLANET_FOR_HAND[hand]]])
         self.pending_payout = (self.blind.reward
                                + max(0, self.hands_left)
                                + min(self.interest_cap,
@@ -1265,7 +1293,9 @@ class GameState:
         # a moment earlier when the boss fell.
         if self.beaten_blind.kind is BlindKind.BOSS:
             self._roll_ante_tags()
-            # reset_blinds runs after the tags, and draws the next boss.
+            # reset_blinds runs after the tags: it draws the next boss and
+            # gives Director's Cut its reroll back.
+            self.boss_rerolled = False
             self._roll_boss()
 
         # End-of-round joker money is part of what the cash-out screen pays,
@@ -1874,6 +1904,8 @@ class GameState:
                 return not cards
             if t is ActionType.SKIP_BLIND:
                 return self.blind is not None and self.blind.kind is not BlindKind.BOSS
+            if t is ActionType.REROLL_BOSS:
+                return self.can_reroll_boss
             return False
 
         if self.phase is Phase.PLAYING:
@@ -1988,9 +2020,9 @@ class GameState:
         elif t is ActionType.BUY_AND_USE:
             self.buy_and_use(action.index)
         elif t is ActionType.REROLL_BOSS:
-            # Director's Cut allows one a shop and Retcon any number; the
-            # button costs ten dollars either way. A Boss Tag rerolls for
-            # nothing, and goes through _apply_blind_select_tags instead.
+            # A Boss Tag rerolls for nothing and goes through
+            # _apply_blind_select_tags instead; this is the paid button.
+            self.boss_rerolled = True
             self.add_money(-BOSS_REROLL_COST, "boss reroll")
             self._roll_boss()
             if self.blind is not None and self.blind.kind is BlindKind.BOSS:

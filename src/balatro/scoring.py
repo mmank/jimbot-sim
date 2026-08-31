@@ -188,3 +188,21 @@ def shattered_glass(game: "GameState", scoring: tuple[Card, ...]) -> list[Card]:
     return [c for c in scoring
             if c.enhancement is Enhancement.GLASS
             and _listed(game, "glass", *GLASS_SHATTER_CHANCE)]
+
+
+def held_triggers(game: "GameState", card: Card) -> int:
+    """How many times a card held in hand fires its abilities.
+
+    A red seal retriggers it once and Mime retriggers every held ability, and
+    both apply at the end of the round as well as during scoring -- the game
+    runs the same repetition loop over G.hand in its end-of-round pass. So a
+    blue seal under a Mime makes two Planet cards, and a gold card pays six
+    dollars rather than three.
+    """
+    if card.debuffed:
+        return 0
+    triggers = 1 + (1 if card.seal is Seal.RED else 0)
+    for joker in game.active_jokers:
+        if joker.spec.retrigger_held is not None:
+            triggers += joker.spec.retrigger_held(joker, card, None)
+    return triggers
