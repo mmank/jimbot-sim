@@ -145,16 +145,15 @@ CASES = [
          gold_cards=(1, 2)),
 ]
 
-KNOWN_BAD = {
-    # Every one of these draws from a game RNG pool whose state this harness
-    # does not synchronise, so the two engines roll different numbers while
-    # agreeing about the rule. They are the same blocker as the lucky cards in
-    # test_retriggers.py, and all of them come good once pools are shared.
-    "Hanging Chad": "on a five-card flush the engine scores 292 against the "
-                    "simulator's 276. It agrees everywhere else, the straight "
-                    "flush included, so this is not simply the wrong card "
-                    "being retriggered, and is still open",
-}
+# Jokers whose recorded answer the simulator is known not to match. Empty,
+# and worth keeping empty: the last entry was Hanging Chad, and it turned out
+# to be this harness rather than the simulator. Scenario.hand only rewrote the
+# *bases* of the dealt cards, leaving them at whatever screen positions the
+# deal had given them -- card 1 at x=15.14 with cards 2 to 8 running 4.90 to
+# 13.68, so the first card of the hand was physically the rightmost. The game
+# orders scoring_hand by T.x, so Hanging Chad retriggered the second card.
+# Aligning the row moved exactly one joker's answer out of eighty-three.
+KNOWN_BAD: dict[str, str] = {}
 
 # Jokers that do nothing to the score of a single hand, so the matrix above
 # cannot exercise them however many hands are added. Each says where it is
@@ -359,12 +358,16 @@ def _engine_state(engine):
         # agreeing about everything else.
         "rng_seed": engine.eval(
             "(function() return tostring(G.GAME.pseudorandom.seed) end)()"),
+        # Sorted before joining. pairs over a Lua hash table has no defined
+        # order and LuaJIT seeds its string hash per process, so an unsorted
+        # join rewrote this string for all eighty-three jokers on every
+        # regeneration and buried the one answer that had actually moved.
         "rng_pools": engine.eval(
             "(function() local t = {} "
             "for k, v in pairs(G.GAME.pseudorandom) do "
             "  if type(v) == 'number' then "
             "    t[#t+1] = k .. '=' .. string.format('%.17g', v) end "
-            "end return table.concat(t, ' ') end)()"),
+            "end table.sort(t) return table.concat(t, ' ') end)()"),
         "todo_hand": engine.eval(
             "(function() return tostring(G.jokers.cards[1] and "
             "G.jokers.cards[1].ability.to_do_poker_hand or '') end)()"),

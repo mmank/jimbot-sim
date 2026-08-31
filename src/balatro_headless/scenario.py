@@ -44,14 +44,30 @@ class Scenario:
         return self
 
     def hand(self, codes: str | Iterable[str]) -> "Scenario":
-        """Set the held cards, in order, by code: "S_A S_K H_2"."""
+        """Set the held cards, in order, by code: "S_A S_K H_2".
+
+        The alignment at the end is not cosmetic. Only the *bases* are
+        rewritten here, so the cards keep whatever screen positions the deal
+        left them with -- and a freshly dealt hand does not have them in
+        array order, because the last card drawn has not animated into place.
+        Measured on an eight-card hand: card 1 sat at x=15.14 with cards 2
+        through 8 running 4.90 to 13.68, so the first card of the hand was
+        physically the rightmost.
+
+        That matters because the game orders scoring_hand by T.x rather than
+        by array index. Hanging Chad retriggers scoring_hand[1], and against
+        an unaligned hand it retriggered the second card -- which read as the
+        simulator disagreeing with the engine over a flush, and was the
+        harness placing the cards somewhere the scenario never asked for.
+        align_cards puts the row back in array order.
+        """
         if isinstance(codes, str):
             codes = codes.split()
         for i, code in enumerate(codes, start=1):
             self.game.execute(
                 f'if G.hand.cards[{i}] then '
                 f'G.hand.cards[{i}]:set_base(G.P_CARDS["{code}"]) end')
-        self.game.execute("api.pump(30)")
+        self.game.execute("G.hand:align_cards(); api.pump(30)")
         return self
 
     def boss(self, key: str) -> "Scenario":
