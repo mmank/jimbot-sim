@@ -759,9 +759,32 @@ register("Hiker", Rarity.UNCOMMON,
 
 # -- scaling jokers whose growth comes from outside the played hand ---------
 
+def _ceremonial_dagger(j: JokerInstance, game: "GameState") -> None:
+    """Eat the joker to the right, keep twice its sell value as mult.
+
+    "To the right" is the next one along in the row, so this depends on the
+    order the player has dragged them into. An eternal joker cannot be eaten
+    -- the game checks it here as well, which is another reason to have the
+    check in one place. The joker was registered with its mult but nothing
+    ever did the eating, so it sat on zero for whole runs while the row kept
+    a joker the game had taken away.
+    """
+    if j not in game.jokers:
+        return
+    index = game.jokers.index(j)
+    if index + 1 >= len(game.jokers):
+        return
+    victim = game.jokers[index + 1]
+    if victim.eternal:
+        return
+    j.counter += victim.sell_value * 2
+    game.destroy_joker(victim, "Ceremonial Dagger")
+
+
 register("Ceremonial Dagger", Rarity.UNCOMMON,
          "When Blind is selected, destroy the Joker to the right and "
          "permanently add double its sell value to Mult", cost=6,
+         on_blind_select=_ceremonial_dagger,
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
 register("Castle", Rarity.UNCOMMON,
          "Gains +3 Chips per discarded card of a suit that changes each round",
