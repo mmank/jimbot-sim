@@ -118,10 +118,23 @@ def _hanged_man(game: "GameState", cards: list[Card]) -> None:
 
 
 def _death(game: "GameState", cards: list[Card]) -> None:
-    if len(cards) == 2:
-        left, right = cards
-        left.rank, left.suit = right.rank, right.suit
-        left.enhancement, left.edition, left.seal = (
+    """Copy the rightmost selected card onto every other one.
+
+    The game finds the rightmost by screen position and calls copy_card onto
+    each of the others, so it is not limited to a pair -- select three and two
+    of them change. And copy_card takes everything: rank, suit, enhancement,
+    edition and seal. The simulator did nothing at all unless exactly two
+    cards were selected.
+    """
+    if len(cards) < 2:
+        return
+    order = {id(c): i for i, c in enumerate(game.hand)}
+    right = max(cards, key=lambda c: order.get(id(c), -1))
+    for card in cards:
+        if card is right:
+            continue
+        card.rank, card.suit = right.rank, right.suit
+        card.enhancement, card.edition, card.seal = (
             right.enhancement, right.edition, right.seal)
 
 
