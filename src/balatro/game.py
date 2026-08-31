@@ -385,10 +385,6 @@ class GameState:
             if joker.name == "Hologram":
                 joker.counter += 0.25
 
-    def random_face_card(self) -> Card:
-        rank = self.rng.choice("face_card", [Rank.JACK, Rank.QUEEN, Rank.KING])
-        return Card(rank, self.rng.choice("face_suit", list(Suit)))
-
     def random_consumables(self, kind: ConsumableKind, count: int,
                            append: str = "") -> list[ConsumableSpec]:
         """Consumables from the game's pool, under the creator's own name.

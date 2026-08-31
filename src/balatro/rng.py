@@ -181,12 +181,15 @@ class RunRng:
         return int(self.pseudorandom(key, low, high))
 
     def sample(self, key: str, items: Iterable, count: int) -> list:
-        """Draw `count` distinct items.
+        """Draw `count` distinct items, one at a time from a shrinking pool.
 
-        Not yet matched to the engine. The game has no single "sample": each
-        call site draws its own way, and shop slots in particular re-roll
-        against a pool that changes as cards are taken. Faithful sampling has
-        to be done per call site, so anything relying on this is unverified.
+        This is the shape The Hook uses -- repeated pseudorandom_element
+        against the same pool name, removing each pick -- and it is the only
+        caller left. It is not a general "sample": the game has no such
+        thing, each site draws its own way, and Immolate for one shuffles the
+        pool instead. Anything new should check its own call site rather than
+        assume this is it, and the caller is responsible for the order it
+        passes, since pseudorandom_element sorts before it picks.
         """
         pool = list(items)
         out = []

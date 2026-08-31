@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from .cards import Card, Edition, Enhancement, Seal
 from .effects import ScoreContext
-from .hands import HandResult
+from .hands import PLANET_FOR_HAND, HandResult
 from .jokers import JokerInstance, JokerSpec
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -162,6 +162,15 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
         if spec.independent is not None:
             spec.independent(joker, ctx)
         _apply_edition(joker.edition, ctx, joker.name)
+
+    # Observatory: a Planet card sitting in a consumable slot gives X1.5 Mult
+    # for its own hand type. It is the one voucher whose effect is a scoring
+    # one, which is why it had no field on Voucher to hold it and was doing
+    # nothing at all.
+    if any(v.key == "v_observatory" for v in game.vouchers):
+        for spec in game.consumables:
+            if PLANET_FOR_HAND.get(result.hand) == spec.name:
+                ctx.times_mult(1.5, "Observatory")
 
     # Scaling jokers grow *after* the hand they are part of, which the game
     # does under context.after. Running it first cost Ice Cream five chips on

@@ -163,9 +163,3 @@ def make_blind(kind: BlindKind, ante: int, boss: BossEffect | None = None,
         reward=0 if no_reward else BLIND_REWARD[kind],
         boss=boss,
     )
-
-
-def pick_boss(rng, ante: int) -> BossEffect:
-    if ante % 8 == 0:
-        return rng.choice("boss", FINISHER_BOSSES)
-    return rng.choice("boss", BOSSES)

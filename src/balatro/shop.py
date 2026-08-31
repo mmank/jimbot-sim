@@ -11,20 +11,6 @@ from .jokers import BASE_COST, REGISTRY as JOKER_REGISTRY, JokerInstance, JokerS
 from .pack_data import PACK_DATA
 from .voucher_data import VOUCHER_DATA
 
-RARITY_WEIGHTS = {Rarity.COMMON: 0.70, Rarity.UNCOMMON: 0.25, Rarity.RARE: 0.05}
-SLOT_WEIGHTS = {"joker": 20, "tarot": 4, "planet": 4}
-
-EDITION_WEIGHTS = {
-    Edition.NONE: 0.96,
-    Edition.FOIL: 0.02,
-    Edition.HOLOGRAPHIC: 0.014,
-    Edition.POLYCHROME: 0.006,
-}
-EDITION_PREMIUM = {
-    Edition.NONE: 0, Edition.FOIL: 2, Edition.HOLOGRAPHIC: 3,
-    Edition.POLYCHROME: 5, Edition.NEGATIVE: 5,
-}
-
 
 @dataclass(frozen=True)
 class Voucher:
@@ -192,42 +178,3 @@ class Shop:
         if self.free_rerolls > 0:
             return 0
         return max(0, 5 + self.rerolls - discount)
-
-
-def joker_price(spec: JokerSpec, edition: Edition = Edition.NONE) -> int:
-    return spec.cost + EDITION_PREMIUM[edition]
-
-
-def weighted_pick(rng, name: str, weights: dict):
-    """A weighted choice over a named pool.
-
-    NOT the game's algorithm. The real one rolls once against summed rates and
-    walks fixed bands in a fixed order -- see shop_pool.roll_slot_type, which
-    is checked against the engine. This survives only for booster packs, whose
-    generation has not been reproduced yet, and it is deliberately left
-    obviously ad hoc so it is not mistaken for verified behaviour.
-    """
-    keys = list(weights)
-    total = sum(weights.values())
-    roll = rng.pseudorandom(name) * total
-    upto = 0.0
-    for key in keys:
-        upto += weights[key]
-        if roll <= upto:
-            return key
-    return keys[-1]
-
-
-def random_joker_spec(rng, name: str = "shop_joker",
-                      allowed: set[str] | None = None) -> JokerSpec:
-    """Unverified. Shop jokers go through shop_pool.draw_joker instead."""
-    rarity = weighted_pick(rng, f"{name}_rarity", RARITY_WEIGHTS)
-    pool = [s for s in JOKER_REGISTRY.values()
-            if s.rarity is rarity and (allowed is None or s.name in allowed)]
-    if not pool:
-        pool = [s for s in JOKER_REGISTRY.values() if s.rarity is Rarity.COMMON]
-    return rng.choice(f"{name}_pick", pool)
-
-
-def random_edition(rng, name: str = "shop_edition") -> Edition:
-    return weighted_pick(rng, name, EDITION_WEIGHTS)
