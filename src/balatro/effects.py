@@ -29,20 +29,28 @@ class ScoreContext:
     money_gained: int = 0
     log: list[str] = field(default_factory=list)
 
+    # Every line carries the running totals as well as the change. Without
+    # them the log says what happened and not what it added up to, and a hand
+    # that scores wrong is a question about the total at each step -- which
+    # joker took it away from what the real game reached. Recording 8 stops on
+    # exactly that question at step 236, 364845 against 243620.
     def add_chips(self, amount: float, source: str = "") -> None:
         if amount:
             self.chips += amount
-            self.log.append(f"{source}: +{amount:g} chips")
+            self.log.append("%s: +%g chips -> %g x %g"
+                            % (source, amount, self.chips, self.mult))
 
     def add_mult(self, amount: float, source: str = "") -> None:
         if amount:
             self.mult += amount
-            self.log.append(f"{source}: +{amount:g} mult")
+            self.log.append("%s: +%g mult -> %g x %g"
+                            % (source, amount, self.chips, self.mult))
 
     def times_mult(self, factor: float, source: str = "") -> None:
         if factor != 1:
             self.mult *= factor
-            self.log.append(f"{source}: x{factor:g} mult")
+            self.log.append("%s: x%g mult -> %g x %g"
+                            % (source, factor, self.chips, self.mult))
 
     @property
     def score(self) -> int:

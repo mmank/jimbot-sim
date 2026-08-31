@@ -46,23 +46,44 @@ LUCKY_MULT_CHANCE = (1, 5)
 LUCKY_MONEY_CHANCE = (1, 15)
 
 
-def effective_specs(jokers: list[JokerInstance]) -> list[JokerSpec]:
-    """Resolve Blueprint/Brainstorm copies to the spec they actually run."""
-    specs: list[JokerSpec] = []
+def effective_specs(jokers: list[JokerInstance]
+                    ) -> list[tuple[JokerSpec, JokerInstance]]:
+    """What each joker in the row actually runs, and whose state it runs on.
+
+    Both halves matter for a copier. The game does not lift an ability out of
+    the copied joker and run it on Blueprint; it calls the copied joker:
+
+        local eval = other_joker:calculate_joker(context)
+
+    so a Blueprint on a Ceremonial Dagger adds the *dagger's* accumulated
+    mult, and a Brainstorm on a Hiker reads the Hiker's counter. Returning the
+    spec alone and then calling it with the copier's instance looked right and
+    silently scored zero for every copied joker that keeps a counter -- which
+    is most of the ones worth copying. It contributed nothing at all rather
+    than contributing wrongly, so it left no trace in the log either.
+
+    Recording 8 stopped on it: a Brainstorm copying a Ceremonial Dagger worth
+    eighteen mult, adding none of it.
+
+    The edition stays with the copier -- a polychrome Blueprint is polychrome
+    whatever it copies -- so the caller keeps the row's own joker for that.
+    """
+    out: list[tuple[JokerSpec, JokerInstance]] = []
     for i, joker in enumerate(jokers):
-        spec = joker.spec
+        spec, source = joker.spec, joker
         seen = {i}
         idx = i
         while spec.copier is not None:
             target = idx + 1 if spec.copier == "right" else 0
             if target >= len(jokers) or target in seen:
-                spec = joker.spec  # copies nothing; contributes no effect
+                # Copies nothing: its own spec has no effect hooks.
+                spec, source = joker.spec, joker
                 break
             seen.add(target)
             idx = target
-            spec = jokers[target].spec
-        specs.append(spec)
-    return specs
+            spec, source = jokers[target].spec, jokers[target]
+        out.append((spec, source))
+    return out
 
 
 def _edition_before(edition: Edition, ctx: ScoreContext, source: str) -> None:
@@ -139,8 +160,11 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     # A debuffed joker scores nothing at all -- a perishable that has run out
     # its rounds sits in the row contributing neither chips nor mult.
     active = game.active_jokers
-    specs = effective_specs(active)
-    pairs = list(zip(active, specs))
+    # (owner, spec, source): the joker in the row, the ability it runs, and
+    # the joker whose state that ability reads. They differ only for a
+    # Blueprint or a Brainstorm, and only the owner's edition applies.
+    pairs = [(owner, spec, source)
+             for owner, (spec, source) in zip(active, effective_specs(active))]
 
     chips, mult = game.hand_levels.values(result.hand)
     boss = game.boss
@@ -158,41 +182,41 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     ctx.add_chips(chips, result.hand.label)
     ctx.add_mult(mult, result.hand.label)
 
-    for joker, spec in pairs:
+    for _owner, spec, source in pairs:
         if spec.update is not None and spec.update_before_scoring:
-            spec.update(joker, ctx)
+            spec.update(source, ctx)
 
     for card in result.scoring:
         if card.debuffed:
             continue
         triggers = 1 + (1 if card.seal is Seal.RED else 0)
-        for joker, spec in pairs:
+        for _owner, spec, source in pairs:
             if spec.retrigger_scored is not None:
-                triggers += spec.retrigger_scored(joker, card, ctx)
+                triggers += spec.retrigger_scored(source, card, ctx)
         for _ in range(triggers):
             _score_card_once(card, ctx)
-            for joker, spec in pairs:
+            for _owner, spec, source in pairs:
                 if spec.scored is not None:
-                    spec.scored(joker, card, ctx)
+                    spec.scored(source, card, ctx)
 
     for card in held:
         if card.debuffed:
             continue
         triggers = 1 + (1 if card.seal is Seal.RED else 0)
-        for joker, spec in pairs:
+        for _owner, spec, source in pairs:
             if spec.retrigger_held is not None:
-                triggers += spec.retrigger_held(joker, card, ctx)
+                triggers += spec.retrigger_held(source, card, ctx)
         for _ in range(triggers):
             _held_card_once(card, ctx)
-            for joker, spec in pairs:
+            for _owner, spec, source in pairs:
                 if spec.held is not None:
-                    spec.held(joker, card, ctx)
+                    spec.held(source, card, ctx)
 
-    for joker, spec in pairs:
-        _edition_before(joker.edition, ctx, joker.name)
+    for owner, spec, source in pairs:
+        _edition_before(owner.edition, ctx, owner.name)
         if spec.independent is not None:
-            spec.independent(joker, ctx)
-        _edition_after(joker.edition, ctx, joker.name)
+            spec.independent(source, ctx)
+        _edition_after(owner.edition, ctx, owner.name)
 
     # Observatory: a Planet card sitting in a consumable slot gives X1.5 Mult
     # for its own hand type. It is the one voucher whose effect is a scoring
@@ -207,9 +231,9 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     # does under context.after. Running it first cost Ice Cream five chips on
     # every hand including its first, and would have done the same to Square
     # Joker and Runner the moment a hand met their condition.
-    for joker, spec in pairs:
+    for _owner, spec, source in pairs:
         if spec.update is not None and not spec.update_before_scoring:
-            spec.update(joker, ctx)
+            spec.update(source, ctx)
 
     # The Plasma Deck's final scoring step: chips and mult are averaged, both
     # floored, so a hand scores the square of half their sum. It happens after

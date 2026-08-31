@@ -77,7 +77,12 @@ def test_scored_card_hook_only_sees_scoring_cards():
 
 def test_blueprint_copies_the_joker_to_its_right():
     jokers = [make("Blueprint"), make("The Duo")]
-    assert [s.name for s in effective_specs(jokers)] == ["The Duo", "The Duo"]
+    # effective_specs answers both halves: which ability runs, and whose state
+    # it runs on. The Blueprint runs The Duo's ability against The Duo itself,
+    # which is what the game does -- other_joker:calculate_joker(context).
+    resolved = effective_specs(jokers)
+    assert [spec.name for spec, _ in resolved] == ["The Duo", "The Duo"]
+    assert [source is jokers[1] for _, source in resolved] == [True, True]
     ctx = play([Card(Rank.KING, S), Card(Rank.KING, H)], jokers=jokers)
     assert ctx.score == 30 * 2 * 2 * 2
 
@@ -90,7 +95,10 @@ def test_blueprint_with_nothing_to_the_right_does_nothing():
 
 def test_brainstorm_copies_the_leftmost_joker():
     jokers = [make("The Duo"), make("Joker"), make("Brainstorm")]
-    assert [s.name for s in effective_specs(jokers)] == ["The Duo", "Joker", "The Duo"]
+    resolved = effective_specs(jokers)
+    assert [spec.name for spec, _ in resolved] == ["The Duo", "Joker", "The Duo"]
+    # And the Brainstorm reads the leftmost joker's state, not its own.
+    assert resolved[2][1] is jokers[0]
 
 
 def test_copier_cycle_terminates():
