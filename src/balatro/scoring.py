@@ -114,8 +114,11 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
         held=tuple(held),
         game=game,
     )
-    specs = effective_specs(game.jokers)
-    pairs = list(zip(game.jokers, specs))
+    # A debuffed joker scores nothing at all -- a perishable that has run out
+    # its rounds sits in the row contributing neither chips nor mult.
+    active = game.active_jokers
+    specs = effective_specs(active)
+    pairs = list(zip(active, specs))
 
     chips, mult = game.hand_levels.values(result.hand)
     boss = game.boss

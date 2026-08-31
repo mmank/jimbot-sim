@@ -547,6 +547,18 @@ class GameState:
         self.log(f"{source}: {boss.name} is disabled")
 
     @property
+    def active_jokers(self) -> list:
+        """The jokers that still do anything.
+
+        A perishable joker is switched off once its five rounds are up -- the
+        game debuffs it, which leaves it sitting in the row taking a slot and
+        contributing nothing. Reading `jokers` for effects therefore keeps a
+        dead joker working: a debuffed Stuntman went on taking two off the
+        hand size, so the run dealt seven cards where the game dealt nine.
+        """
+        return [j for j in self.jokers if not j.debuffed]
+
+    @property
     def seen_centers(self) -> set:
         """The centres that currently exist, which is what blanks a pool.
 
@@ -623,7 +635,7 @@ class GameState:
     def hand_size(self) -> int:
         size = self.base_hand_size
         size += sum(v.hand_size for v in self.vouchers)
-        size += sum(j.spec.hand_size for j in self.jokers)
+        size += sum(j.spec.hand_size for j in self.active_jokers)
         size += self.deck_config.get("hand_size", 0)
         if self.boss is not None:
             size += self.boss.hand_size_delta
@@ -838,12 +850,12 @@ class GameState:
         """Hands and discards for a round, from the deck, vouchers and boss."""
         config = self.deck_config
         hands = BASE_HANDS + sum(v.extra_hands for v in self.vouchers)
-        hands += sum(j.spec.extra_hands for j in self.jokers)
+        hands += sum(j.spec.extra_hands for j in self.active_jokers)
         hands += config.get("hands", 0)
         # Blue stake and up start a round with one discard fewer.
         discards = BASE_DISCARDS - (1 if self.stake >= 5 else 0)
         discards += sum(v.extra_discards for v in self.vouchers)
-        discards += sum(j.spec.extra_discards for j in self.jokers)
+        discards += sum(j.spec.extra_discards for j in self.active_jokers)
         discards += config.get("discards", 0)
         boss = self.boss
         if boss is not None:
