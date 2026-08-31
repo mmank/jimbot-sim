@@ -16,6 +16,7 @@ from .cards import Card, Edition, Enhancement, Rank, Seal, Suit
 # imports both.
 from .consumables import ConsumableKind
 from .effects import ScoreContext
+from .blinds import BlindKind
 from .hands import LEVEL_GAIN, HandType
 from . import shop_pool
 
@@ -48,6 +49,7 @@ class JokerSpec:
     text: str
     cost: int = 0
     init_counter: float = 0.0
+    init_secondary: float = 0.0
     update: UpdateHook | None = None
     # When `update` runs relative to the hand it is part of. The game is not
     # consistent about this and the difference is visible on the very first
@@ -76,6 +78,14 @@ class JokerSpec:
     on_reroll: RoundHook | None = None         # Flash Card
     on_pack_skip: RoundHook | None = None      # Red Card
     on_pack_open: RoundHook | None = None      # Hallucination
+    # Cards leaving the deck, whatever took them: a shattered glass card, a
+    # Hanged Man, an Immolate. Canio and Glass Joker both feed on it.
+    on_cards_destroyed: object = None          # Canio
+    # Narrower than the above on purpose: only glass cards that shattered
+    # while scoring, which is the game's own separate list.
+    on_glass_shattered: object = None          # Glass Joker
+    # Leaving the shop, which is Perkeo's moment.
+    on_shop_end: RoundHook | None = None       # Perkeo
     rerolls_a_hand: bool = False               # To Do List
     before_hand: object = None                 # DNA, Sixth Sense
     after_hand: IndepHook | None = None        # Superposition, Séance
@@ -128,12 +138,17 @@ class JokerInstance:
     # Jokers that count hands measure from when they were acquired, not from
     # the start of the run -- the game stores this as hands_played_at_create.
     hands_at_create: int = 0
+    # A second counter for the jokers that keep two numbers -- Yorick's
+    # countdown to its next X1, Invisible Joker's rounds held.
+    secondary: float = 0.0
     # Egg grows this on its own; Gift Card grows every joker's.
     extra_sell_value: float = 0.0
 
     def __post_init__(self) -> None:
         if self.counter == 0.0:
             self.counter = self.spec.init_counter
+        if self.secondary == 0.0:
+            self.secondary = self.spec.init_secondary
 
     @property
     def name(self) -> str:
@@ -575,18 +590,53 @@ register("Triboulet", Rarity.LEGENDARY, "Played Kings and Queens each give X2 Mu
          scored=lambda j, c, ctx: ctx.times_mult(2.0, j.name)
          if c.rank in (Rank.KING, Rank.QUEEN) and not c.is_stone else None)
 
+def _canio(j: JokerInstance, cards: list, game: "GameState") -> None:
+    j.counter += sum(1 for c in cards if c.rank in (Rank.JACK, Rank.QUEEN,
+                                                    Rank.KING))
+
+
 register("Canio", Rarity.LEGENDARY, "X1 Mult, gains X1 Mult per face card destroyed",
-         init_counter=1.0,
+         init_counter=1.0, on_cards_destroyed=_canio,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 
+def _yorick(j: JokerInstance, cards: list, game: "GameState") -> None:
+    """X1 for every twenty-three cards discarded, counted down not up.
+
+    The game keeps yorick_discards ticking towards one and resets it when it
+    gets there, which is why the counter is stored on the joker rather than
+    derived from a running total: two Yoricks are on their own schedules.
+    """
+    for _ in cards:
+        if j.secondary <= 1:
+            j.secondary = 23
+            j.counter += 1.0
+        else:
+            j.secondary -= 1
+
+
 register("Yorick", Rarity.LEGENDARY, "X1 Mult, gains X1 Mult per 23 cards discarded",
-         init_counter=1.0,
+         init_counter=1.0, init_secondary=23.0, discarded=_yorick,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 
 register("Chicot", Rarity.LEGENDARY, "Disables the effect of every Boss Blind")
 
+def _perkeo(j: JokerInstance, game: "GameState") -> None:
+    """A Negative copy of one consumable held, as the shop closes.
+
+    Negative, so it does not need a slot -- which is the whole point of the
+    joker and the reason it is worth a legendary. The copy is drawn from what
+    is actually in the slots, so an empty row gets nothing.
+    """
+    if not game.consumables:
+        return
+    chosen = game.rng.random_element(list(game.consumables), "perkeo")
+    game.consumables.append(chosen)
+    game.log("Perkeo: a negative %s" % chosen.name)
+
+
 register("Perkeo", Rarity.LEGENDARY,
-         "Creates a Negative copy of a random consumable at the end of the shop")
+         "Creates a Negative copy of a random consumable at the end of the shop",
+         on_shop_end=_perkeo)
 
 
 def by_rarity(rarity: Rarity) -> list[JokerSpec]:
@@ -754,8 +804,23 @@ register("Campfire", Rarity.RARE,
          "Gains X0.25 Mult per card sold, resets on a defeated Boss Blind",
          cost=9, init_counter=1.0,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+def _glass_joker(j: JokerInstance, cards: list, game: "GameState") -> None:
+    """X0.75 for each glass card that *shattered*.
+
+    Not each glass card destroyed. The game keeps two lists when a hand
+    finishes scoring: `removed`, which is every playing card destroyed and is
+    what Canio feeds on, and `glass_shattered`, which is the subset carrying
+    `.shattered`. That flag is set in exactly one place -- a Glass Card in the
+    scoring hand, undebuffed, whose one-in-four came up. A glass card taken by
+    a Hanged Man is marked `destroyed` instead and Glass Joker gets nothing
+    for it.
+    """
+    j.counter += 0.75 * len(cards)
+
+
 register("Glass Joker", Rarity.UNCOMMON,
-         "Gains X0.75 Mult per Glass card destroyed", enhancement_gate="m_glass", cost=6, init_counter=1.0,
+         "Gains X0.75 Mult per Glass card destroyed", enhancement_gate="m_glass",
+         cost=6, init_counter=1.0, on_glass_shattered=_glass_joker,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 register("Lucky Cat", Rarity.UNCOMMON,
          "Gains X0.25 Mult each time a Lucky card triggers", enhancement_gate="m_lucky", cost=6,
@@ -835,9 +900,15 @@ register("Obelisk", Rarity.RARE,
          "most played poker hand", cost=8, init_counter=1.0,
          update=_obelisk_update, update_before_scoring=True,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+def _hit_the_road(j: JokerInstance, cards: list, game: "GameState") -> None:
+    """X0.5 for every Jack discarded. A debuffed Jack does not count."""
+    j.counter += 0.5 * sum(1 for c in cards
+                           if c.rank is Rank.JACK and not c.debuffed)
+
+
 register("Hit the Road", Rarity.RARE,
          "Gains X0.5 Mult for every Jack discarded this round", cost=8,
-         init_counter=1.0,
+         init_counter=1.0, discarded=_hit_the_road,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 
 
@@ -971,9 +1042,26 @@ register("Red Card", Rarity.COMMON,
          "Gains +3 Mult when any Booster Pack is skipped", cost=5,
          on_pack_skip=_red_card,
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
+def _madness(j: JokerInstance, game: "GameState") -> None:
+    """Gain X0.5 and eat a joker -- but not on a Boss Blind.
+
+    `not context.blind.boss`, so it feeds on the Small and Big and goes quiet
+    for the one that matters. The joker it takes is drawn from the ones that
+    are neither itself nor eternal. Nothing was growing it and nothing was
+    eating, so it sat at X1 while its own drawback never arrived.
+    """
+    if game.blind is not None and game.blind.kind is BlindKind.BOSS:
+        return
+    j.counter += 0.5
+    prey = [o for o in game.jokers if o is not j and not o.eternal]
+    if prey:
+        game.destroy_joker(game.rng.random_element(prey, "madness"), j.name)
+
+
 register("Madness", Rarity.UNCOMMON,
          "Gains X0.5 Mult when a Small or Big Blind is selected, and destroys "
          "a random Joker", cost=7, init_counter=1.0,
+         on_blind_select=_madness,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 
 
@@ -1017,9 +1105,14 @@ register("Turtle Bean", Rarity.UNCOMMON,
          "+5 hand size, reduced by 1 every round", cost=6, init_counter=5.0,
          hand_size_from_counter=True,
          round_end=lambda j, g: _decay(j, -1, g))
+def _burglar(j: JokerInstance, game: "GameState") -> None:
+    """Three hands for every discard you had. The losing half was missing."""
+    game.discards_left = 0
+
+
 register("Burglar", Rarity.UNCOMMON,
          "When Blind is selected, gain +3 Hands and lose all discards",
-         cost=6, extra_hands=3)
+         cost=6, extra_hands=3, on_blind_select=_burglar)
 
 
 # -- money at the end of a round --------------------------------------------
@@ -1213,7 +1306,9 @@ register("DNA", Rarity.RARE,
          "to the deck and draw it to hand", cost=8, before_hand=_dna)
 def _trading_card(j: JokerInstance, cards: list, game: "GameState") -> None:
     if len(cards) == 1:
-        game.remove_card(cards[0])
+        # The other place the shatter flag is set before the jokers look.
+        game.remove_card(cards[0],
+                         shattered=cards[0].enhancement is Enhancement.GLASS)
         game.add_money(3, "Trading Card")
 
 

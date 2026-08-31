@@ -10,7 +10,7 @@ So the jokers that carry no behaviour are listed here by name. Two kinds:
 
   read elsewhere   Four Fingers and Shortcut are read by the hand evaluator,
                    Splash, Smeared Joker, Pareidolia and Oops! All 6s by the
-                   run, Chicot by the boss lookup, Perkeo by the shop. Having
+                   run and Chicot by the boss lookup. Having
                    no hook is correct for these.
 
   not yet built    fifteen that create cards or edit the deck. Their triggers
@@ -31,6 +31,7 @@ from balatro.jokers import REGISTRY
 HOOKS = ("update", "scored", "held", "independent", "round_end", "discarded",
          "retrigger_scored", "retrigger_held", "copier",
          "on_blind_select", "on_round_start", "on_sell", "on_reroll", "on_pack_skip", "on_pack_open",
+         "on_cards_destroyed", "on_glass_shattered", "on_shop_end",
          "round_money",
          "before_hand", "after_hand", "on_first_discard")
 DECLARATIONS = ("hand_size", "extra_hands", "extra_discards", "free_rerolls",
@@ -44,7 +45,6 @@ READ_ELSEWHERE = {
     "Four Fingers", "Shortcut",          # hands.evaluate
     "Splash", "Smeared Joker", "Pareidolia", "Oops! All 6s",   # GameState
     "Chicot",                            # GameState.boss
-    "Perkeo",                            # shop, on leaving
 }
 
 # Registered, triggers recorded, effect not yet built. Empty, and worth
@@ -86,7 +86,7 @@ def test_the_hook_list_matches_the_spec():
     callable_fields = {
         f.name for f in dataclasses.fields(JokerSpec)
         if f.name not in {"name", "rarity", "text", "cost", "init_counter",
-                          "update_before_scoring"}
+                          "init_secondary", "update_before_scoring"}
         and f.name not in DECLARATIONS}
     assert callable_fields == set(HOOKS), (
         "JokerSpec and HOOKS disagree: %s"

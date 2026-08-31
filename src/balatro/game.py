@@ -370,10 +370,23 @@ class GameState:
                     0, self.shop.free_rerolls - joker.spec.free_rerolls)
             self.log(f"{joker.name} destroyed{f' ({reason})' if reason else ''}")
 
-    def remove_card(self, card: Card) -> None:
+    def remove_card(self, card: Card, shattered: bool = False) -> None:
+        """Take a card out of the run, and tell what feeds on that.
+
+        Every destruction comes through here -- a glass card shattering, a
+        Hanged Man, an Immolate, a Familiar clearing space -- so this is the
+        one place Canio and Glass Joker need to be told, the same way
+        destroy_joker is the one place a joker can leave.
+
+        `shattered` is not "was it a glass card". See note_cards_destroyed.
+        """
+        gone = False
         for pile in (self.full_deck, self.draw_pile, self.hand, self.discard_pile):
             if card in pile:
                 pile.remove(card)
+                gone = True
+        if gone:
+            self.note_cards_destroyed([card], [card] if shattered else [])
 
     def add_card(self, card: Card) -> None:
         # CardArea:emplace puts a card at the *front* of a deck, which is its
@@ -411,6 +424,36 @@ class GameState:
         """
         card.enhancement = enhancement
         card.played_this_ante = False
+
+    def note_cards_destroyed(self, cards: list, shattered: list = ()) -> None:
+        """Tell the jokers that feed on cards leaving the deck.
+
+        Canio counts the face cards among `cards`, whatever destroyed them.
+        Glass Joker counts `shattered`, which is narrower than "the glass
+        cards among them" in a way that is worth spelling out, because it
+        decides real money and it is not what the card text suggests.
+
+        The game marks a destroyed Glass Card `shattered` and everything else
+        `destroyed`, then hands the jokers the list. But the two are not
+        written at the same moment. Scoring and discarding set the flag inline
+        and notify straight after, so the joker sees it. The tarots that
+        destroy -- Hanged Man, Familiar, Grim, Incantation, Immolate -- queue
+        the shatter as an animation event and notify *first*, so the flag is
+        still unset when Glass Joker looks, and it is paid nothing.
+
+        That is an accident of animation order rather than a rule, but it is
+        the behaviour, and it is why The Hanged Man has a second, separate
+        handler of its own (see _hanged_man) while Familiar and the rest have
+        none. Verified against the engine: a Familiar eating a glass card
+        moves Glass Joker by X0.00 and Canio, if it was a face, by X1.00.
+        """
+        if not cards:
+            return
+        for joker in list(self.jokers):
+            if joker.spec.on_cards_destroyed is not None:
+                joker.spec.on_cards_destroyed(joker, list(cards), self)
+            if shattered and joker.spec.on_glass_shattered is not None:
+                joker.spec.on_glass_shattered(joker, list(shattered), self)
 
     def note_card_created(self, card: Card) -> None:
         """Tell the jokers that count cards added that one has been.
@@ -1003,13 +1046,19 @@ class GameState:
         self.chips_scored = 0
         self.discards_used = 0
         self.hands_played_this_round = set()
-        # Selecting the blind is its own moment in the game, before any card
-        # is dealt: Marble Joker's Stone card is in the deck for the first
-        # draw, and Riff-Raff's Jokers are there for the first hand.
+        # The counters first, then the jokers that react to the blind being
+        # taken -- the game's order, and it matters: Burglar's whole drawback
+        # is ease_discard(-current_round.discards_left), which needs a number
+        # to take away. Setting the allowance afterwards handed the discards
+        # straight back.
+        self.hands_left, self.discards_left = self._round_allowance()
+
+        # Selecting the blind is its own moment, before any card is dealt:
+        # Marble Joker's Stone card is in the deck for the first draw, and
+        # Riff-Raff's Jokers are there for the first hand.
         for joker in list(self.jokers):
             if joker.spec.on_blind_select is not None:
                 joker.spec.on_blind_select(joker, self)
-        self.hands_left, self.discards_left = self._round_allowance()
 
         boss = self.boss
         if boss is not None and boss.shuffles_jokers and len(self.jokers) > 1:
@@ -1324,7 +1373,9 @@ class GameState:
             card.played_this_ante = True
 
         for card in shattered_glass(self, result.scoring):
-            self.remove_card(card)
+            # Scoring sets the flag inline, before the jokers are told, so
+            # this is one of the two places Glass Joker is paid.
+            self.remove_card(card, shattered=True)
             self.log(f"{card} shattered")
 
         for card in played:
@@ -1373,6 +1424,15 @@ class GameState:
             if card.seal is Seal.PURPLE:
                 self.add_consumables(
                     self.random_consumables(ConsumableKind.TAROT, 1, "8ba"))
+            # A joker may have eaten the card on its way out -- Trading Card
+            # destroys a lone first discard -- and a destroyed card is not
+            # discarded. The game splits exactly here: the branch that removes
+            # it never reaches the draw_card into G.discard, so the card is
+            # gone rather than in the pile, and it will not come round again
+            # when the deck comes back. Moving it anyway raised ValueError on
+            # a hand a Trading Card had already emptied.
+            if card not in self.hand:
+                continue
             self.hand.remove(card)
             self.discard_pile.append(card)
         self._draw_to_hand_size()
@@ -1836,6 +1896,9 @@ class GameState:
         self.discards_left += voucher.extra_discards
 
     def _leave_shop(self) -> None:
+        for joker in list(self.jokers):
+            if joker.spec.on_shop_end is not None:
+                joker.spec.on_shop_end(joker, self)
         # The blind index and the ante moved on at cash-out; leaving the shop
         # only chooses which blind is now on offer.
         self.shop = None

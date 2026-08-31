@@ -113,6 +113,20 @@ def _strength(game: "GameState", cards: list[Card]) -> None:
 
 
 def _hanged_man(game: "GameState", cards: list[Card]) -> None:
+    """Destroy the selected cards, paying Glass Joker by a side door.
+
+    Every other tarot that destroys leaves Glass Joker with nothing, because
+    the shatter is queued behind the joker check -- see
+    GameState.note_cards_destroyed. The Hanged Man is the one the game
+    patched around, with a second handler that fires on the consumable being
+    used and counts the selected Glass Cards directly, so it pays whether or
+    not the flag has caught up.
+    """
+    glass = [c for c in cards if c.enhancement is Enhancement.GLASS]
+    if glass:
+        for joker in list(game.jokers):
+            if joker.spec.on_glass_shattered is not None:
+                joker.spec.on_glass_shattered(joker, list(glass), game)
     for card in cards:
         game.remove_card(card)
 
