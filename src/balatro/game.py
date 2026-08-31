@@ -458,7 +458,7 @@ class GameState:
         """
         assert self.shop is not None
         slot = self.shop.slots.pop(index)
-        self.add_money(-slot.price, f"bought {slot.label}")
+        self.add_money(-self.slot_price(slot), f"bought {slot.label}")
         spec = slot.consumable
         if spec is None:                     # a joker: buy-and-use is a buy
             if slot.joker is not None:
@@ -1342,7 +1342,8 @@ class GameState:
             return ShopSlot("joker", price, joker=joker)
         if kind in ("Tarot", "Planet", "Spectral"):
             spec = cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]]
-            return ShopSlot("consumable", self.price(spec.cost), consumable=spec)
+            return ShopSlot("consumable", self.price(spec.cost),
+                            consumable=spec)
         # A playing card, which only appears once Magic Trick or Illusion has
         # raised the playing card rate. This used to hand back an arbitrary
         # Tarot as a placeholder, so a shop that offered a card offered the
@@ -1417,7 +1418,7 @@ class GameState:
                 continue
             self.tags.remove(tag)
             slot.joker.edition = edition
-            slot.price = 0
+            slot.couponed = True
             self.log(f"{tag.value}: {slot.joker.name} is {edition.value}, free")
             break
         return slot
@@ -1434,9 +1435,7 @@ class GameState:
             self.tags.remove(Tag.COUPON)
             self.shop_free = True
             self.log("Coupon Tag: the shop is free")
-        if self.shop_free:
-            for slot in shop.slots:
-                slot.price = 0
+
 
     def _open_shop(self) -> None:
         shop = Shop()
@@ -1530,6 +1529,23 @@ class GameState:
         # are modelled yet, and they stay in self.tags rather than being
         # silently dropped.
         return
+
+    def slot_price(self, slot: ShopSlot) -> int:
+        """What a shop slot costs right now.
+
+        The game recomputes a card's cost whenever anything that touches it
+        changes -- set_cost runs over every card in G.I.CARD -- so a price is
+        not fixed when the shop is stocked. Buy an Astronomer and the Planet
+        sitting beside it becomes free; take a Coupon Tag and the whole shop
+        does. Pricing at stocking time meant the run paid the old price.
+        """
+        if self.shop_free or slot.couponed:
+            return 0
+        if (slot.consumable is not None
+                and slot.consumable.kind is ConsumableKind.PLANET
+                and any(j.spec.free_planets for j in self.jokers)):
+            return 0
+        return slot.price
 
     def _redeem_voucher(self, voucher: Voucher) -> None:
         """What redeeming does beyond the fields read off self.vouchers.
@@ -1710,7 +1726,7 @@ class GameState:
             assert self.shop is not None
             actions = [Action(ActionType.LEAVE_SHOP)]
             for i, slot in enumerate(self.shop.slots):
-                if slot.price > self.money:
+                if self.slot_price(slot) > self.money:
                     continue
                 if slot.kind == "joker" and len(self.jokers) >= self.joker_slots:
                     continue
@@ -1862,7 +1878,7 @@ class GameState:
                 if not 0 <= index < len(shop.slots):
                     return False
                 slot = shop.slots[index]
-                if slot.price > self.money:
+                if self.slot_price(slot) > self.money:
                     return False
                 if slot.kind == "joker":
                     return len(self.jokers) < self.joker_slots
@@ -1972,7 +1988,10 @@ class GameState:
         elif t is ActionType.BUY_PACK:
             assert self.shop is not None
             pack = self.shop.packs.pop(action.index)
-            cost = 0 if self.shop_free else self.price(pack.cost)
+            free = self.shop_free or (
+                pack.kind is PackKind.CELESTIAL
+                and any(j.spec.free_planets for j in self.jokers))
+            cost = 0 if free else self.price(pack.cost)
             self.add_money(-cost, f"bought {pack.name}")
             self._open_pack(pack)
         elif t is ActionType.PICK_PACK:
@@ -1995,7 +2014,7 @@ class GameState:
     def _buy(self, index: int) -> None:
         assert self.shop is not None
         slot = self.shop.slots.pop(index)
-        self.add_money(-slot.price, f"bought {slot.label}")
+        self.add_money(-self.slot_price(slot), f"bought {slot.label}")
         if slot.joker is not None:
             self.gain_joker(slot.joker)
         elif slot.consumable is not None:

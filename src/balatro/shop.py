@@ -154,6 +154,9 @@ class ShopSlot:
 
     kind: str  # "joker" | "consumable" | "card"
     price: int
+    # An edition tag or the Coupon Tag marks a card couponed, which is the
+    # game's way of saying "this one is free" -- set_cost zeroes it.
+    couponed: bool = False
     joker: JokerInstance | None = None
     consumable: ConsumableSpec | None = None
     card: Card | None = None
