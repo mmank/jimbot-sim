@@ -117,6 +117,11 @@ class Tag(Enum):
     BUFFOON = "Buffoon Tag"
     ETHEREAL = "Ethereal Tag"
     STANDARD = "Standard Tag"
+    FOIL = "Foil Tag"
+    HOLOGRAPHIC = "Holographic Tag"
+    POLYCHROME = "Polychrome Tag"
+    NEGATIVE = "Negative Tag"
+    COUPON = "Coupon Tag"
     INVESTMENT = "Investment Tag"
     ECONOMY = "Economy Tag"
     JUGGLE = "Juggle Tag"
@@ -138,6 +143,11 @@ TAG_BY_KEY = {
     "tag_buffoon": Tag.BUFFOON,
     "tag_ethereal": Tag.ETHEREAL,
     "tag_standard": Tag.STANDARD,
+    "tag_foil": Tag.FOIL,
+    "tag_holo": Tag.HOLOGRAPHIC,
+    "tag_polychrome": Tag.POLYCHROME,
+    "tag_negative": Tag.NEGATIVE,
+    "tag_coupon": Tag.COUPON,
     "tag_investment": Tag.INVESTMENT,
     "tag_economy": Tag.ECONOMY,
     "tag_juggle": Tag.JUGGLE,
@@ -238,6 +248,11 @@ class GameState:
     first_shop_buffoon: bool = False
     # The voucher this round's shop will offer, drawn when the round starts.
     round_voucher: str = ""
+    # Whether the hand on screen was dealt by a pack rather than by a round,
+    # which decides whether closing the pack takes it away again.
+    _pack_dealt_hand: bool = False
+    # G.GAME.shop_free -- the Coupon Tag, which lasts for the one shop.
+    shop_free: bool = False
     pack_options: list = field(default_factory=list)
     pack_picks_left: int = 0
 
@@ -964,6 +979,9 @@ class GameState:
         # scored, before the shop opens.
         self.chips_scored = 0
         self.hands_left, self.discards_left = self._round_allowance()
+        # Cleared as the shop opens, before any tag runs: the Coupon Tag pays
+        # for one shop, not for every shop after it.
+        self.shop_free = False
 
         # The blind stays cleared through the shop -- the engine reports no
         # blind and no target until the next one is chosen, so putting it back
@@ -1038,11 +1056,52 @@ class GameState:
                 rates["Base"] = voucher.playing_card_rate
         return rates
 
+    # The four edition tags, and what each one puts on a joker. They fire on
+    # a shop card as it is made -- store_joker_modify -- and only on a joker
+    # that has no edition yet.
+    EDITION_TAGS = {Tag.FOIL: Edition.FOIL, Tag.HOLOGRAPHIC: Edition.HOLOGRAPHIC,
+                    Tag.POLYCHROME: Edition.POLYCHROME,
+                    Tag.NEGATIVE: Edition.NEGATIVE}
+
+    def _modify_shop_slot(self, slot: ShopSlot) -> ShopSlot:
+        """Let an edition tag claim a shop card as it is made.
+
+        The tag does two things and the second is easy to miss: it puts the
+        edition on, and it marks the card couponed, which sets its price to
+        nothing. A run that skipped a blind for a Polychrome Tag gets a
+        polychrome joker *free*, and the simulator was charging for it.
+
+        Only the first tag that applies fires, and only on a joker with no
+        edition of its own.
+        """
+        if slot.joker is None or slot.joker.edition is not Edition.NONE:
+            return slot
+        for tag in list(self.tags):
+            edition = self.EDITION_TAGS.get(tag)
+            if edition is None:
+                continue
+            self.tags.remove(tag)
+            slot.joker.edition = edition
+            slot.price = 0
+            self.log(f"{tag.value}: {slot.joker.name} is {edition.value}, free")
+            break
+        return slot
+
     def _fill_shop(self, shop: Shop) -> None:
         shop.slots = []
         for _ in range(self._shop_slot_count()):
             forced = self._forced_shop_slot()
-            shop.slots.append(forced if forced is not None else self._roll_slot())
+            slot = forced if forced is not None else self._roll_slot()
+            shop.slots.append(self._modify_shop_slot(slot))
+        # The Coupon Tag runs last, over the finished shop: everything in it
+        # is free, including the packs.
+        if Tag.COUPON in self.tags:
+            self.tags.remove(Tag.COUPON)
+            self.shop_free = True
+            self.log("Coupon Tag: the shop is free")
+        if self.shop_free:
+            for slot in shop.slots:
+                slot.price = 0
 
     def _open_shop(self) -> None:
         shop = Shop()
@@ -1193,6 +1252,15 @@ class GameState:
             self.pack_options.append(self._pack_card(entry))
         self.phase = Phase.PACK
 
+        # An Arcana or a Spectral pack deals a hand. Its cards need targets --
+        # a Tarot converts cards, Cryptid copies one -- so the game draws to
+        # the hand limit when the pack opens even in the middle of a shop, and
+        # sends the hand back to the deck when it closes. The other three
+        # packs deal nothing.
+        if spec.kind in (PackKind.ARCANA, PackKind.SPECTRAL) and not self.hand:
+            self._pack_dealt_hand = True
+            self._draw_to_hand_size()
+
     def _pack_card(self, entry: dict):
         """One entry from shop_pool.pack_contents, as a simulator object."""
         if entry["set"] == "Joker":
@@ -1213,6 +1281,12 @@ class GameState:
         self.pack = None
         self.pack_options = []
         self.pack_picks_left = 0
+        if self._pack_dealt_hand:
+            # draw_from_hand_to_deck: the hand the pack dealt goes back, and
+            # the shop is looking at an empty hand again.
+            self.draw_pile.extend(self.hand)
+            self.hand = []
+            self._pack_dealt_hand = False
         self.phase = Phase.SHOP if self.shop is not None else Phase.BLIND_SELECT
 
     def _pick_pack(self, index: int, card_indices: tuple[int, ...]) -> None:
@@ -1485,9 +1559,15 @@ class GameState:
             self._start_round()
         elif t is ActionType.SKIP_BLIND:
             tag = self.ante_tags[self.blind_index]
+            key = self.ante_tag_keys[self.blind_index]
             if tag is not None:
                 self.tags.append(tag)
-            self.log(f"Skipped {self.blind.name}, gained {tag.value}")
+            # Sixteen of the twenty-four tags have no effect here yet. The
+            # skip still happens and the tag is still what the game offered --
+            # naming it in the log keeps the gap visible instead of crashing
+            # on it.
+            self.log("Skipped %s, gained %s"
+                     % (self.blind.name, tag.value if tag else key))
             self.blind_index += 1
             self._next_blind()
         elif t is ActionType.PLAY:
@@ -1535,7 +1615,8 @@ class GameState:
         elif t is ActionType.BUY_PACK:
             assert self.shop is not None
             pack = self.shop.packs.pop(action.index)
-            self.add_money(-self.price(pack.cost), f"bought {pack.name}")
+            cost = 0 if self.shop_free else self.price(pack.cost)
+            self.add_money(-cost, f"bought {pack.name}")
             self._open_pack(pack)
         elif t is ActionType.PICK_PACK:
             self._pick_pack(action.index, action.cards)

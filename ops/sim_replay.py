@@ -37,6 +37,35 @@ RANK_CODE = {"Two": "2", "Three": "3", "Four": "4", "Five": "5", "Six": "6",
              "Jack": "Jack", "Queen": "Queen", "King": "King", "Ace": "Ace"}
 
 
+def merge_buy_and_use(actions):
+    """Fold the shop's buy-and-use click back into one action.
+
+    The button routes through buy_from_shop, which calls use_card itself, so
+    recordings made before the recorder knew about it hold two entries for one
+    press: a buy, and a use of a card that by then belongs to no area at all
+    (`area: "?"`). Nothing settles between them, so the second entry's
+    snapshot is the state from before the first -- comparing against it says
+    the money was never spent. The engine replayer does the same fold; see
+    scripts/record_replay.py.
+    """
+    merged, skip = [], False
+    for i, action in enumerate(actions):
+        if skip:
+            skip = False
+            continue
+        params = action.get("params") or {}
+        following = actions[i + 1] if i + 1 < len(actions) else None
+        pair = (action.get("action") == "buy_from_shop" and following
+                and following.get("action") == "use_card"
+                and (following.get("params") or {}).get("area") == "?"
+                and (following.get("params") or {}).get("key") == params.get("key"))
+        if pair:
+            action = dict(action, params=dict(params, buy_and_use=1))
+            skip = True
+        merged.append(action)
+    return merged
+
+
 def sim_view(game):
     """What the recording's own fingerprint holds, in the same vocabulary."""
     return {
@@ -284,7 +313,7 @@ def main() -> None:
     args = parser.parse_args()
 
     payload = json.loads(open(args.recording).read())
-    actions = payload["actions"]
+    actions = merge_buy_and_use(payload["actions"])
     game = GameState(seed=payload["seed"], deck=payload["deck"])
     if payload.get("money") is not None:
         game.money = payload["money"]

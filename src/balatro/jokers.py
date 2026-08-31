@@ -117,9 +117,22 @@ class JokerInstance:
     def name(self) -> str:
         return self.spec.name
 
+    # What an edition adds to a card's price, and so to half of it. From
+    # Card:set_cost, where the same numbers serve buying and selling.
+    _EDITION_VALUE = {Edition.NONE: 0, Edition.FOIL: 2, Edition.HOLOGRAPHIC: 3,
+                      Edition.POLYCHROME: 5, Edition.NEGATIVE: 5}
+
     @property
     def sell_value(self) -> int:
-        return max(1, self.spec.cost // 2) + int(self.extra_sell_value)
+        """Half the price, and the price includes the edition.
+
+        Ignoring the edition made a polychrome joker sell for what a plain one
+        sells for. It is not a rounding difference: a Hex turns a joker
+        polychrome, which is five dollars on its price and two on its sell
+        value, and Temperance pays out the sell value of every joker held.
+        """
+        cost = self.spec.cost + self._EDITION_VALUE[self.edition]
+        return max(1, cost // 2) + int(self.extra_sell_value)
 
     def __repr__(self) -> str:
         tag = "" if self.edition is Edition.NONE else f"[{self.edition.value}]"
