@@ -43,6 +43,40 @@ class ConsumableSpec:
         return low <= n_selected <= high
 
 
+@dataclass
+class ConsumableInstance:
+    """One consumable actually held, rather than the kind of thing it is.
+
+    The registry entry is a centre -- what a Death is. This is a card: what
+    *this* Death is, which for a consumable means its edition and nothing
+    else. Perkeo is why the difference has to exist. Its copy is Negative,
+    and Card:add_to_deck raises G.consumeables' card limit for a negative
+    consumable exactly as it raises the joker limit for a negative joker, so
+    the copy costs no slot. Holding the row as shared registry singletons
+    left nowhere to record that, and no way to tell which of two Fools was
+    the free one when a Fool was later used.
+
+    Everything the spec answers is forwarded, so `held.name`, `held.targets`
+    and `held.accepts(n)` read the same as they always did.
+    """
+
+    spec: ConsumableSpec
+    edition: Edition = Edition.NONE
+
+    def __getattr__(self, name: str):
+        # Only reached for names the instance itself does not define. The
+        # guard matters during copy and unpickle, when spec is not set yet
+        # and the delegation would recurse.
+        if name == "spec":
+            raise AttributeError(name)
+        return getattr(self.spec, name)
+
+    def __repr__(self) -> str:
+        if self.edition is Edition.NONE:
+            return "<%s>" % self.spec.name
+        return "<%s %s>" % (self.edition.value, self.spec.name)
+
+
 REGISTRY: dict[str, ConsumableSpec] = {}
 
 

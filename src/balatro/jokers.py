@@ -629,11 +629,16 @@ def _perkeo(j: JokerInstance, game: "GameState") -> None:
     Negative, so it does not need a slot -- which is the whole point of the
     joker and the reason it is worth a legendary. The copy is drawn from what
     is actually in the slots, so an empty row gets nothing.
+
+    The edition used to go nowhere, because the row held shared registry
+    entries with no room for one: the copy took a slot like any other card,
+    and a full row got nothing at all.
     """
     if not game.consumables:
         return
     chosen = game.rng.random_element(list(game.consumables), "perkeo")
-    game.consumables.append(chosen)
+    game.consumables.append(
+        game.hold_consumable(chosen.spec, Edition.NEGATIVE))
     game.log("Perkeo: a negative %s" % chosen.name)
 
 

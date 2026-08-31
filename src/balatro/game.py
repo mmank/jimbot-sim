@@ -38,7 +38,7 @@ _RANK_BY_CODE = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR,
                  "A": Rank.ACE}
 _SUIT_BY_CODE = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
                  "S": Suit.SPADES}
-from .consumables import ConsumableKind, ConsumableSpec
+from .consumables import ConsumableInstance, ConsumableKind, ConsumableSpec
 from .hands import (HANDLIST, PLANET_FOR_HAND, SECRET_HANDS, HandLevels,
                     HandType, evaluate)
 from .jokers import EDITION_VALUE, REGISTRY as JOKER_REGISTRY, JokerInstance, Rarity
@@ -216,7 +216,7 @@ class GameState:
     discard_pile: list[Card] = field(default_factory=list)
 
     jokers: list[JokerInstance] = field(default_factory=list)
-    consumables: list[ConsumableSpec] = field(default_factory=list)
+    consumables: list[ConsumableInstance] = field(default_factory=list)
     vouchers: list[Voucher] = field(default_factory=list)
     tags: list[Tag] = field(default_factory=list)
     ante_tags: list = field(default_factory=list)   # skip rewards [small, big]
@@ -511,6 +511,18 @@ class GameState:
             if joker.name == "Hologram":
                 joker.counter += 0.25
 
+    def hold_consumable(self, spec: ConsumableSpec | ConsumableInstance,
+                        edition: Edition = Edition.NONE) -> ConsumableInstance:
+        """Wrap a registry entry as a card the run is actually holding.
+
+        Passing an instance back through is fine and returns it unchanged, so
+        callers that already have one -- Perkeo copying a held card -- do not
+        have to care which they were given.
+        """
+        if isinstance(spec, ConsumableInstance):
+            return spec
+        return ConsumableInstance(spec, edition)
+
     def random_consumables(self, kind: ConsumableKind, count: int,
                            append: str = "") -> list[ConsumableSpec]:
         """Consumables from the game's pool, under the creator's own name.
@@ -551,10 +563,16 @@ class GameState:
             out.append(cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]])
         return out
 
-    def add_consumables(self, specs: list[ConsumableSpec]) -> None:
+    def add_consumables(self, specs: list,
+                        edition: Edition = Edition.NONE) -> None:
+        """Bank registry entries as held cards, as far as the row will take.
+
+        `edition` is for the one thing that makes a copy rather than a card:
+        Perkeo's is Negative, and a Negative one does not use a slot.
+        """
         for spec in specs:
             if len(self.consumables) < self.consumable_slots:
-                self.consumables.append(spec)
+                self.consumables.append(self.hold_consumable(spec, edition))
 
     def add_random_joker(self, source: str = "", rarity: Rarity | None = None,
                          legendary: bool = False, append: str = "") -> None:
@@ -604,8 +622,11 @@ class GameState:
             # `or self.area == G.consumeables`: using it frees the slot it is
             # sitting in, so holding it is always enough. Only a copy taken
             # straight out of a pack can be blocked.
+            # Compared by centre rather than by card, so this answers the
+            # same whether it was handed the registry entry or the held copy.
+            centre = getattr(spec, "spec", spec)
             room = (len(self.consumables) < self.consumable_slots
-                    or spec in self.consumables)
+                    or any(c.spec is centre for c in self.consumables))
             if spec.name != "The Fool":
                 return room
             return (room and bool(self.last_tarot_planet)
@@ -664,9 +685,13 @@ class GameState:
             return
         self.use_consumable(spec, [])
 
-    def use_consumable(self, spec: ConsumableSpec,
+    def use_consumable(self, spec: ConsumableSpec | ConsumableInstance,
                        targets: list[Card] | None = None) -> None:
         """Apply a consumable and remember it if it was a Tarot or a Planet.
+
+        Takes either the registry entry or a held card: everything read here
+        is forwarded by ConsumableInstance, so a pack pick and a slot use go
+        down the same path.
 
         The remembering is what The Fool reads, and it was never written --
         the field existed and nothing ever set it, so The Fool copied nothing
@@ -1010,8 +1035,17 @@ class GameState:
 
     @property
     def consumable_slots(self) -> int:
+        """How many consumables the row holds.
+
+        A Negative one does not take a slot: add_to_deck raises the limit for
+        it and remove_from_deck lowers it again, the same bookkeeping a
+        negative joker gets. Perkeo's whole point is that its copy is free,
+        and without this it was taking a slot like any other card.
+        """
         return (BASE_CONSUMABLE_SLOTS + self.extra_consumable_slots
-                + sum(v.consumable_slots for v in self.vouchers))
+                + sum(v.consumable_slots for v in self.vouchers)
+                + sum(1 for c in self.consumables
+                      if c.edition is Edition.NEGATIVE))
 
     @property
     def hand_size(self) -> int:
@@ -1169,7 +1203,8 @@ class GameState:
         for key in config.get("consumables", ()):
             name = shop_pool.NAME_BY_CONSUMABLE_KEY.get(key)
             if name in cons.REGISTRY:
-                self.consumables.append(cons.REGISTRY[name])
+                self.consumables.append(
+                    self.hold_consumable(cons.REGISTRY[name]))
 
         starting = list(config.get("vouchers", ()))
         if config.get("voucher"):
@@ -2802,7 +2837,7 @@ class GameState:
         if slot.joker is not None:
             self.gain_joker(slot.joker)
         elif slot.consumable is not None:
-            self.consumables.append(slot.consumable)
+            self.consumables.append(self.hold_consumable(slot.consumable))
         elif slot.card is not None:
             self.add_card(slot.card)
 

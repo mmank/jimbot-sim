@@ -98,9 +98,9 @@ def test_the_joker_makers_need_a_free_slot(name):
 def test_the_consumable_makers_may_use_their_own_slot(name):
     """`or self.area == G.consumeables` -- using it frees the slot it sits in."""
     game = _run()
-    game.consumables.append(CONSUMABLES[name])
+    game.consumables.append(game.hold_consumable(CONSUMABLES[name]))
     while len(game.consumables) < game.consumable_slots:
-        game.consumables.append(CONSUMABLES["The Fool"])
+        game.consumables.append(game.hold_consumable(CONSUMABLES["The Fool"]))
     assert _can(game, name)
 
 
@@ -209,7 +209,7 @@ def test_the_legal_action_list_agrees_with_the_gate():
     game.hand[:] = []
     game._open_shop()
     game.phase = Phase.SHOP
-    game.consumables[:] = [CONSUMABLES[n] for n in
+    game.consumables[:] = [game.hold_consumable(CONSUMABLES[n]) for n in
                            ("The Magician", "Judgement", "Black Hole")]
     for action in game.legal_actions():
         assert game.is_legal(action), action

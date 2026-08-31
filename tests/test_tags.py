@@ -434,31 +434,56 @@ def test_the_anaglyph_negative_loop_compounds():
         "tags with no joker to mark should wait, not evaporate")
 
 
-@pytest.mark.xfail(reason="held consumables are shared specs with no edition, "
-                          "so a negative one cannot be represented; see the "
-                          "note in this test", strict=True)
-def test_perkeos_copy_should_not_take_a_consumable_slot():
-    """The same mechanism as the negative joker, and not modelled.
+def test_perkeos_copy_does_not_take_a_consumable_slot():
+    """The same mechanism as the negative joker.
 
     add_to_deck raises G.consumeables' card limit for a negative consumable
     exactly as it raises the joker limit for a negative joker, and Perkeo's
-    whole point is that its copy is free. Here the copy is an ordinary entry
-    in a list of shared ConsumableSpec singletons -- there is nowhere to put
-    the edition, and no way to tell which entry is the negative one when a
-    consumable is later used or sold.
-
-    Fixing it means holding consumables as instances rather than specs, which
-    is about fifty call sites and a change to what the replay harness and the
-    observation encoding read. Left deliberately, and failing loudly so it is
-    not mistaken for working.
+    whole point is that its copy is free. The row used to hold shared
+    registry entries, so there was nowhere to record the edition and the copy
+    took a slot like any other card.
     """
+    from balatro.cards import Edition
     from balatro.consumables import REGISTRY as CONSUMABLES
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game.gain_joker(JokerInstance(JOKERS["Perkeo"]))
-    game.consumables.append(CONSUMABLES["The Fool"])
+    game.consumables.append(game.hold_consumable(CONSUMABLES["The Fool"]))
     base = game.consumable_slots
 
     game._leave_shop()
     assert len(game.consumables) == 2
     assert game.consumable_slots == base + 1
+    assert [c.edition for c in game.consumables] == [Edition.NONE,
+                                                     Edition.NEGATIVE]
+
+
+def test_perkeo_copies_into_a_row_that_is_already_full():
+    """A full row is exactly when the copy being free matters."""
+    from balatro.consumables import REGISTRY as CONSUMABLES
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.gain_joker(JokerInstance(JOKERS["Perkeo"]))
+    while len(game.consumables) < game.consumable_slots:
+        game.consumables.append(game.hold_consumable(CONSUMABLES["The Fool"]))
+    held = len(game.consumables)
+
+    game._leave_shop()
+    assert len(game.consumables) == held + 1
+
+
+def test_using_the_negative_copy_gives_the_slot_back():
+    """remove_from_deck lowers the limit again, so the credit is not permanent."""
+    from balatro.consumables import REGISTRY as CONSUMABLES
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.gain_joker(JokerInstance(JOKERS["Perkeo"]))
+    game.consumables.append(game.hold_consumable(CONSUMABLES["The Fool"]))
+    base = game.consumable_slots
+    game._leave_shop()
+    assert game.consumable_slots == base + 1
+
+    negative = next(i for i, c in enumerate(game.consumables)
+                    if c.edition.value == "negative")
+    game.consumables.pop(negative)
+    assert game.consumable_slots == base

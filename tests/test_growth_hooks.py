@@ -159,7 +159,7 @@ def test_yorick_counts_down_to_its_next_multiplier():
 
 def test_perkeo_copies_a_consumable_when_the_shop_closes():
     game = _run("Perkeo")
-    game.consumables.append(CONSUMABLES["The Fool"])
+    game.consumables.append(game.hold_consumable(CONSUMABLES["The Fool"]))
     game.phase = game.phase          # leave the shop from wherever we are
     game.shop = None
     game._leave_shop()
