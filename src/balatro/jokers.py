@@ -99,6 +99,12 @@ class JokerSpec:
     disables_boss_on_sell: bool = False   # Luchador
 
 
+# What an edition adds to a card's price, and so to half of it. From
+# Card:set_cost, where the same numbers serve buying and selling.
+EDITION_VALUE = {Edition.NONE: 0, Edition.FOIL: 2, Edition.HOLOGRAPHIC: 3,
+                 Edition.POLYCHROME: 5, Edition.NEGATIVE: 5}
+
+
 @dataclass
 class JokerInstance:
     spec: JokerSpec
@@ -125,11 +131,6 @@ class JokerInstance:
     def name(self) -> str:
         return self.spec.name
 
-    # What an edition adds to a card's price, and so to half of it. From
-    # Card:set_cost, where the same numbers serve buying and selling.
-    _EDITION_VALUE = {Edition.NONE: 0, Edition.FOIL: 2, Edition.HOLOGRAPHIC: 3,
-                      Edition.POLYCHROME: 5, Edition.NEGATIVE: 5}
-
     @property
     def sell_value(self) -> int:
         """Half the price, and the price includes the edition.
@@ -139,12 +140,12 @@ class JokerInstance:
         polychrome, which is five dollars on its price and two on its sell
         value, and Temperance pays out the sell value of every joker held.
         """
-        # A rental costs a dollar however expensive the joker is, and the
-        # sell value is half of what it costs -- so a rental sells for one,
-        # not for half its face price. set_cost applies the rental override
-        # before it works out sell_cost.
+        # The list price, ignoring the run's discount -- GameState.sell_value
+        # is the one that knows about Liquidation and should be preferred
+        # wherever the run is at hand. A rental costs a dollar however
+        # expensive the joker is, so it sells for one.
         cost = 1 if self.rental else (self.spec.cost
-                                      + self._EDITION_VALUE[self.edition])
+                                      + EDITION_VALUE[self.edition])
         return max(1, cost // 2) + int(self.extra_sell_value)
 
     def __repr__(self) -> str:
@@ -400,7 +401,8 @@ register("Popcorn", Rarity.COMMON, "+20 Mult, -4 Mult per round played",
 register("Swashbuckler", Rarity.COMMON, "+Mult equal to sell value of other Jokers",
          cost=4,
          independent=lambda j, ctx: ctx.add_mult(
-             sum(o.sell_value for o in ctx.game.jokers if o is not j), j.name))
+             sum(ctx.game.sell_value(o) for o in ctx.game.jokers
+                 if o is not j), j.name))
 
 register("Golden Joker", Rarity.COMMON, "Earn $4 at end of round", cost=6,
          round_end=lambda j, g: g.add_money(4, "Golden Joker"))
@@ -777,7 +779,7 @@ def _ceremonial_dagger(j: JokerInstance, game: "GameState") -> None:
     victim = game.jokers[index + 1]
     if victim.eternal:
         return
-    j.counter += victim.sell_value * 2
+    j.counter += game.sell_value(victim) * 2
     game.destroy_joker(victim, "Ceremonial Dagger")
 
 

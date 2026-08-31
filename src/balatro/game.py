@@ -40,7 +40,7 @@ _SUIT_BY_CODE = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
                  "S": Suit.SPADES}
 from .consumables import ConsumableKind, ConsumableSpec
 from .hands import PLANET_FOR_HAND, HandLevels, HandType, evaluate
-from .jokers import REGISTRY as JOKER_REGISTRY, JokerInstance, Rarity
+from .jokers import EDITION_VALUE, REGISTRY as JOKER_REGISTRY, JokerInstance, Rarity
 
 # The game's rarity numbers, which its pools are keyed by.
 _RARITY_INDEX = {Rarity.COMMON: 1, Rarity.UNCOMMON: 2, Rarity.RARE: 3,
@@ -739,6 +739,38 @@ class GameState:
         return max(1, round(base * self.price_multiplier))
 
     @property
+    def discount_percent(self) -> int:
+        """G.GAME.discount_percent -- Clearance Sale and Liquidation."""
+        return max([v.discount_percent for v in self.vouchers] or [0])
+
+    def card_cost(self, base: int, edition: Edition = Edition.NONE) -> int:
+        """What a card costs, exactly as Card:set_cost works it out.
+
+        The half is the game's, not a rounding choice here:
+
+            cost = max(1, floor((base + extra + 0.5) * (100 - discount)/100))
+
+        so a four dollar joker under Liquidation costs two rather than the
+        two-and-a-bit that rounding would give.
+        """
+        extra = EDITION_VALUE.get(edition, 0)
+        scaled = (base + extra + 0.5) * (100 - self.discount_percent) / 100.0
+        return max(1, int(scaled))
+
+    def sell_value(self, joker: JokerInstance) -> int:
+        """Half what the card costs -- and the cost includes the discount.
+
+        A voucher that makes the shop cheaper makes selling worth less too,
+        which is easy to miss because it reads like a pure gain. Reading the
+        joker's list price instead paid a dollar too much for every joker a
+        run with Liquidation sold, and Temperance pays out the sell value of
+        every joker held, so it compounds.
+        """
+        cost = 1 if joker.rental else self.card_cost(joker.spec.cost,
+                                                     joker.edition)
+        return max(1, cost // 2) + int(joker.extra_sell_value)
+
+    @property
     def is_over(self) -> bool:
         return self.phase in (Phase.GAME_OVER, Phase.WON)
 
@@ -1379,11 +1411,11 @@ class GameState:
                 edition_rate=self.edition_rate)]
             joker = JokerInstance(spec, edition=edition)
             price = self._apply_stickers(
-                joker, self.price(shop_mod.joker_price(spec, edition)))
+                joker, self.card_cost(spec.cost, edition))
             return ShopSlot("joker", price, joker=joker)
         if kind in ("Tarot", "Planet", "Spectral"):
             spec = cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]]
-            return ShopSlot("consumable", self.price(spec.cost),
+            return ShopSlot("consumable", self.card_cost(spec.cost),
                             consumable=spec)
         # A playing card, which only appears once Magic Trick or Illusion has
         # raised the playing card rate. This used to hand back an arbitrary
@@ -2002,7 +2034,7 @@ class GameState:
             self.use_consumable(spec, targets)
         elif t is ActionType.SELL_JOKER:
             joker = self.jokers.pop(action.index)
-            self.add_money(joker.sell_value, f"sold {joker.name}")
+            self.add_money(self.sell_value(joker), f"sold {joker.name}")
             self.cards_sold += 1
             # Selling is the whole point of some jokers -- Luchador disables
             # the boss, Diet Cola leaves a tag behind -- so the effect fires

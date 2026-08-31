@@ -130,7 +130,8 @@ def _hermit(game: "GameState", cards: list[Card]) -> None:
 
 
 def _temperance(game: "GameState", cards: list[Card]) -> None:
-    game.add_money(min(50, sum(j.sell_value for j in game.jokers)), "Temperance")
+    game.add_money(min(50, sum(game.sell_value(j) for j in game.jokers)),
+                   "Temperance")
 
 
 _tarot("Strength", "Increase the rank of up to 2 cards", 1, _strength, 2)
