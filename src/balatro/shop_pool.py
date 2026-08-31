@@ -128,8 +128,25 @@ def draw_joker(rng: RunRng, ante: int, owned_enhancements: Iterable[str] = (),
         rarity = roll_rarity(rng, ante, append)
     pool = build_pool(rarity, owned_enhancements, seen_jokers, showman,
                       pool_flags)
-    return _draw(rng, _or_fallback(pool, "Joker"),
-                 "Joker%d%s%d" % (rarity, append, ante))
+    # A legendary draw names a different stream, and the game is explicit
+    # about it in get_current_pool:
+    #
+    #   _pool_key = 'Joker'..rarity..((not _legendary and _append) or '')
+    #   return _pool, _pool_key..(not _legendary and ante or '')
+    #
+    # Both `and` clauses fail when _legendary is true, so the append and the
+    # ante are dropped: The Soul draws from "Joker4", never "Joker4sou8". The
+    # simulator was appending both, which is a real stream with a real
+    # sequence in it -- so it drew a legendary every time, plausibly, and drew
+    # the wrong one. Recording 8 stopped on it at step 190 of 443: Chicot
+    # recorded, Triboulet simulated.
+    #
+    # Keyed on rarity four rather than on a flag because in the game the two
+    # are the same thing. A forced _rarity is a probability there, not an
+    # index, and it is compared against 0.95 and 0.7 -- so passing four makes
+    # a *rare* joker, and four is reachable only through _legendary.
+    key = "Joker4" if rarity == 4 else "Joker%d%s%d" % (rarity, append, ante)
+    return _draw(rng, _or_fallback(pool, "Joker"), key)
 
 
 # --------------------------------------------------------------------------

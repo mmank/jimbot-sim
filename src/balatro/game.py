@@ -436,9 +436,7 @@ class GameState:
             return
         if joker in self.jokers:
             self.jokers.remove(joker)
-            if joker.spec.free_rerolls and self.shop is not None:
-                self.shop.free_rerolls = max(
-                    0, self.shop.free_rerolls - joker.spec.free_rerolls)
+            self._move_joker_counters(joker, arriving=False)
             self.log(f"{joker.name} destroyed{f' ({reason})' if reason else ''}")
 
     def remove_card(self, card: Card, shattered: bool = False) -> None:
@@ -853,8 +851,41 @@ class GameState:
         # standing in gives you a reroll in that shop. Topping up only when
         # the shop opens misses exactly that, which is when anyone would buy
         # it.
-        if joker.spec.free_rerolls and self.shop is not None:
-            self.shop.free_rerolls += joker.spec.free_rerolls
+        self._move_joker_counters(joker, arriving=True)
+
+    def _move_joker_counters(self, joker: JokerInstance,
+                             arriving: bool) -> None:
+        """The run-level counters Card:add_to_deck and remove_from_deck move.
+
+        Both are immediate rather than next-round, which is the whole point: a
+        Chaos the Clown bought in a shop hands over its reroll in that shop,
+        and a Merry Andy hands over its three discards the moment it is
+        bought. The round allowance counts these jokers as well, so leaving
+        them out here did not lose the discards -- it delayed them by a round,
+        which is worse, because it looks right everywhere except the shop you
+        bought it in.
+
+            if self.ability.d_size > 0 then
+                G.GAME.round_resets.discards = ... + self.ability.d_size
+                ease_discard(self.ability.d_size)
+            end
+
+        Recording 8 stopped on exactly that at step 206 of 443: five discards
+        recorded against two simulated, one action after a Merry Andy was
+        bought.
+        """
+        rerolls = joker.spec.free_rerolls
+        if rerolls and self.shop is not None:
+            self.shop.free_rerolls = (
+                self.shop.free_rerolls + rerolls if arriving
+                else max(0, self.shop.free_rerolls - rerolls))
+        # Strictly `> 0`, as the game has it: a negative d_size takes nothing
+        # away on arrival. Clamped on the way down because ease_discard is
+        # `mod = math.max(-G.GAME.current_round.discards_left, mod)`.
+        discards = joker.spec.extra_discards
+        if discards > 0:
+            self.discards_left = (self.discards_left + discards if arriving
+                                  else max(0, self.discards_left - discards))
 
     def add_joker_copy(self, joker: JokerInstance, source: str = "") -> None:
         """A copy of a joker already held, editions and all."""
@@ -2891,9 +2922,7 @@ class GameState:
             self.use_consumable(spec, targets)
         elif t is ActionType.SELL_JOKER:
             joker = self.jokers.pop(action.index)
-            if joker.spec.free_rerolls and self.shop is not None:
-                self.shop.free_rerolls = max(
-                    0, self.shop.free_rerolls - joker.spec.free_rerolls)
+            self._move_joker_counters(joker, arriving=False)
             self.add_money(self.sell_value(joker), f"sold {joker.name}")
             self.note_card_sold()
             # Selling is the whole point of some jokers -- Luchador disables
