@@ -476,9 +476,23 @@ register("Steel Joker", Rarity.UNCOMMON, "X0.2 Mult per Steel card in your deck"
 
 
 def _vampire(j: JokerInstance, ctx: ScoreContext) -> None:
+    """Strip every enhanced card in the scoring hand, before it scores.
+
+    context.before, alongside Midas Mask: the game walks the scoring hand
+    once, up front, and sets each enhanced card back to c_base. So the
+    enhancement it takes never pays out at all -- a mult card eaten by a
+    Vampire gives its owner X0.1 and the hand nothing. Running this after the
+    cards had scored, which is what an ordinary update does, let the
+    enhancement pay first and then be removed, which is worth the whole
+    enhancement every hand.
+
+    Stone counts as enhanced here. The game's test is `center ~= c_base`, and
+    a stone card is not c_base, so a Vampire eats one and hands the card its
+    rank and suit back.
+    """
     gained = 0
     for c in ctx.scoring:
-        if c.enhancement not in (Enhancement.NONE, Enhancement.STONE):
+        if c.enhancement is not Enhancement.NONE:
             ctx.game.set_enhancement(c, Enhancement.NONE)
             gained += 1
     j.counter += 0.1 * gained
@@ -486,7 +500,7 @@ def _vampire(j: JokerInstance, ctx: ScoreContext) -> None:
 
 register("Vampire", Rarity.UNCOMMON,
          "X0.1 Mult per scored enhanced card, removing the enhancement", cost=7,
-         init_counter=1.0, update=_vampire,
+         init_counter=1.0, update=_vampire, update_before_scoring=True,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 
 register("Ramen", Rarity.UNCOMMON, "X2 Mult, -X0.01 per discarded card",
