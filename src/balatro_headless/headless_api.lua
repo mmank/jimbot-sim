@@ -81,6 +81,22 @@ function api.pump(frames)
                     G.SETTINGS.GAMESPEED or 1
     G.SPEEDFACTOR = G.SPEEDFACTOR + math.max(0, math.abs(G.ACC) - 2)
 
+    -- Booster packs deal their cards behind a *layout* check. Card:open
+    -- creates them, and a second event only puts them on the table once
+    -- `G.pack_cards.VT.y < G.ROOM.T.h` -- once the pack has slid into view.
+    -- The position comes from UIBox alignment, which needs a renderer, so
+    -- headless the pack sits below the room forever and the cards are never
+    -- emplaced: the pack opens empty and the run wedges. It only bit packs
+    -- opened from a tag, because those align to the hand on the blind select
+    -- screen rather than in the shop, and that is fifteen units lower.
+    --
+    -- Supplying the one number the game's logic reads is enough. Nothing
+    -- else looks at where the pack is.
+    if G.pack_cards and G.ROOM and G.pack_cards.VT.y >= G.ROOM.T.h then
+      G.pack_cards.T.y = G.ROOM.T.h - 1
+      G.pack_cards.VT.y = G.ROOM.T.h - 1
+    end
+
     G.TIMERS.REAL = G.TIMERS.REAL + DT
     G.TIMERS.TOTAL = G.TIMERS.TOTAL + DT * G.SPEEDFACTOR
     G.E_MANAGER:update(DT)

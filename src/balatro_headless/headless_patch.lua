@@ -109,7 +109,17 @@ function patch.override_ui_functions()
   -- G.blind_select_opts.boss, which is nil headless, so a Boss Tag crashed the
   -- run. Everything that matters is these four lines.
   G.FUNCS.reroll_boss = function()
-    if G.GAME.round_resets.boss_rerolled then return end
+    -- Who may reroll, and how often: nobody without a voucher, once an ante
+    -- with Director's Cut, any number with Retcon. A Boss Tag rerolls free
+    -- and is not subject to any of it. This used to refuse a second reroll
+    -- outright, which made Retcon behave like Director's Cut.
+    if not G.from_boss_tag then
+      local used = G.GAME.used_vouchers or {}
+      local allowed = used.v_retcon
+          or (used.v_directors_cut and not G.GAME.round_resets.boss_rerolled)
+      if not allowed then return end
+      if (G.GAME.dollars - (G.GAME.bankrupt_at or 0)) - 10 < 0 then return end
+    end
     G.GAME.round_resets.boss_rerolled = true
     if not G.from_boss_tag then ease_dollars(-10) end
     G.from_boss_tag = nil
