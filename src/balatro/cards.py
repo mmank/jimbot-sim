@@ -82,6 +82,21 @@ class Seal(Enum):
 _ids = count()
 
 
+def next_sort_id() -> int:
+    """The game's G.sort_id: one counter for everything it makes.
+
+    Card:init does
+
+        G.sort_id = (G.sort_id or 0) + 1
+        self.sort_id = G.sort_id
+
+    and pseudorandom_element sorts a table by sort_id before indexing into
+    it, so a random draw over jokers picks by age and never by where they sit
+    in the row. Shared with the cards because the game shares it.
+    """
+    return next(_ids)
+
+
 # From the game's own card bases. Suits order Diamonds < Clubs < Hearts <
 # Spades, and face_nominal separates the cards that all count as ten chips.
 SUIT_NOMINAL = {Suit.DIAMONDS: 0.01, Suit.CLUBS: 0.02,

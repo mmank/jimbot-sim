@@ -238,6 +238,22 @@ def _judgement(game: "GameState", cards: list[Card]) -> None:
     game.add_random_joker("Judgement", append="jud")
 
 
+def _editionless(game) -> list:
+    """The jokers with no edition, oldest first.
+
+    Order decides the answer: the caller draws from this by index, and the
+    game draws with pseudorandom_element, which sorts by sort_id before
+    indexing. Building it in row order returns the wrong joker as soon as
+    anything has been dragged -- reproducibly, from the right stream, which is
+    what made it invisible.
+
+    Hex shows what that costs: on the Ghost Deck it keeps one joker and
+    destroys the rest, so a single draw decides the run.
+    """
+    return sorted((j for j in game.jokers if j.edition is Edition.NONE),
+                  key=lambda j: j.uid)
+
+
 def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
     """One in four to put an edition on a joker that has none.
 
@@ -247,7 +263,7 @@ def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
     edition uniformly from three, where the game polls the ordinary edition
     bands widened twenty-five times so that something always lands.
     """
-    plain = [j for j in game.jokers if j.edition is Edition.NONE]
+    plain = _editionless(game)
     if not plain:
         return
     if not game.rng.chance("wheel_of_fortune",
@@ -335,7 +351,7 @@ def _ectoplasm(game: "GameState", cards: list[Card]) -> None:
     A run whose jokers all carry an edition cannot use it at all -- see
     GameState.can_use_consumable -- so the empty case here is belt and braces.
     """
-    plain = [j for j in game.jokers if j.edition is Edition.NONE]
+    plain = _editionless(game)
     if plain:
         game.rng.choice("ectoplasm", plain).edition = Edition.NEGATIVE
         game.base_hand_size -= game.ecto_minus
@@ -477,7 +493,7 @@ def _hex(game: "GameState", cards: list[Card]) -> None:
     of them, so a run whose jokers are already editioned loses nothing and
     gains nothing.
     """
-    plain = [j for j in game.jokers if j.edition is Edition.NONE]
+    plain = _editionless(game)
     if not plain:
         return
     chosen = game.rng.choice("hex", plain)

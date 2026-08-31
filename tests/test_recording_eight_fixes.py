@@ -111,3 +111,59 @@ def test_a_joker_with_no_discards_moves_nothing():
     before = game.discards_left
     game.gain_joker(JokerInstance(JOKER_REGISTRY["Joker"]))
     assert game.discards_left == before
+
+
+# ------------------------------------------------------------------
+# which joker a random draw lands on
+# ------------------------------------------------------------------
+
+def test_a_random_joker_draw_goes_by_age_not_by_row_position():
+    """The Wheel of Fortune, Ectoplasm and Hex all pick a joker out of an
+    ordered pool, and the game orders it with pseudorandom_element:
+
+        if keys[1].v.sort_id then
+            table.sort(keys, function (a, b) return a.v.sort_id < b.v.sort_id end)
+
+    sort_id is creation order (Card:init, `G.sort_id = (G.sort_id or 0) + 1`),
+    so the draw depends on how old a joker is and never on where it sits.
+    Drawing from row order returns the wrong joker the moment anything has
+    been dragged -- reproducibly, out of the right stream, which is what kept
+    it hidden.
+    """
+    from balatro.consumables import _editionless
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    first = JokerInstance(JOKER_REGISTRY["Joker"])
+    second = JokerInstance(JOKER_REGISTRY["Misprint"])
+    game.gain_joker(first)
+    game.gain_joker(second)
+    assert first.uid < second.uid, "the row did not stamp ages in order"
+
+    # Dragging the row must not change what a draw sees.
+    game.jokers[:] = [second, first]
+    assert [j.name for j in _editionless(game)] == ["Joker", "Misprint"]
+
+
+def test_the_row_stamps_age_not_the_shop():
+    """A shop builds a joker for every shelf slot and most are never bought,
+    so a JokerInstance on its own has no age yet -- it gets one when it joins
+    the row. Stamping at construction ordered the jokers by which shelf they
+    sat on, which is not the order the game's counter gives them."""
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    shelved = JokerInstance(JOKER_REGISTRY["Joker"])
+    assert shelved.uid == 0, "an unbought joker should not have an age"
+    game.gain_joker(shelved)
+    assert shelved.uid > 0
+
+
+def test_a_copy_is_younger_than_its_original():
+    """Duplication in the game runs Card:init, so the copy takes the next
+    sort_id and sorts after the original. Two jokers at the same age would
+    leave the draw depending on how table.sort breaks ties."""
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    original = JokerInstance(JOKER_REGISTRY["Joker"])
+    game.gain_joker(original)
+    game.add_joker_copy(original)
+    copy = game.jokers[-1]
+    assert copy is not original
+    assert copy.uid > original.uid

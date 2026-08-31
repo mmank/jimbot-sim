@@ -126,6 +126,11 @@ EDITION_VALUE = {Edition.NONE: 0, Edition.FOIL: 2, Edition.HOLOGRAPHIC: 3,
 @dataclass
 class JokerInstance:
     spec: JokerSpec
+    # Age, for the random draws that sort by it -- see cards.next_sort_id.
+    # Stamped by GameState.gain_joker when the joker joins the row, not here:
+    # a shop builds every joker on its shelf and most are never bought, and
+    # what the draws order is the row.
+    uid: int = 0
     edition: Edition = Edition.NONE
     counter: float = 0.0
     eternal: bool = False
