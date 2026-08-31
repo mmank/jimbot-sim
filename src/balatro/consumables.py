@@ -164,7 +164,8 @@ def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
     plain = [j for j in game.jokers if j.edition is Edition.NONE]
     if not plain:
         return
-    if not game.rng.chance("wheel_of_fortune", 1, 4):
+    if not game.rng.chance("wheel_of_fortune",
+                           1 * game.probability_scale(), 4):
         return
     joker = game.rng.random_element(plain, "wheel_of_fortune")
     from .shop_pool import poll_edition

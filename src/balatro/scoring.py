@@ -26,6 +26,22 @@ if TYPE_CHECKING:  # pragma: no cover
     from .game import GameState
 
 GLASS_SHATTER_CHANCE = (1, 4)
+
+
+def _listed(game: "GameState", key: str, numerator: int,
+            denominator: int) -> bool:
+    """A listed probability, scaled by any Oops! All 6s in play.
+
+    The game writes every one of these as
+    `pseudorandom(key) < G.GAME.probabilities.normal / odds`, and Oops! All
+    6s doubles that numerator, so a one in four becomes a one in two. The
+    jokers went through a helper that knew this; the card effects here did
+    not, so a glass card with an Oops! in the row shattered half as often as
+    it should -- and a shattered card leaves the deck, which changes every
+    hand dealt afterwards.
+    """
+    return game.rng.chance(key, numerator * game.probability_scale(),
+                           denominator)
 LUCKY_MULT_CHANCE = (1, 5)
 LUCKY_MONEY_CHANCE = (1, 15)
 
@@ -72,9 +88,9 @@ def _score_card_once(card: Card, ctx: ScoreContext) -> None:
     elif card.enhancement is Enhancement.LUCKY:
         # The game's pool is called lucky_mult, and a pool is identified by
         # its name -- a different name is a different stream of numbers.
-        if game.rng.chance("lucky_mult", *LUCKY_MULT_CHANCE):
+        if _listed(game, "lucky_mult", *LUCKY_MULT_CHANCE):
             ctx.add_mult(20, "lucky card")
-        if game.rng.chance("lucky_money", *LUCKY_MONEY_CHANCE):
+        if _listed(game, "lucky_money", *LUCKY_MONEY_CHANCE):
             ctx.money_gained += 20
 
     _apply_edition(card.edition, ctx, "card")
@@ -167,4 +183,4 @@ def shattered_glass(game: "GameState", scoring: tuple[Card, ...]) -> list[Card]:
     """Glass cards that break after scoring, to be removed from the deck."""
     return [c for c in scoring
             if c.enhancement is Enhancement.GLASS
-            and game.rng.chance("glass", *GLASS_SHATTER_CHANCE)]
+            and _listed(game, "glass", *GLASS_SHATTER_CHANCE)]

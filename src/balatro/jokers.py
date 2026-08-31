@@ -337,6 +337,23 @@ def _bump(j: JokerInstance, amount: float, floor: float | None = None) -> None:
     j.counter = value if floor is None else max(floor, value)
 
 
+def _decay(j: JokerInstance, amount: float, game: "GameState",
+           floor: float = 0.0) -> None:
+    """Spend a joker down, and destroy it when it runs out.
+
+    Popcorn, Ice Cream, Turtle Bean and Ramen do not sit at zero doing
+    nothing -- the game eats them. It checks *before* subtracting, so a
+    Popcorn on four mult with four to lose is gone rather than reduced, and a
+    run with one of these has a joker slot free again on a schedule. Flooring
+    the counter instead, which is what this did, left a dead joker taking up
+    a slot for the rest of the run.
+    """
+    if j.counter + amount <= floor:
+        game.destroy_joker(j, "eaten")
+        return
+    j.counter += amount
+
+
 register("Ride the Bus", Rarity.COMMON,
          "+1 Mult per consecutive hand without a scored face card", cost=6,
          update=_ride_update, update_before_scoring=True,
@@ -356,7 +373,7 @@ register("Runner", Rarity.COMMON, "+15 Chips, gains +15 Chips per Straight playe
 register("Ice Cream", Rarity.COMMON, "+100 Chips, -5 Chips per hand played",
          cost=5, init_counter=100.0,
          independent=lambda j, ctx: ctx.add_chips(j.counter, j.name),
-         update=lambda j, ctx: _bump(j, -5, floor=0.0))
+         update=lambda j, ctx: _decay(j, -5, ctx.game))
 
 register("Square Joker", Rarity.COMMON, "+4 Chips per hand played with exactly 4 cards",
          cost=4,
@@ -372,7 +389,7 @@ register("Supernova", Rarity.COMMON, "+Mult equal to times this hand has been pl
 register("Popcorn", Rarity.COMMON, "+20 Mult, -4 Mult per round played",
          cost=5, init_counter=20.0,
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name),
-         round_end=lambda j, g: _bump(j, -4, floor=0.0))
+         round_end=lambda j, g: _decay(j, -4, g))
 
 register("Swashbuckler", Rarity.COMMON, "+Mult equal to sell value of other Jokers",
          cost=4,
@@ -388,7 +405,7 @@ register("Faceless Joker", Rarity.COMMON, "Earn $5 if 3+ face cards discarded", 
 
 
 def _gros_michel_end(j: JokerInstance, g: "GameState") -> None:
-    if g.rng.chance("gros_michel", 1, 6):
+    if g.rng.chance("gros_michel", 1 * g.probability_scale(), 6):
         g.destroy_joker(j, "Gros Michel went extinct")
 
 
@@ -458,7 +475,7 @@ register("Vampire", Rarity.UNCOMMON,
 
 register("Ramen", Rarity.UNCOMMON, "X2 Mult, -X0.01 per discarded card",
          cost=6, init_counter=2.0,
-         discarded=lambda j, cards, g: _bump(j, -0.01 * len(cards), floor=1.0),
+         discarded=lambda j, cards, g: _decay(j, -0.01 * len(cards), g, 1.0),
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 
 def _loyalty_remaining(j: "JokerInstance", game: "GameState") -> int:
@@ -914,7 +931,7 @@ register("Troubadour", Rarity.UNCOMMON, "+2 hand size, -1 hand each round",
          cost=6, hand_size=2, extra_hands=-1)
 register("Turtle Bean", Rarity.UNCOMMON,
          "+5 hand size, reduced by 1 every round", cost=6, init_counter=5.0,
-         round_end=lambda j, g: _bump(j, -1, floor=0.0))
+         round_end=lambda j, g: _decay(j, -1, g))
 register("Burglar", Rarity.UNCOMMON,
          "When Blind is selected, gain +3 Hands and lose all discards",
          cost=6, extra_hands=3)
