@@ -486,6 +486,18 @@ class GameState:
             self.last_tarot_planet = shop_pool.KEY_BY_CONSUMABLE_NAME.get(
                 spec.name, "")
 
+        # G.GAME.consumeable_usage_total. Both counters were declared on the
+        # run and never written, so Fortune Teller -- "+1 Mult per Tarot used
+        # this run" -- added nothing for a whole run, and Constellation grew
+        # on nothing.
+        if spec.kind is ConsumableKind.TAROT:
+            self.tarots_used += 1
+        elif spec.kind is ConsumableKind.PLANET:
+            self.planets_used += 1
+            for joker in self.jokers:
+                if joker.name == "Constellation":
+                    joker.counter += 0.1
+
     def add_joker_copy(self, joker: JokerInstance, source: str = "") -> None:
         """A copy of a joker already held, editions and all."""
         if len(self.jokers) >= self.joker_slots:
@@ -1007,6 +1019,13 @@ class GameState:
             self.jokers, self.rng = real_jokers, real_rng
 
     def _play(self, indices: tuple[int, ...]) -> None:
+        # Which cards the boss debuffs is decided again every time, not once
+        # when the round began. The game re-evaluates it in Card:update, so a
+        # card the player has just turned into a Diamond is debuffed by The
+        # Window on the very next hand -- and a card turned *out* of Diamonds
+        # is not. Applying it only at the start of the round let a converted
+        # card score through a blind that should have silenced it.
+        self._apply_debuffs()
         played = [self.hand[i] for i in indices]
         held = [c for i, c in enumerate(self.hand) if i not in indices]
         result = self.evaluate_selection(played)
