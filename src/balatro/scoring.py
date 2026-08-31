@@ -262,11 +262,18 @@ def held_triggers(game: "GameState", card: Card) -> int:
     runs the same repetition loop over G.hand in its end-of-round pass. So a
     blue seal under a Mime makes two Planet cards, and a gold card pays six
     dollars rather than three.
+
+    Through effective_specs, so a Blueprint or a Brainstorm copying a Mime
+    retriggers too. Reading each joker's own spec missed that, and missed it
+    quietly: the copier simply had no retrigger to offer, so the count came
+    out one short and everything downstream was merely smaller. Recording 8
+    stopped on it at step 314 -- two gold Kings with red seals, held under a
+    Mime with a Brainstorm copying it, paid $18 here against the game's $24.
     """
     if card.debuffed:
         return 0
     triggers = 1 + (1 if card.seal is Seal.RED else 0)
-    for joker in game.active_jokers:
-        if joker.spec.retrigger_held is not None:
-            triggers += joker.spec.retrigger_held(joker, card, None)
+    for spec, source in effective_specs(game.active_jokers):
+        if spec.retrigger_held is not None:
+            triggers += spec.retrigger_held(source, card, None)
     return triggers

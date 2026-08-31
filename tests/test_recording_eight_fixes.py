@@ -167,3 +167,44 @@ def test_a_copy_is_younger_than_its_original():
     copy = game.jokers[-1]
     assert copy is not original
     assert copy.uid > original.uid
+
+
+# ------------------------------------------------------------------
+# a copier retriggers held cards too
+# ------------------------------------------------------------------
+
+def test_a_brainstorm_copying_a_mime_retriggers_held_cards():
+    """held_triggers read each joker's own spec, so a copier offered no
+    retrigger and the count came out one short. It failed quietly -- nothing
+    raised, the number was merely smaller -- and it is the same count the
+    end-of-round pass uses, so a held gold card paid less and a blue seal made
+    fewer Planets.
+
+    Recording 8 stopped on it: two gold Kings with red seals, held under a
+    Mime with a Brainstorm copying it, paid $18 against the game's $24.
+    """
+    from balatro.cards import Card, Enhancement, Rank, Seal, Suit
+    from balatro.scoring import held_triggers
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    card = Card(Rank.KING, Suit.DIAMONDS, enhancement=Enhancement.GOLD,
+                seal=Seal.RED)
+
+    game.gain_joker(JokerInstance(JOKER_REGISTRY["Mime"]))
+    # base 1 + red seal 1 + Mime 1
+    assert held_triggers(game, card) == 3
+
+    game.gain_joker(JokerInstance(JOKER_REGISTRY["Brainstorm"]))
+    # ...and the Brainstorm copies the leftmost joker, which is the Mime
+    assert held_triggers(game, card) == 4, (
+        "the copier did not retrigger; a gold card here pays $12, not $9")
+
+
+def test_a_copier_with_nothing_to_copy_adds_no_retrigger():
+    from balatro.cards import Card, Rank, Seal, Suit
+    from balatro.scoring import held_triggers
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.gain_joker(JokerInstance(JOKER_REGISTRY["Brainstorm"]))
+    card = Card(Rank.KING, Suit.DIAMONDS, seal=Seal.NONE)
+    assert held_triggers(game, card) == 1
