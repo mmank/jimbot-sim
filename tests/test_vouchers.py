@@ -15,7 +15,16 @@ Two rules run through Card:apply_to_run and it is easy to apply the wrong one:
 
 Telescope, Observatory, Omen Globe, Director's Cut and Retcon carry no field
 at all: the game reads them out of G.GAME.used_vouchers where they are
-needed, and so does the simulator. Blank genuinely does nothing.
+needed, and so does the simulator.
+
+Blank is the one that reads as a mistake and is not. Its card text is
+"Does nothing?", question mark and all, and within a run that is true. It
+still has two jobs. It is Antimatter's in-run prerequisite -- Antimatter is
+the +1 joker slot -- which the requires chain covers. And redeeming it ten
+times across a *profile* is what unlocks Antimatter in the first place,
+counted in voucher_usage rather than in any run. Profile unlocks are outside
+what this simulator models, so that half is out of scope rather than missing;
+see test_every_voucher_either_carries_a_field_or_is_read_by_key.
 """
 
 import pytest
@@ -182,6 +191,10 @@ def test_every_voucher_either_carries_a_field_or_is_read_by_key():
     body = "\n".join(p.read_text(encoding="utf-8")
                      for p in sorted(package.glob("*.py")))
 
+    # Blank is allowed to be here. It does nothing to a run by design, and
+    # its real jobs are elsewhere: gating Antimatter through the requires
+    # chain, and counting toward Antimatter's profile unlock, which this
+    # simulator does not model at all.
     inert = []
     for voucher in VOUCHERS:
         fields = [f.name for f in dataclasses.fields(voucher)
