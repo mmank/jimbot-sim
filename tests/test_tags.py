@@ -1,0 +1,251 @@
+"""The skip tags, audited the way the jokers, consumables and vouchers were.
+
+The roster was already right -- 24 tags, in the game's pool order, with the
+right min_ante and requires -- and the pool drew from all of them. The
+mapping from a drawn key to an effect covered only 17.
+
+That gap is worse than a missing field. The pool still drew the tag, the
+player still gave up a blind for it, and TAG_BY_KEY.get returned None, so the
+reward evaporated with nothing to show it had. Seven tags: Handy, Garbage,
+Speed, Top-up, Orbital, Voucher and D6.
+
+Throwback failed the same way from the other end. It reads blinds_skipped,
+which was declared on the run and never incremented, so the joker sat at X1
+for every run however many blinds were skipped.
+
+Three of the immediate tags read run totals rather than anything about the
+round just skipped, which is easy to get wrong in the plausible direction:
+Handy counts every hand played this run, Garbage every discard left unspent
+at the end of a round, and Speed every blind skipped -- including the one
+being skipped now, since skip_blind counts it before handing the tag over.
+"""
+
+import pytest
+
+from balatro.game import (IMMEDIATE_TAGS, TAG_BY_KEY, Action, ActionType,
+                          GameState, Phase, Tag)
+from balatro.hands import HandType
+from balatro.jokers import REGISTRY as JOKERS, JokerInstance
+from balatro.tag_data import TAG_DATA
+
+
+def _run(*tags):
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.tags.extend(tags)
+    return game
+
+
+# ------------------------------------------------------------------
+# every tag the pool can draw has somewhere to land
+# ------------------------------------------------------------------
+
+def test_every_tag_in_the_pool_maps_to_an_effect():
+    """The pool draws all twenty-four; a key with no entry is a lost reward."""
+    unmapped = [key for key, *_ in TAG_DATA if key not in TAG_BY_KEY]
+    assert not unmapped, "drawn by the pool and dropped on the floor: %s" % unmapped
+
+
+def test_the_mapping_names_no_tag_the_game_does_not_have():
+    keys = {key for key, *_ in TAG_DATA}
+    assert set(TAG_BY_KEY) <= keys
+
+
+# ------------------------------------------------------------------
+# skipping counts
+# ------------------------------------------------------------------
+
+def _skip(game):
+    game._next_blind()
+    game.phase = Phase.BLIND_SELECT
+    game.step(Action(ActionType.SKIP_BLIND))
+
+
+def test_skipping_a_blind_is_counted():
+    """Nothing incremented this, so Throwback read zero all run."""
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    assert game.blinds_skipped == 0
+    _skip(game)
+    assert game.blinds_skipped == 1
+
+
+def test_throwback_scores_more_after_a_skip():
+    """X0.25 a skip, read off the run counter every time it scores.
+
+    The counter was never written, so this joker scored X1 for whole runs.
+    """
+    from balatro.cards import Card, Rank, Suit
+
+    def scored(skips):
+        game = GameState(seed="TESTSEED", deck="Red Deck")
+        game.gain_joker(JokerInstance(JOKERS["Throwback"]))
+        game.blinds_skipped = skips
+        game.hand[:] = [Card(Rank.TWO, Suit.CLUBS)]
+        return game.preview_score((0,))
+
+    assert scored(2) > scored(0)
+    assert scored(4) > scored(2)
+
+    # and the counter the joker reads is the one a real skip moves
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.gain_joker(JokerInstance(JOKERS["Throwback"]))
+    game.hand[:] = [Card(Rank.TWO, Suit.CLUBS)]
+    flat = game.preview_score((0,))
+    _skip(game)
+    _skip(game)
+    game.hand[:] = [Card(Rank.TWO, Suit.CLUBS)]
+    assert game.preview_score((0,)) > flat
+
+
+# ------------------------------------------------------------------
+# the tags that pay the instant the blind is skipped
+# ------------------------------------------------------------------
+
+def test_handy_pays_a_dollar_for_every_hand_played_this_run():
+    game = _run(Tag.HANDY)
+    game.hands_played = 7
+    before = game.money
+    game._fire_immediate_tags()
+    assert game.money == before + 7
+    assert Tag.HANDY not in game.tags
+
+
+def test_garbage_pays_for_discards_banked_over_the_whole_run():
+    """G.GAME.unused_discards, not this round's leftovers."""
+    game = _run(Tag.GARBAGE)
+    game.unused_discards = 9
+    before = game.money
+    game._fire_immediate_tags()
+    assert game.money == before + 9
+
+
+def test_the_discard_meter_banks_at_the_end_of_every_round():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._start_round()
+    game.chips_scored = game.blind.target
+    left = game.discards_left
+    game._beat_blind()
+    assert game.unused_discards == left
+
+
+def test_speed_pays_five_a_skip_and_counts_its_own():
+    """skip_blind increments before it hands the tag over."""
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.blinds_skipped = 3
+    game.tags.append(Tag.SPEED)
+    before = game.money
+    game._fire_immediate_tags()
+    assert game.money == before + 15
+
+
+def test_top_up_makes_two_common_jokers():
+    game = _run(Tag.TOP_UP)
+    game._fire_immediate_tags()
+    assert len(game.jokers) == 2
+
+
+def test_top_up_makes_only_as_many_as_there_is_room_for():
+    """The room is re-checked before each, not once for the pair."""
+    game = _run(Tag.TOP_UP)
+    while len(game.jokers) < game.joker_slots - 1:
+        game.gain_joker(JokerInstance(JOKERS["Joker"]))
+    before = len(game.jokers)
+    game._fire_immediate_tags()
+    assert len(game.jokers) == before + 1
+
+
+def test_orbital_levels_one_hand_by_three():
+    game = _run(Tag.ORBITAL)
+    game._fire_immediate_tags()
+    levelled = [h for h in HandType if game.hand_levels.levels[h] != 1]
+    assert len(levelled) == 1
+    assert game.hand_levels.levels[levelled[0]] == 4
+
+
+def test_orbital_never_names_a_hand_the_run_has_not_seen():
+    """Same visible-hands pool as To Do List: nine until a secret hand lands."""
+    from balatro.hands import SECRET_HANDS
+
+    seen = set()
+    for seed in ("A", "B", "C", "D", "E", "F", "G", "H"):
+        game = GameState(seed=seed, deck="Red Deck")
+        game.tags.append(Tag.ORBITAL)
+        game._fire_immediate_tags()
+        named = next(h for h in HandType if game.hand_levels.levels[h] != 1)
+        assert named not in SECRET_HANDS
+        seen.add(named)
+    assert len(seen) > 1, "eight seeds and it named one hand every time"
+
+
+def test_a_double_tag_levels_the_same_hand_twice():
+    """G.orbital_hand is handed to the copy, so both name one hand.
+
+    Remembering the choice per ante and blind is what reproduces that.
+    """
+    game = _run(Tag.ORBITAL, Tag.ORBITAL)
+    game._fire_immediate_tags()
+    levelled = [h for h in HandType if game.hand_levels.levels[h] != 1]
+    assert len(levelled) == 1
+    assert game.hand_levels.levels[levelled[0]] == 7
+
+
+# ------------------------------------------------------------------
+# the two that wait for the shop
+# ------------------------------------------------------------------
+
+def test_a_voucher_tag_puts_a_second_voucher_in_the_shop():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._roll_voucher()
+    game.tags.append(Tag.VOUCHER)
+    game._open_shop()
+    offered = game.shop.vouchers_on_offer()
+    assert len(offered) == 2
+    assert offered[0].key != offered[1].key, "the shop must not repeat one"
+
+
+def test_both_shop_vouchers_can_be_bought():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._roll_voucher()
+    game.tags.append(Tag.VOUCHER)
+    game._open_shop()
+    game.money = 100
+    first, second = game.shop.vouchers_on_offer()
+
+    game.step(Action(ActionType.BUY_VOUCHER, index=0))
+    assert first in game.vouchers
+    assert game.shop.vouchers_on_offer() == [second]
+
+    game.step(Action(ActionType.BUY_VOUCHER, index=0))
+    assert second in game.vouchers
+    assert game.shop.vouchers_on_offer() == []
+
+
+def test_a_d6_tag_makes_the_first_reroll_free_and_the_next_cheap():
+    """temp_reroll_cost = 0: the price starts at nothing and climbs as usual.
+
+    Not the same as Chaos the Clown, which is one spare reroll that does not
+    move the price at all.
+    """
+    plain = GameState(seed="TESTSEED", deck="Red Deck")
+    plain._open_shop()
+    assert plain.shop.reroll_cost() == 5
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.tags.append(Tag.D_SIX)
+    game._open_shop()
+    assert game.shop.reroll_cost() == 0
+    game.shop.rerolls += 1
+    assert game.shop.reroll_cost() == 1
+
+
+def test_the_shop_tags_are_spent_when_they_fire():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._roll_voucher()
+    game.tags.extend([Tag.VOUCHER, Tag.D_SIX])
+    game._open_shop()
+    assert Tag.VOUCHER not in game.tags
+    assert Tag.D_SIX not in game.tags
+
+
+def test_the_immediate_list_holds_only_tags_that_pay_on_the_skip():
+    assert set(IMMEDIATE_TAGS) == {Tag.HANDY, Tag.GARBAGE, Tag.SPEED,
+                                   Tag.TOP_UP, Tag.ORBITAL}

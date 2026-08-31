@@ -257,14 +257,20 @@ def apply(game, action, params, selected):
             game.step(Action(ActionType.PICK_PACK, index=index,
                              cards=targets))
         elif area == "shop_vouchers":
-            offered = game.shop.voucher if game.shop else None
-            key = getattr(offered, "key", None)
-            if key is None:
+            # A Voucher Tag puts a second voucher beside the round's own, so
+            # match on the key the recording redeemed rather than assuming
+            # the first slot.
+            offered = game.shop.vouchers_on_offer() if game.shop else []
+            if not offered:
                 return "the simulator's shop offers no voucher"
-            if name and key != name:
-                return ("the shop offers %s, the recording redeemed %s"
-                        % (key, name))
-            game.step(Action(ActionType.BUY_VOUCHER))
+            index = 0
+            if name:
+                index = next((i for i, v in enumerate(offered)
+                              if v.key == name), -1)
+                if index < 0:
+                    return ("the shop offers %s, the recording redeemed %s"
+                            % ("/".join(v.key for v in offered), name))
+            game.step(Action(ActionType.BUY_VOUCHER, index=index))
         elif area == "?":
             # The game did this itself, not the player. A pack tag creates its
             # pack card with from_tag set and calls use_card on it without

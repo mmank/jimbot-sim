@@ -162,10 +162,28 @@ class Shop:
     packs: list[PackSpec] = field(default_factory=list)
     voucher: Voucher | None = None
     voucher_bought: bool = False
+    # A Voucher Tag raises G.shop_vouchers' card limit by one and puts a
+    # second voucher in it, drawn under 'Voucher_fromtag'. It is a separate
+    # slot rather than a replacement: both are buyable.
+    extra_voucher: Voucher | None = None
+    extra_voucher_bought: bool = False
+
+    def vouchers_on_offer(self) -> list:
+        """The vouchers still buyable, in the order the shop shows them."""
+        out = []
+        if self.voucher is not None and not self.voucher_bought:
+            out.append(self.voucher)
+        if self.extra_voucher is not None and not self.extra_voucher_bought:
+            out.append(self.extra_voucher)
+        return out
     rerolls: int = 0
     # Chaos the Clown's free reroll. current_round.free_rerolls in the game,
     # topped up as the shop opens.
     free_rerolls: int = 0
+    # The D6 Tag, which sets round_resets.temp_reroll_cost to zero for this
+    # shop. Not a spare reroll like Chaos: the price starts at nothing and
+    # climbs from there as usual.
+    free_reroll_cost: bool = False
 
     def reroll_cost(self, discount: int = 0) -> int:
         """What the next reroll costs.
@@ -177,4 +195,5 @@ class Shop:
         """
         if self.free_rerolls > 0:
             return 0
-        return max(0, 5 + self.rerolls - discount)
+        base = 0 if self.free_reroll_cost else 5
+        return max(0, base + self.rerolls - discount)

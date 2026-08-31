@@ -145,16 +145,23 @@ class Tag(Enum):
     INVESTMENT = "Investment Tag"
     ECONOMY = "Economy Tag"
     JUGGLE = "Juggle Tag"
+    HANDY = "Handy Tag"
+    GARBAGE = "Garbage Tag"
+    SPEED = "Speed Tag"
+    TOP_UP = "Top-up Tag"
+    ORBITAL = "Orbital Tag"
+    VOUCHER = "Voucher Tag"
+    D_SIX = "D6 Tag"
 
 
 TAG_POOL = list(Tag)
 
-# The game's key for each tag this simulator knows how to apply. The pool has
-# twenty-four and these are the eight with an effect here, so a skip can hand
-# over a tag that does nothing yet -- which is the truth, and better than
-# rolling from eight and handing over one the run was never offered. The gap
-# is visible rather than hidden: TAG_BY_KEY.get returns None and nothing
-# happens.
+# The game's key for each tag, all twenty-four of them. Seven used to be
+# missing -- Handy, Garbage, Speed, Top-up, Orbital, Voucher and D6 -- and a
+# missing tag was not an inert one: the pool still drew it, the skip still
+# happened, and TAG_BY_KEY.get returned None so the reward evaporated. A run
+# could skip a blind for a Top-up Tag and get two fewer jokers than the game
+# would have given it.
 TAG_BY_KEY = {
     "tag_uncommon": Tag.UNCOMMON,
     "tag_rare": Tag.RARE,
@@ -173,7 +180,20 @@ TAG_BY_KEY = {
     "tag_investment": Tag.INVESTMENT,
     "tag_economy": Tag.ECONOMY,
     "tag_juggle": Tag.JUGGLE,
+    "tag_handy": Tag.HANDY,
+    "tag_garbage": Tag.GARBAGE,
+    "tag_skip": Tag.SPEED,
+    "tag_top_up": Tag.TOP_UP,
+    "tag_orbital": Tag.ORBITAL,
+    "tag_voucher": Tag.VOUCHER,
+    "tag_d_six": Tag.D_SIX,
 }
+
+# The five that pay out the instant the blind is skipped, rather than waiting
+# for a shop or a blind choice. G.GAME.tags is walked for `immediate` inside
+# skip_blind itself, after the skip has been counted and the new tag added --
+# so a Speed Tag counts the very skip that produced it.
+IMMEDIATE_TAGS = (Tag.HANDY, Tag.GARBAGE, Tag.SPEED, Tag.TOP_UP, Tag.ORBITAL)
 
 
 @dataclass
@@ -251,6 +271,12 @@ class GameState:
     unique_planets: set = field(default_factory=set)
     rerolls: int = 0
     blinds_skipped: int = 0
+    # G.GAME.unused_discards, which the Garbage Tag pays a dollar each for.
+    # A run total, banked at the end of every round, not this round's leftovers.
+    unused_discards: int = 0
+    # G.GAME.orbital_choices[ante][blind]. Rolled once per ante and blind and
+    # remembered, so a Double Tag's copy levels the same hand as the original.
+    orbital_choices: dict = field(default_factory=dict)
     cards_sold: int = 0
     glass_destroyed: int = 0
     lucky_triggers: int = 0
@@ -680,6 +706,55 @@ class GameState:
             self.tags.remove(Tag.DOUBLE)
             self.tags.append(tag)
             self.log("Double Tag: and another %s" % tag.value)
+
+    def _fire_immediate_tags(self) -> None:
+        """The five that pay the instant a blind is skipped.
+
+        Three of them read a run total rather than anything about the round
+        just skipped: Handy counts every hand played this run, Garbage every
+        discard left unspent at the end of a round, and Speed every blind
+        skipped -- including the one being skipped now, because skip_blind
+        increments the counter before it hands the tag over.
+        """
+        for tag in list(self.tags):
+            if tag not in IMMEDIATE_TAGS:
+                continue
+            self.tags.remove(tag)
+            if tag is Tag.HANDY:
+                self.add_money(self.hands_played, "Handy Tag")
+            elif tag is Tag.GARBAGE:
+                self.add_money(self.unused_discards, "Garbage Tag")
+            elif tag is Tag.SPEED:
+                self.add_money(5 * self.blinds_skipped, "Speed Tag")
+            elif tag is Tag.TOP_UP:
+                # Two Common jokers, under append "top". The game passes a
+                # forced rarity poll of 0 rather than rolling one, so no draw
+                # is spent deciding they are Common, and it re-checks the room
+                # before each -- a single free slot yields one joker, not two.
+                for _ in range(2):
+                    if len(self.jokers) >= self.joker_slots:
+                        break
+                    self.add_random_joker("Top-up Tag", rarity=Rarity.COMMON,
+                                          append="top")
+            elif tag is Tag.ORBITAL:
+                hand = self._orbital_hand()
+                self.hand_levels.level_up(hand, 3)
+                self.log("Orbital Tag: %s up three levels" % hand.label)
+
+    def _orbital_hand(self) -> HandType:
+        """The hand an Orbital Tag names.
+
+        Drawn from the *visible* hands, so nine of them until a secret hand
+        has been made, and remembered per ante and blind -- which is what
+        lets a Double Tag's copy level the same hand as the original. Same
+        `pairs(G.GAME.hands)` pool as To Do List, with the same caveat about
+        the engine's own order not being reproducible; see hands.py.
+        """
+        slot = (self.ante, self.blind_index)
+        if slot not in self.orbital_choices:
+            self.orbital_choices[slot] = self.rng.random_element(
+                self.visible_hands, "orbital")
+        return self.orbital_choices[slot]
 
     def note_card_sold(self) -> None:
         """Tell the jokers that count sales that one has happened.
@@ -1649,6 +1724,9 @@ class GameState:
         config = self.deck_config
         per_hand = config.get("extra_hand_bonus", 1)
         per_discard = config.get("extra_discard_bonus", 0)
+        # G.GAME.unused_discards accumulates over the whole run, whatever the
+        # deck pays per discard -- it is the Garbage Tag's meter, not a payout.
+        self.unused_discards += max(0, self.discards_left)
         # G.GAME.interest_amount: one by default, raised by To the Moon in
         # add_to_deck and lowered in remove_from_deck. It multiplies the
         # number of five-dollar blocks *after* the cap has bitten, so the cap
@@ -1963,6 +2041,27 @@ class GameState:
         shop.packs = [self._roll_pack() for _ in range(2)]
         shop.voucher = (shop_mod.VOUCHER_BY_KEY[self.round_voucher]
                         if self.round_voucher else None)
+
+        # A Voucher Tag adds a second voucher beside the round's own, drawn
+        # under 'Voucher_fromtag' rather than the ante's pool name, and with
+        # the one already on offer withheld so the shop cannot show the same
+        # voucher twice.
+        if Tag.VOUCHER in self.tags:
+            self.tags.remove(Tag.VOUCHER)
+            on_offer = {self.round_voucher} if self.round_voucher else set()
+            key = shop_pool.draw_voucher(
+                self.rng, self.ante,
+                redeemed=[v.key for v in self.vouchers],
+                on_offer=on_offer, from_tag=True)
+            shop.extra_voucher = shop_mod.VOUCHER_BY_KEY[key]
+            self.log("Voucher Tag: %s as well" % shop.extra_voucher.name)
+
+        # The D6 Tag makes this shop's rerolls free from the first one --
+        # temp_reroll_cost = 0 -- and fires once, on the shop opening.
+        if Tag.D_SIX in self.tags:
+            self.tags.remove(Tag.D_SIX)
+            shop.free_reroll_cost = True
+            self.log("D6 Tag: rerolls start at nothing")
         self.shop = shop
         self.phase = Phase.SHOP
         self._apply_shop_tags()
@@ -2318,9 +2417,9 @@ class GameState:
             for i, pack in enumerate(self.shop.packs):
                 if self.affords(self.price(pack.cost)):
                     actions.append(Action(ActionType.BUY_PACK, index=i))
-            if (self.shop.voucher is not None and not self.shop.voucher_bought
-                    and self.affords(self.price(self.shop.voucher.cost))):
-                actions.append(Action(ActionType.BUY_VOUCHER))
+            for i, voucher in enumerate(self.shop.vouchers_on_offer()):
+                if self.affords(self.price(voucher.cost)):
+                    actions.append(Action(ActionType.BUY_VOUCHER, index=i))
             discount = sum(v.reroll_discount for v in self.vouchers)
             if self.affords(self.shop.reroll_cost(discount)):
                 actions.append(Action(ActionType.REROLL))
@@ -2503,8 +2602,9 @@ class GameState:
                 return (0 <= index < len(shop.packs)
                         and self.affords(self.price(shop.packs[index].cost)))
             if t is ActionType.BUY_VOUCHER:
-                return (shop.voucher is not None and not shop.voucher_bought
-                        and self.affords(self.price(shop.voucher.cost)))
+                offered = shop.vouchers_on_offer()
+                return (0 <= index < len(offered)
+                        and self.affords(self.price(offered[index].cost)))
             if t is ActionType.REROLL:
                 discount = sum(v.reroll_discount for v in self.vouchers)
                 return self.affords(shop.reroll_cost(discount))
@@ -2541,13 +2641,15 @@ class GameState:
         elif t is ActionType.SKIP_BLIND:
             tag = self.ante_tags[self.blind_index]
             key = self.ante_tag_keys[self.blind_index]
+            # Counted before the tag is handed over, which is the game's own
+            # order and the reason a Speed Tag pays for its own skip. Nothing
+            # incremented this at all before, so Throwback -- X0.25 per blind
+            # skipped -- read zero for the whole of every run.
+            self.blinds_skipped += 1
             self.add_tag_by_key(key)
-            # Sixteen of the twenty-four tags have no effect here yet. The
-            # skip still happens and the tag is still what the game offered --
-            # naming it in the log keeps the gap visible instead of crashing
-            # on it.
             self.log("Skipped %s, gained %s"
                      % (self.blind.name, tag.value if tag else key))
+            self._fire_immediate_tags()
             self.blind_index += 1
             self._next_blind()
         elif t is ActionType.PLAY:
@@ -2599,13 +2701,17 @@ class GameState:
                     ante_scaling=self.deck_config.get("ante_scaling", 1),
                     scaling=self.blind_scaling)
         elif t is ActionType.BUY_VOUCHER:
-            assert self.shop is not None and self.shop.voucher is not None
-            voucher = self.shop.voucher
+            assert self.shop is not None
+            # index names which of the shop's vouchers, since a Voucher Tag
+            # puts a second one beside the round's own.
+            voucher = self.shop.vouchers_on_offer()[action.index]
             self.add_money(-self.price(voucher.cost),
                            f"bought {voucher.name}")
             self.vouchers.append(voucher)
-            self.shop.voucher_bought = True
-            self.shop.voucher = None
+            if voucher is self.shop.voucher:
+                self.shop.voucher_bought = True
+            else:
+                self.shop.extra_voucher_bought = True
             self._redeem_voucher(voucher)
         elif t is ActionType.REROLL:
             assert self.shop is not None
