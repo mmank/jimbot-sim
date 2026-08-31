@@ -2311,8 +2311,20 @@ class GameState:
                                 for j in self.active_jokers)
         self._fill_shop(shop)
         shop.packs = [self._roll_pack() for _ in range(2)]
+        # The ante's voucher, unless it has already been taken. All three
+        # shops of an ante show the same one, so it is rolled per ante and not
+        # per shop -- but once redeemed it is gone, and the slot stays empty
+        # until the next ante rolls another.
+        #
+        # Restocking it regardless meant a run could buy the same voucher in
+        # every shop of an ante and have its effect applied each time: three
+        # Seed Moneys, an interest cap raised three times. The recordings
+        # never caught it because they do not compare the shop, and a policy
+        # would have found it immediately and learned to farm it.
+        redeemed = {v.key for v in self.vouchers}
         shop.vouchers = ([shop_mod.VOUCHER_BY_KEY[self.round_voucher]]
-                         if self.round_voucher else [])
+                         if self.round_voucher
+                         and self.round_voucher not in redeemed else [])
 
         # Every Voucher Tag held adds one more, drawn under 'Voucher_fromtag'
         # rather than the ante's pool name. Each draw withholds the vouchers
