@@ -512,6 +512,18 @@ class GameState:
                 if joker.name == "Constellation":
                     joker.counter += 0.1
 
+    def note_card_sold(self) -> None:
+        """Tell the jokers that count sales that one has happened.
+
+        Campfire gains X0.25 for every card sold, of any kind, and resets to
+        X1 when a Boss Blind is beaten. The counter it reads was sitting at
+        its starting value for whole runs.
+        """
+        self.cards_sold += 1
+        for joker in self.jokers:
+            if joker.name == "Campfire":
+                joker.counter += 0.25
+
     def gain_joker(self, joker: JokerInstance) -> None:
         """Put a joker in the row, stamped with when it arrived.
 
@@ -1276,6 +1288,12 @@ class GameState:
         self.discard_pile = []
 
         self.beaten_blind = self.blind
+        # Beating a boss puts Campfire back to X1.
+        if self.blind.kind is BlindKind.BOSS:
+            for joker in self.jokers:
+                if joker.name == "Campfire":
+                    joker.counter = 1.0
+
         self.beaten_was_boss = self.blind.kind is BlindKind.BOSS
         self.blind = None
         self.phase = Phase.ROUND_EVAL
@@ -2040,7 +2058,7 @@ class GameState:
         elif t is ActionType.SELL_JOKER:
             joker = self.jokers.pop(action.index)
             self.add_money(self.sell_value(joker), f"sold {joker.name}")
-            self.cards_sold += 1
+            self.note_card_sold()
             # Selling is the whole point of some jokers -- Luchador disables
             # the boss, Diet Cola leaves a tag behind -- so the effect fires
             # after it has left the list, as the game does it.
@@ -2051,7 +2069,7 @@ class GameState:
         elif t is ActionType.SELL_CONSUMABLE:
             spec = self.consumables.pop(action.index)
             self.add_money(max(1, spec.cost // 2), f"sold {spec.name}")
-            self.cards_sold += 1
+            self.note_card_sold()
         elif t is ActionType.BUY:
             self._buy(action.index)
         elif t is ActionType.BUY_AND_USE:
