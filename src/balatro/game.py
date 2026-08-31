@@ -119,6 +119,7 @@ class Tag(Enum):
     CHARM = "Charm Tag"
     METEOR = "Meteor Tag"
     BUFFOON = "Buffoon Tag"
+    BOSS = "Boss Tag"
     ETHEREAL = "Ethereal Tag"
     STANDARD = "Standard Tag"
     FOIL = "Foil Tag"
@@ -145,6 +146,7 @@ TAG_BY_KEY = {
     "tag_charm": Tag.CHARM,
     "tag_meteor": Tag.METEOR,
     "tag_buffoon": Tag.BUFFOON,
+    "tag_boss": Tag.BOSS,
     "tag_ethereal": Tag.ETHEREAL,
     "tag_standard": Tag.STANDARD,
     "tag_foil": Tag.FOIL,
@@ -259,6 +261,8 @@ class GameState:
     shop_free: bool = False
     # G.GAME.last_tarot_planet -- the key The Fool copies.
     last_tarot_planet: str = ""
+    # round_resets.blind_choices.Boss: this ante's boss, drawn at its start.
+    ante_boss: str = ""
     # The stake, one to eight. It is not a difficulty label: it changes the
     # chips every ante asks for, the discards a round starts with, whether
     # the Small Blind pays, and what stickers the shop puts on its jokers.
@@ -316,6 +320,7 @@ class GameState:
         # The order the game starts a run in: the boss, then the voucher, then
         # the two skip tags. Every one of them draws, so the order is part of
         # the seed.
+        self._roll_boss()
         self._roll_voucher()
         self._roll_ante_tags()
         self._reset_round_cards()
@@ -783,7 +788,7 @@ class GameState:
         # -- nothing is dealt until the blind is taken, but the allowance is
         # already on the HUD. Waiting until the round starts left the
         # simulator reporting nought of each against a screen showing both.
-        self.hands_left, self.discards_left = self._round_allowance()
+        self.hands_left, self.discards_left = self._round_allowance(False)
         self.phase = Phase.BLIND_SELECT
         self._apply_blind_select_tags()
 
@@ -845,23 +850,41 @@ class GameState:
             if boss.debuff_previously_played and card.uid in self.played_this_ante:
                 card.debuffed = True
 
-    def _pick_boss(self):
-        """The game's own boss draw: least-used eligible, then a roll.
+    def _roll_boss(self) -> None:
+        """Draw the boss for this ante and hold on to it.
 
-        Picking uniformly from every boss -- which is what this did -- gives a
-        run that can meet the same boss twice while others go unseen, and the
-        game deliberately does not.
+        The game decides it at the start of the ante and keeps it in
+        round_resets.blind_choices.Boss, which is what makes a Boss Tag able
+        to re-roll it -- there is something to replace. Drawing it lazily when
+        the boss blind comes up, which is what this did, left nothing for the
+        tag to act on and made the run one draw short on that pool.
+
+        The draw itself is the game's: eligible bosses, narrowed to the ones
+        used least, then a roll. Picking uniformly from every boss gives a run
+        that meets the same boss twice while others go unseen.
         """
         pool = eligible_bosses(self.ante, self.bosses_used)
         if not pool:
-            return None
+            self.ante_boss = ""
+            return
         key = self.rng.random_element(pool, "boss")
         self.bosses_used[key] = self.bosses_used.get(key, 0) + 1
-        name = BOSS_DATA[key][0]
-        return _BOSS_BY_NAME.get(name)
+        self.ante_boss = key
 
-    def _round_allowance(self) -> tuple[int, int]:
-        """Hands and discards for a round, from the deck, vouchers and boss."""
+    def _pick_boss(self):
+        if not self.ante_boss:
+            return None
+        return _BOSS_BY_NAME.get(BOSS_DATA[self.ante_boss][0])
+
+    def _round_allowance(self, with_boss: bool = True) -> tuple[int, int]:
+        """Hands and discards for a round, from the deck, vouchers and boss.
+
+        The boss is optional because the counters exist before it applies. On
+        the blind select screen the game shows the plain allowance -- the
+        boss's effect lands in set_blind, when the blind is actually taken --
+        so a Water Blind on offer still reads three discards there and zero
+        the moment it is selected.
+        """
         config = self.deck_config
         hands = BASE_HANDS + sum(v.extra_hands for v in self.vouchers)
         hands += sum(j.spec.extra_hands for j in self.active_jokers)
@@ -871,7 +894,7 @@ class GameState:
         discards += sum(v.extra_discards for v in self.vouchers)
         discards += sum(j.spec.extra_discards for j in self.active_jokers)
         discards += config.get("discards", 0)
-        boss = self.boss
+        boss = self.boss if with_boss else None
         if boss is not None:
             hands = (max(1, hands + boss.hands_delta)
                      if boss.hands_delta > -50 else 1)
@@ -1182,6 +1205,8 @@ class GameState:
         # a moment earlier when the boss fell.
         if self.beaten_blind.kind is BlindKind.BOSS:
             self._roll_ante_tags()
+            # reset_blinds runs after the tags, and draws the next boss.
+            self._roll_boss()
 
         # End-of-round joker money is part of what the cash-out screen pays,
         # not something already in the bankroll when it appears. Golden Joker's
@@ -1413,6 +1438,13 @@ class GameState:
         # game breaks out of the loop -- so two Charm Tags open one pack now
         # and the other at the next blind.
         for tag in list(self.tags):
+            if tag is Tag.BOSS:
+                # Re-rolls the boss, free -- the paid reroll is the Director's
+                # Cut button, which costs ten.
+                self.tags.remove(tag)
+                self._roll_boss()
+                self.log("Boss Tag: the boss is re-rolled")
+                return
             if tag in self.PACK_TAGS:
                 self.tags.remove(tag)
                 self._open_pack(

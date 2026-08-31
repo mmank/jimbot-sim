@@ -317,6 +317,16 @@ def apply(game, action, params, selected):
                 return ("the shop offers %s, the recording redeemed %s"
                         % (key, name))
             game.step(Action(ActionType.BUY_VOUCHER))
+        elif area == "?":
+            # The game did this itself, not the player. A pack tag creates its
+            # pack card with from_tag set and calls use_card on it without
+            # ever putting it in an area, so the recorder has nowhere to name.
+            # The simulator opens that pack when the tag fires, so replaying
+            # this would open it twice. The engine replayer skips it for the
+            # same reason.
+            if str(name or "").startswith("p_"):
+                return None
+            return "a use of %s from no area at all" % name
         else:
             return "using from %s is not modelled" % area
     else:
