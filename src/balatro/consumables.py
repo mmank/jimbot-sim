@@ -118,24 +118,24 @@ def _hanged_man(game: "GameState", cards: list[Card]) -> None:
 
 
 def _death(game: "GameState", cards: list[Card]) -> None:
-    """Copy the rightmost selected card onto every other one.
+    """Convert the left selected card into the right one.
 
-    The game finds the rightmost by screen position and calls copy_card onto
-    each of the others, so it is not limited to a pair -- select three and two
-    of them change. And copy_card takes everything: rank, suit, enhancement,
-    edition and seal. The simulator did nothing at all unless exactly two
-    cards were selected.
+    Exactly two, never more: c_death is `max_highlighted = 2,
+    min_highlighted = 2`, and can_use_consumeable will not let the card be
+    used at any other count. The loop over the highlighted cards in the game's
+    own implementation is defensive rather than reachable.
+
+    Which one is "right" is decided by screen position rather than by the
+    order the cards were clicked in, so it is resolved against the hand here
+    rather than trusting the order the caller passed them in.
     """
-    if len(cards) < 2:
+    if len(cards) != 2:
         return
     order = {id(c): i for i, c in enumerate(game.hand)}
-    right = max(cards, key=lambda c: order.get(id(c), -1))
-    for card in cards:
-        if card is right:
-            continue
-        card.rank, card.suit = right.rank, right.suit
-        card.enhancement, card.edition, card.seal = (
-            right.enhancement, right.edition, right.seal)
+    left, right = sorted(cards, key=lambda c: order.get(id(c), -1))
+    left.rank, left.suit = right.rank, right.suit
+    left.enhancement, left.edition, left.seal = (
+        right.enhancement, right.edition, right.seal)
 
 
 def _hermit(game: "GameState", cards: list[Card]) -> None:
