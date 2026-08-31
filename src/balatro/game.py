@@ -985,6 +985,17 @@ class GameState:
         self.hand_levels.plays[result.hand] += 1
 
         self.last_hand = result.hand.label
+
+        # The Arm takes the level off *before* the hand scores. The game calls
+        # debuff_hand and only then reads G.GAME.hands[text].mult, so the hand
+        # is already a level down by the time it is worth anything. Doing it
+        # after scoring, which is what this did, gave the round one free hand
+        # at the old level -- worth about a third here.
+        boss = self.boss
+        if boss is not None and boss.level_down_played_hand:
+            self.hand_levels.levels[result.hand] = max(
+                1, self.hand_levels.levels[result.hand] - 1)
+
         ctx = score_hand(self, result, played, held)
         # Jokers that make a card off the back of a hand -- Superposition,
         # Séance, Vagabond -- run once the hand has resolved, so they can ask
@@ -1003,9 +1014,6 @@ class GameState:
         if boss is not None:
             if boss.money_per_card_played:
                 self.add_money(boss.money_per_card_played * len(played), boss.name)
-            if boss.level_down_played_hand:
-                self.hand_levels.levels[result.hand] = max(
-                    1, self.hand_levels.levels[result.hand] - 1)
             if boss.zero_money_on_most_played and self._is_most_played(result.hand):
                 self.money = 0
                 self.log(f"{boss.name}: money set to $0")
