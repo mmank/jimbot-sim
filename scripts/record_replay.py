@@ -57,6 +57,7 @@ REPLAY = {
                                               cards=p.get("targets") or None),
     "sell_card": lambda b, p: b.sell(p["area"], p["index"]),
     "reroll_shop": lambda b, p: b.reroll(),
+    "reroll_boss": lambda b, p: b.command("reroll_boss"),
     "toggle_shop": lambda b, p: b.leave_shop(),
     "cash_out": lambda b, p: b.cash_out(),
     "skip_booster": lambda b, p: b.skip_pack(),

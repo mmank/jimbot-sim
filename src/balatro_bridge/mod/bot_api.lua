@@ -1083,6 +1083,20 @@ local function install_hooks()
   wrap('toggle_shop', function() return {} end)
   wrap('cash_out', function() return {} end)
   wrap('skip_booster', function() return {} end)
+  -- Rerolling the boss blind. It is a button like any other and it costs ten
+  -- dollars, and it was not being recorded at all: a recording where the
+  -- player pressed it diverges from that point on, in the engine's own replay
+  -- as much as in the simulator's, because the ten dollars and the new boss
+  -- appear from nowhere. Director's Cut allows one a shop, Retcon any number.
+  wrap('reroll_boss', function()
+    -- A Boss Tag rerolls through this same function, and that is the game
+    -- acting rather than the player. It says so with G.from_boss_tag, so
+    -- decline: the tag is already in the recording and replaying both would
+    -- reroll twice and charge for one of them.
+    if G.from_boss_tag then return false end
+    return { boss = G.GAME.round_resets.blind_choices
+                    and G.GAME.round_resets.blind_choices.Boss or "?" }
+  end)
 end
 
 function BotAPI.start_recording()
@@ -1175,6 +1189,19 @@ function BotAPI.select_blind()
   G.FUNCS.select_blind({ config = {
     ref_table = G.P_BLINDS[G.GAME.round_resets.blind_choices[blind_on_deck()]] } })
   return { selected = blind_on_deck() }
+end
+
+function BotAPI.reroll_boss()
+  -- The Director's Cut / Retcon button. Ten dollars and a new boss.
+  if not G.blind_select then
+    error("cannot reroll the boss: the blind select screen is not up", 0)
+  end
+  local before = G.GAME.round_resets.blind_choices
+                 and G.GAME.round_resets.blind_choices.Boss
+  G.FUNCS.reroll_boss({})
+  return { was = before,
+           now = G.GAME.round_resets.blind_choices
+                 and G.GAME.round_resets.blind_choices.Boss }
 end
 
 function BotAPI.skip_blind()

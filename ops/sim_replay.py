@@ -218,6 +218,8 @@ def apply(game, action, params, selected):
         game.sort_hand("suit")
     elif action == "cash_out":
         pass                       # the simulator cashes out by itself
+    elif action == "reroll_boss":
+        game.step(Action(ActionType.REROLL_BOSS))
     elif action == "skip_booster":
         game.step(Action(ActionType.SKIP_PACK))
     elif action == "toggle_shop":

@@ -58,6 +58,8 @@ BASE_DISCARDS = 3
 BASE_INTEREST_CAP = 5
 # G.GAME.perishable_rounds and G.GAME.rental_rate.
 PERISHABLE_ROUNDS = 5
+# What the Director's Cut / Retcon button charges to re-roll the boss.
+BOSS_REROLL_COST = 10
 RENTAL_RATE = 3
 WIN_ANTE = 8
 
@@ -88,6 +90,7 @@ class ActionType(Enum):
     SELL_CONSUMABLE = "sell_consumable"
     BUY = "buy"
     BUY_AND_USE = "buy_and_use"
+    REROLL_BOSS = "reroll_boss"
     BUY_VOUCHER = "buy_voucher"
     REROLL = "reroll"
     BUY_PACK = "buy_pack"
@@ -1984,6 +1987,17 @@ class GameState:
             self._buy(action.index)
         elif t is ActionType.BUY_AND_USE:
             self.buy_and_use(action.index)
+        elif t is ActionType.REROLL_BOSS:
+            # Director's Cut allows one a shop and Retcon any number; the
+            # button costs ten dollars either way. A Boss Tag rerolls for
+            # nothing, and goes through _apply_blind_select_tags instead.
+            self.add_money(-BOSS_REROLL_COST, "boss reroll")
+            self._roll_boss()
+            if self.blind is not None and self.blind.kind is BlindKind.BOSS:
+                self.blind = make_blind(
+                    BlindKind.BOSS, self.ante, self._pick_boss(),
+                    ante_scaling=self.deck_config.get("ante_scaling", 1),
+                    scaling=self.blind_scaling)
         elif t is ActionType.BUY_VOUCHER:
             assert self.shop is not None and self.shop.voucher is not None
             voucher = self.shop.voucher
