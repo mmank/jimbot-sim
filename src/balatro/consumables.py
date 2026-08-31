@@ -226,11 +226,54 @@ def _ectoplasm(game: "GameState", cards: list[Card]) -> None:
         game.base_hand_size -= 1
 
 
+SUITS_BY_LETTER = {"S": Suit.SPADES, "H": Suit.HEARTS,
+                   "D": Suit.DIAMONDS, "C": Suit.CLUBS}
+RANKS_BY_LETTER = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR,
+                   "5": Rank.FIVE, "6": Rank.SIX, "7": Rank.SEVEN,
+                   "8": Rank.EIGHT, "9": Rank.NINE, "T": Rank.TEN,
+                   "J": Rank.JACK, "Q": Rank.QUEEN, "K": Rank.KING,
+                   "A": Rank.ACE}
+# Every enhancement but Stone: the cards these three make are always
+# enhanced, and Stone is excluded because it has no rank or suit to give.
+_SPE_POOL = ["m_bonus", "m_mult", "m_wild", "m_glass", "m_steel", "m_gold",
+             "m_lucky"]
+
+
+def _destroy_and_make(game: "GameState", count: int, ranks: list[str],
+                      rank_key: str, suit_key: str) -> None:
+    """Familiar, Grim and Incantation: one card out, several in.
+
+    All three work the same way and the simulator had all three wrong in the
+    same three ways. The card destroyed is a *random* one from the hand, not
+    a card the player selected -- the game draws it with
+    pseudorandom_element(G.hand.cards, 'random_destroy') and none of them asks
+    you to choose. The cards made go into the *hand*, not into the deck to be
+    drawn later. And they are always enhanced: create_playing_card picks a
+    centre from every enhancement but Stone.
+
+    Rank and suit come from the same pool name -- "familiar_create" for both
+    halves of a Familiar card -- so the two draws come out of one stream in
+    that order.
+    """
+    if game.hand:
+        doomed = game.rng.random_element(sorted(game.hand,
+                                                key=lambda c: c.uid),
+                                         "random_destroy")
+        game.remove_card(doomed)
+    for _ in range(count):
+        rank = RANKS_BY_LETTER[game.rng.random_element(ranks, rank_key)]
+        suit = SUITS_BY_LETTER[game.rng.random_element(
+            ["S", "H", "D", "C"], suit_key)]
+        card = Card(rank, suit)
+        card.enhancement = Enhancement(
+            game.rng.random_element(_SPE_POOL, "spe_card")[2:])
+        game.full_deck.append(card)
+        game.hand.append(card)
+
+
 def _familiar(game: "GameState", cards: list[Card]) -> None:
-    for card in cards:
-        game.remove_card(card)
-    for _ in range(3):
-        game.add_card(game.random_face_card())
+    _destroy_and_make(game, 3, ["J", "Q", "K"],
+                      "familiar_create", "familiar_create")
 
 
 _spectral("Talisman", "Add a Gold Seal to 1 card", 1, _seal(Seal.GOLD))
@@ -241,7 +284,9 @@ _spectral("Aura", "Add a random edition to 1 card in hand", 1, _aura)
 _spectral("Black Hole", "Level up every poker hand", 0, _black_hole)
 _spectral("Immolate", "Destroy 5 random cards in deck, gain $20", 0, _immolate)
 _spectral("Ectoplasm", "Add Negative to a random Joker, -1 hand size", 0, _ectoplasm)
-_spectral("Familiar", "Destroy 1 card, add 3 random face cards", 1, _familiar)
+_spectral("Familiar",
+          "Destroy 1 random card in hand, add 3 random Enhanced face cards",
+          0, _familiar)
 
 
 def by_kind(kind: ConsumableKind) -> list[ConsumableSpec]:
@@ -272,22 +317,13 @@ def _fool(game: "GameState", cards: list[Card]) -> None:
 
 
 def _grim(game: "GameState", cards: list[Card]) -> None:
-    """Destroy a card, add two random Aces."""
-    for card in cards:
-        game.remove_card(card)
-    for _ in range(2):
-        suit = game.rng.choice("grim_suit", list(Suit))
-        game.add_card(Card(Rank.ACE, suit))
+    _destroy_and_make(game, 2, ["A"], "grim_create", "grim_create")
 
 
 def _incantation(game: "GameState", cards: list[Card]) -> None:
-    """Destroy a card, add four random numbered cards."""
-    for card in cards:
-        game.remove_card(card)
-    numbered = [r for r in Rank if r.value <= 10]
-    for _ in range(4):
-        game.add_card(Card(game.rng.choice("inc_rank", numbered),
-                           game.rng.choice("inc_suit", list(Suit))))
+    _destroy_and_make(game, 4,
+                      ["2", "3", "4", "5", "6", "7", "8", "9", "T"],
+                      "incantation_create", "incantation_create")
 
 
 def _cryptid(game: "GameState", cards: list[Card]) -> None:
@@ -374,10 +410,12 @@ _tarot("The Fool", "Copy the last Tarot or Planet card used this run", 0, _fool)
 
 _spectral("Ankh", "Copy a random Joker, destroy the others", 0, _ankh)
 _spectral("Cryptid", "Create 2 copies of a selected card", 1, _cryptid)
-_spectral("Grim", "Destroy 1 card, add 2 random Aces", 1, _grim)
+_spectral("Grim", "Destroy 1 random card in hand, add 2 random Enhanced Aces",
+          0, _grim)
 _spectral("Hex", "Add Polychrome to a random Joker, destroy the others", 0, _hex)
-_spectral("Incantation", "Destroy 1 card, add 4 random numbered cards", 1,
-          _incantation)
+_spectral("Incantation",
+          "Destroy 1 random card in hand, add 4 random Enhanced numbered cards",
+          0, _incantation)
 _spectral("Ouija", "Convert all cards in hand to a single random rank, -1 hand size",
           0, _ouija)
 _spectral("Sigil", "Convert all cards in hand to a single random suit", 0, _sigil)
