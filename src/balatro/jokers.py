@@ -70,6 +70,7 @@ class JokerSpec:
     on_blind_select: RoundHook | None = None   # Cartomancer, Marble Joker
     on_round_start: RoundHook | None = None    # Certificate
     on_sell: RoundHook | None = None           # Diet Cola, Luchador
+    on_reroll: RoundHook | None = None         # Flash Card
     before_hand: object = None                 # DNA, Sixth Sense
     after_hand: IndepHook | None = None        # Superposition, Séance
     on_first_discard: DiscardHook | None = None   # Burnt Joker, Trading Card
@@ -682,8 +683,12 @@ register("Fortune Teller", Rarity.COMMON,
 register("Constellation", Rarity.UNCOMMON,
          "Gains X0.1 Mult per Planet card used", cost=6, init_counter=1.0,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+def _flash_card(j: JokerInstance, game: "GameState") -> None:
+    j.counter += 2.0
+
+
 register("Flash Card", Rarity.UNCOMMON, "Gains +2 Mult per shop reroll",
-         cost=5,
+         cost=5, on_reroll=_flash_card,
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
 register("Throwback", Rarity.UNCOMMON, "X0.25 Mult per Blind skipped this run",
          cost=6,

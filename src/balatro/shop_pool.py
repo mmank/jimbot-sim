@@ -251,7 +251,8 @@ NAME_BY_CONSUMABLE_KEY = {entry[0]: entry[1]
 
 
 def poll_edition(rng: RunRng, key: str = "edition_generic", mod: float = 1.0,
-                 no_negative: bool = False, edition_rate: float = 1.0) -> str:
+                 no_negative: bool = False, edition_rate: float = 1.0,
+                 guaranteed: bool = False) -> str:
     """The game's poll_edition: one roll, compared against stacked bands.
 
     Written as descending thresholds off 1.0 rather than as weights, because
@@ -262,6 +263,19 @@ def poll_edition(rng: RunRng, key: str = "edition_generic", mod: float = 1.0,
     Returns "none", "foil", "holo", "polychrome" or "negative".
     """
     poll = rng.pseudorandom(key)
+    if guaranteed:
+        # The Wheel of Fortune's form: the bands are twenty-five times as
+        # wide and cover the whole range, so something always comes out.
+        # `mod` and the run's edition rate are ignored here, as in the game.
+        if poll > 1 - 0.003 * 25 and not no_negative:
+            return "negative"
+        if poll > 1 - 0.006 * 25:
+            return "polychrome"
+        if poll > 1 - 0.02 * 25:
+            return "holo"
+        if poll > 1 - 0.04 * 25:
+            return "foil"
+        return "none"
     if poll > 1 - 0.003 * mod and not no_negative:
         return "negative"
     if poll > 1 - 0.006 * edition_rate * mod:

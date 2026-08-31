@@ -1,8 +1,8 @@
 {
- "seed": "VSXCGHNH",
- "deck": "Ghost Deck",
+ "seed": "ABCDEFGH",
+ "deck": "Checkered Deck",
  "money": 10000,
- "stake": 1,
+ "stake": 8,
  "start": {
   "ante": 1,
   "best_hand": 0,
@@ -10,11 +10,9 @@
   "blind_chips": 0,
   "busy": 1,
   "chips": 0,
-  "consumables": [
-   "c_hex"
-  ],
+  "consumables": [],
   "deck_size": 52,
-  "discards_left": 3,
+  "discards_left": 2,
   "dollars": 10000,
   "hand_ids": [],
   "hand_levels": [],
@@ -37,18 +35,16 @@
    "params": {
     "blind": "Small"
    },
-   "action": "select_blind",
+   "action": "skip_blind",
    "before": {
     "jokers": [],
     "hand_ids": [],
     "hand_levels": [],
     "busy": 0,
-    "discards_left": 3,
+    "discards_left": 2,
     "hands_played": 0,
     "hand_limit": 8,
-    "consumables": [
-     "c_hex"
-    ],
+    "consumables": [],
     "tags": [],
     "best_hand": 0,
     "selected_ids": [],
@@ -68,366 +64,6 @@
     "dollars": 10000
    },
    "n": 1
-  },
-  {
-   "params": {
-    "cards": [
-     1,
-     2,
-     3,
-     6,
-     7
-    ],
-    "card_ids": [
-     21,
-     50,
-     24,
-     3,
-     40
-    ]
-   },
-   "action": "discard_cards_from_highlighted",
-   "before": {
-    "jokers": [],
-    "hand_ids": [
-     21,
-     50,
-     24,
-     33,
-     31,
-     3,
-     40,
-     26
-    ],
-    "hand_levels": [],
-    "busy": 0,
-    "discards_left": 3,
-    "hands_played": 0,
-    "hand_limit": 8,
-    "consumables": [
-     "c_hex"
-    ],
-    "tags": [],
-    "best_hand": 0,
-    "selected_ids": [
-     21,
-     50,
-     24,
-     3,
-     40
-    ],
-    "phase": "SELECTING_HAND",
-    "last_hand": "",
-    "skips": 0,
-    "joker_ids": [],
-    "blind_chips": 300,
-    "blind": "Small Blind",
-    "round": 1,
-    "deck_size": 52,
-    "chips": 0,
-    "selected": [
-     1,
-     2,
-     3,
-     6,
-     7
-    ],
-    "hands_left": 4,
-    "ante": 1,
-    "hand_size": 8,
-    "dollars": 10000
-   },
-   "n": 2
-  },
-  {
-   "params": {
-    "cards": [
-     4,
-     7,
-     8
-    ],
-    "card_ids": [
-     44,
-     2,
-     26
-    ]
-   },
-   "action": "discard_cards_from_highlighted",
-   "before": {
-    "jokers": [],
-    "hand_ids": [
-     33,
-     45,
-     19,
-     44,
-     31,
-     17,
-     2,
-     26
-    ],
-    "hand_levels": [],
-    "busy": 0,
-    "discards_left": 2,
-    "hands_played": 0,
-    "hand_limit": 8,
-    "consumables": [
-     "c_hex"
-    ],
-    "tags": [],
-    "best_hand": 0,
-    "selected_ids": [
-     44,
-     2,
-     26
-    ],
-    "phase": "SELECTING_HAND",
-    "last_hand": "",
-    "skips": 0,
-    "joker_ids": [],
-    "blind_chips": 300,
-    "blind": "Small Blind",
-    "round": 1,
-    "deck_size": 52,
-    "chips": 0,
-    "selected": [
-     4,
-     7,
-     8
-    ],
-    "hands_left": 4,
-    "ante": 1,
-    "hand_size": 8,
-    "dollars": 10000
-   },
-   "n": 3
-  },
-  {
-   "params": {
-    "cards": [
-     3,
-     5,
-     7,
-     8
-    ],
-    "card_ids": [
-     19,
-     18,
-     17,
-     41
-    ]
-   },
-   "action": "discard_cards_from_highlighted",
-   "before": {
-    "jokers": [],
-    "hand_ids": [
-     33,
-     45,
-     19,
-     31,
-     18,
-     4,
-     17,
-     41
-    ],
-    "hand_levels": [],
-    "busy": 0,
-    "discards_left": 1,
-    "hands_played": 0,
-    "hand_limit": 8,
-    "consumables": [
-     "c_hex"
-    ],
-    "tags": [],
-    "best_hand": 0,
-    "selected_ids": [
-     19,
-     18,
-     17,
-     41
-    ],
-    "phase": "SELECTING_HAND",
-    "last_hand": "",
-    "skips": 0,
-    "joker_ids": [],
-    "blind_chips": 300,
-    "blind": "Small Blind",
-    "round": 1,
-    "deck_size": 52,
-    "chips": 0,
-    "selected": [
-     3,
-     5,
-     7,
-     8
-    ],
-    "hands_left": 4,
-    "ante": 1,
-    "hand_size": 8,
-    "dollars": 10000
-   },
-   "n": 4
-  },
-  {
-   "params": {
-    "cards": [
-     1,
-     3,
-     4,
-     5,
-     6
-    ],
-    "card_ids": [
-     51,
-     33,
-     45,
-     31,
-     4
-    ]
-   },
-   "action": "play_cards_from_highlighted",
-   "before": {
-    "jokers": [],
-    "hand_ids": [
-     51,
-     25,
-     33,
-     45,
-     31,
-     4,
-     42,
-     0
-    ],
-    "hand_levels": [],
-    "busy": 0,
-    "discards_left": 0,
-    "hands_played": 0,
-    "hand_limit": 8,
-    "consumables": [
-     "c_hex"
-    ],
-    "tags": [],
-    "best_hand": 0,
-    "selected_ids": [
-     51,
-     33,
-     45,
-     31,
-     4
-    ],
-    "phase": "SELECTING_HAND",
-    "last_hand": "",
-    "skips": 0,
-    "joker_ids": [],
-    "blind_chips": 300,
-    "blind": "Small Blind",
-    "round": 1,
-    "deck_size": 52,
-    "chips": 0,
-    "selected": [
-     1,
-     3,
-     4,
-     5,
-     6
-    ],
-    "hands_left": 4,
-    "ante": 1,
-    "hand_size": 8,
-    "dollars": 10000
-   },
-   "n": 5
-  },
-  {
-   "params": {
-    "cards": [
-     1,
-     2
-    ],
-    "card_ids": [
-     47,
-     34
-    ]
-   },
-   "action": "play_cards_from_highlighted",
-   "before": {
-    "jokers": [],
-    "hand_ids": [
-     47,
-     34,
-     36,
-     11,
-     25,
-     42,
-     29,
-     0
-    ],
-    "hand_levels": [],
-    "busy": 0,
-    "discards_left": 0,
-    "hands_played": 1,
-    "hand_limit": 8,
-    "consumables": [
-     "c_hex"
-    ],
-    "tags": [],
-    "best_hand": 280,
-    "selected_ids": [
-     47,
-     34
-    ],
-    "phase": "SELECTING_HAND",
-    "last_hand": "Straight",
-    "skips": 0,
-    "joker_ids": [],
-    "blind_chips": 300,
-    "blind": "Small Blind",
-    "round": 1,
-    "deck_size": 52,
-    "chips": 280,
-    "selected": [
-     1,
-     2
-    ],
-    "hands_left": 3,
-    "ante": 1,
-    "hand_size": 8,
-    "dollars": 10000
-   },
-   "n": 6
-  },
-  {
-   "params": [],
-   "action": "cash_out",
-   "before": {
-    "jokers": [],
-    "hand_ids": [],
-    "hand_levels": [],
-    "busy": 0,
-    "discards_left": 0,
-    "hands_played": 2,
-    "hand_limit": 8,
-    "consumables": [
-     "c_hex"
-    ],
-    "tags": [],
-    "best_hand": 280,
-    "selected_ids": [],
-    "phase": "ROUND_EVAL",
-    "last_hand": "Pair",
-    "skips": 0,
-    "joker_ids": [],
-    "blind_chips": 0,
-    "blind": "",
-    "round": 1,
-    "deck_size": 52,
-    "chips": 344,
-    "selected": [],
-    "hands_left": 2,
-    "ante": 1,
-    "hand_size": 0,
-    "dollars": 10000
-   },
-   "n": 7
   }
  ]
 }

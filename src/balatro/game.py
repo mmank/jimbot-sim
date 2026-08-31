@@ -308,6 +308,7 @@ class GameState:
         # the seed.
         self._roll_voucher()
         self._roll_ante_tags()
+        self._reset_round_cards()
         self._next_blind()
 
     # ------------------------------------------------------------------
@@ -503,6 +504,12 @@ class GameState:
         return keys
 
     @property
+    def edition_rate(self) -> float:
+        """G.GAME.edition_rate, which Hone and Glow Up raise."""
+        rates = [v.edition_rate for v in self.vouchers if v.edition_rate]
+        return max(rates) if rates else 1.0
+
+    @property
     def consumable_slots(self) -> int:
         return (BASE_CONSUMABLE_SLOTS + self.extra_consumable_slots
                 + sum(v.consumable_slots for v in self.vouchers))
@@ -539,6 +546,36 @@ class GameState:
     # ------------------------------------------------------------------
     # blind flow
     # ------------------------------------------------------------------
+
+    def _reset_round_cards(self) -> None:
+        """Re-roll the card and the suits that some jokers name.
+
+        Four of these, all declared on the run and none of them ever set, so
+        The Idol, Ancient Joker, Mail-In Rebate and Castle scored nothing at
+        all. That is the quiet kind of wrong: the joker is registered, the
+        hook runs, the condition is never true, and every test where both
+        sides score zero agrees.
+
+        The game rolls them from G.playing_cards -- the whole deck, not the
+        hand -- sorted by sort_id, skipping Stone cards, once at run start and
+        again at the end of every round. Ancient Joker is the odd one: it
+        draws a suit from the three it is *not* already on, so it never
+        repeats itself.
+        """
+        pool = sorted((c for c in self.full_deck
+                       if c.enhancement is not Enhancement.STONE),
+                      key=lambda card: card.uid)
+        if pool:
+            idol = self.rng.random_element(pool, "idol%d" % self.ante)
+            self.idol_rank, self.idol_suit = idol.rank, idol.suit
+            self.mail_rank = self.rng.random_element(
+                pool, "mail%d" % self.ante).rank
+            self.castle_suit = self.rng.random_element(
+                pool, "cas%d" % self.ante).suit
+
+        suits = [s for s in (Suit.SPADES, Suit.HEARTS, Suit.CLUBS,
+                             Suit.DIAMONDS) if s is not self.ancient_suit]
+        self.ancient_suit = self.rng.random_element(suits, "anc%d" % self.ante)
 
     def _apply_deck_config(self, config: dict) -> None:
         """What the chosen deck starts the run holding.
@@ -788,7 +825,11 @@ class GameState:
         real_jokers, real_rng = self.jokers, self.rng
         enhancements = [(c, c.enhancement) for c in played]
         self.jokers = [copy.copy(j) for j in real_jokers]
-        self.rng = RunRng(self.seed ^ 0xA5A5)
+        # A throwaway generator, named off the run's own seed. This used to
+        # xor the seed with a constant, which worked only while seeds were
+        # integers -- every preview against a real run's seed raised
+        # TypeError.
+        self.rng = RunRng("%s_preview" % self.seed)
         try:
             return score_hand(self, self.evaluate_selection(played), played, held).score
         finally:
@@ -944,6 +985,10 @@ class GameState:
         else:
             self.blind_index += 1
 
+        # Every round, after the ante has turned over and the voucher has been
+        # drawn -- the game's own order in update_round_eval.
+        self._reset_round_cards()
+
         # The cash-out screen holds nothing the policy decides. You can
         # reorder or sell jokers there, which is real but niche, and the
         # env has never offered it as a choice -- it advances by itself. So
@@ -1026,8 +1071,13 @@ class GameState:
 
         if kind == "Joker":
             spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
-            edition = _EDITION_BY_NAME[
-                shop_pool.poll_edition(self.rng, "edi" + shop_pool.SHOP_APPEND)]
+            # "edi" + the append + the ante. The ante was missing, so every
+            # shop in the run polled the same pool and got the wrong answer:
+            # a Holographic Loyalty Card came out plain, and holographic is
+            # ten mult.
+            edition = _EDITION_BY_NAME[shop_pool.poll_edition(
+                self.rng, "edi%s%d" % (shop_pool.SHOP_APPEND, self.ante),
+                edition_rate=self.edition_rate)]
             joker = JokerInstance(spec, edition=edition)
             return ShopSlot("joker", self.price(shop_mod.joker_price(spec, edition)),
                             joker=joker)
@@ -1611,6 +1661,12 @@ class GameState:
             discount = sum(v.reroll_discount for v in self.vouchers)
             self.add_money(-self.shop.reroll_cost(discount), "reroll")
             self.shop.rerolls += 1
+            # The jokers that count rerolls are told before the new cards are
+            # made, which is the game's order -- calculate_joker fires on the
+            # button, not on the shop that comes back.
+            for joker in list(self.jokers):
+                if joker.spec.on_reroll is not None:
+                    joker.spec.on_reroll(joker, self)
             self._fill_shop(self.shop)
         elif t is ActionType.BUY_PACK:
             assert self.shop is not None

@@ -153,13 +153,27 @@ def _judgement(game: "GameState", cards: list[Card]) -> None:
 
 
 def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
+    """One in four to put an edition on a joker that has none.
+
+    Three draws, all against the same pool name -- "wheel_of_fortune" -- so
+    they come out of one stream in order: the chance, then which joker, then
+    which edition. The simulator used three names of its own and picked the
+    edition uniformly from three, where the game polls the ordinary edition
+    bands widened twenty-five times so that something always lands.
+    """
     plain = [j for j in game.jokers if j.edition is Edition.NONE]
-    if plain and game.rng.chance("wheel", 1, 4):
-        joker = game.rng.choice("wheel_target", plain)
-        joker.edition = game.rng.choice(
-            "wheel_edition",
-            [Edition.FOIL, Edition.HOLOGRAPHIC, Edition.POLYCHROME])
-        game.log(f"Wheel of Fortune: {joker.name} is now {joker.edition.value}")
+    if not plain:
+        return
+    if not game.rng.chance("wheel_of_fortune", 1, 4):
+        return
+    joker = game.rng.random_element(plain, "wheel_of_fortune")
+    from .shop_pool import poll_edition
+    name = poll_edition(game.rng, "wheel_of_fortune", no_negative=True,
+                        guaranteed=True)
+    joker.edition = {"foil": Edition.FOIL, "holo": Edition.HOLOGRAPHIC,
+                     "polychrome": Edition.POLYCHROME,
+                     "none": Edition.NONE}[name]
+    game.log(f"Wheel of Fortune: {joker.name} is now {joker.edition.value}")
 
 
 _tarot("The High Priestess", "Create 2 random Planet cards", 0, _high_priestess)
