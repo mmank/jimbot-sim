@@ -114,9 +114,15 @@ def _enhance(enh: Enhancement) -> ApplyHook:
 
 
 def _to_suit(suit: Suit) -> ApplyHook:
+    """The four suit tarots. set_suit, because a converted card remembers.
+
+    Card:set_base carries suit_nominal_original across the change, and that
+    remembered suit orders the hand -- so a Heart turned into a Spade sits
+    behind a natural Spade of the same rank.
+    """
     def apply(game: "GameState", cards: list[Card]) -> None:
         for card in cards:
-            card.suit = suit
+            card.set_suit(suit)
     return apply
 
 
@@ -181,7 +187,8 @@ def _death(game: "GameState", cards: list[Card]) -> None:
         return
     order = {id(c): i for i, c in enumerate(game.hand)}
     left, right = sorted(cards, key=lambda c: order.get(id(c), -1))
-    left.rank, left.suit = right.rank, right.suit
+    left.rank = right.rank
+    left.set_suit(right.suit)
     left.enhancement, left.edition, left.seal = (
         right.enhancement, right.edition, right.seal)
     # copy_card walks every field of the card's ability table, so everything
@@ -494,7 +501,7 @@ def _sigil(game: "GameState", cards: list[Card]) -> None:
     """Every card in hand becomes one random suit."""
     suit = game.rng.choice("sigil", list(Suit))
     for card in game.hand:
-        card.suit = suit
+        card.set_suit(suit)
     game.log("Sigil: the hand is all %s" % suit.name.title())
 
 

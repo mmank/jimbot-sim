@@ -392,6 +392,17 @@ class GameState:
         # The order the game starts a run in: the boss, then the voucher, then
         # the two skip tags. Every one of them draws, so the order is part of
         # the seed.
+        # G:start_run's own deck:shuffle(), under the bare pool name. Almost
+        # invisible, because pseudoshuffle sorts by id before it shuffles, so
+        # the round-start shuffle washes this order out and every dealt hand
+        # matches without it.
+        #
+        # It shows when something deals *before* the first round: a Charm Tag
+        # taken off the opening blind select opens an Arcana pack, and that
+        # pack deals a hand from the deck as it stands. With no draw pile the
+        # simulator dealt nothing at all, and the pack had no cards to target.
+        self.draw_pile = list(self.full_deck)
+        self.rng.shuffle(self.draw_pile, "shuffle")
         self._roll_boss()
         self._roll_voucher()
         self._roll_ante_tags()
@@ -1241,9 +1252,9 @@ class GameState:
         if self.deck == "Checkered Deck":
             for card in self.full_deck:
                 if card.suit is Suit.CLUBS:
-                    card.suit = Suit.SPADES
+                    card.set_suit(Suit.SPADES)
                 elif card.suit is Suit.DIAMONDS:
-                    card.suit = Suit.HEARTS
+                    card.set_suit(Suit.HEARTS)
 
     def _roll_ante_tags(self) -> None:
         """Both skip rewards for the ante, rolled together.
@@ -1457,9 +1468,16 @@ class GameState:
         cards by position, so an unsorted hand turns the same choice into a
         different play.
         """
-        key = (Card.suit_sort_value.fget if self.hand_sort == "suit"
-               else Card.sort_value.fget)
-        self.hand.sort(key=key, reverse=True)
+        value = (Card.suit_sort_value.fget if self.hand_sort == "suit"
+                 else Card.sort_value.fget)
+        # The id breaks ties, ascending, so two identical cards have one
+        # order. The game compares get_nominal alone and Lua's table.sort is
+        # not stable, so its answer for a pair of Jacks of Spades is whatever
+        # the quicksort happened to do -- and that decides which of them a
+        # play removes, which reorders what The Hook then draws from. The
+        # engine is patched to break the tie the same way; see
+        # headless_patch.lua.
+        self.hand.sort(key=lambda c: (-value(c), c.uid))
 
     def sort_hand(self, by: str = "rank") -> None:
         """Reorder the hand the way the sort buttons do, and keep doing it.
@@ -2834,15 +2852,19 @@ class GameState:
             self.log("Skipped %s, gained %s"
                      % (self.blind.name, tag.value if tag else key))
             self._fire_immediate_tags()
+            self.blind_index += 1
+            self._next_blind()
             # The game fires new_blind_choice from several places, each with
             # its own `break`, and Tag.triggered stops any one tag firing
             # twice. Skipping therefore runs it once for the skip and again
             # for the blind-select screen that follows -- which is how two
             # Boss Tags, doubled off one Double Tag, both re-roll. Firing it
             # only from _next_blind left the second one held for ever.
+            #
+            # After _next_blind, not before: a pack tag opens its pack here,
+            # and _next_blind ends by putting the phase back to BLIND_SELECT,
+            # which threw the pack away.
             self._apply_blind_select_tags()
-            self.blind_index += 1
-            self._next_blind()
         elif t is ActionType.PLAY:
             self._play(action.cards)
         elif t is ActionType.DISCARD:

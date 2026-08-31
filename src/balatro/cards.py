@@ -86,6 +86,13 @@ _ids = count()
 # Spades, and face_nominal separates the cards that all count as ten chips.
 SUIT_NOMINAL = {Suit.DIAMONDS: 0.01, Suit.CLUBS: 0.02,
                 Suit.HEARTS: 0.03, Suit.SPADES: 0.04}
+# get_nominal adds `suit_nominal_original * 0.0001`, which is the suit the
+# card was *built* as. Card:set_base carries it across a suit change, so a
+# Club turned into a Spade by the Checkered Deck still remembers being a
+# Club, and sorts behind a Spade that was always one. Two identical-looking
+# Jacks of Spades are therefore not tied at all -- and the difference is
+# larger than the unique_val term that comes after it, so it decides.
+ORIGINAL_SUIT_WEIGHT = 0.0001
 FACE_NOMINAL = {Rank.ACE: 0.4, Rank.KING: 0.3, Rank.QUEEN: 0.2, Rank.JACK: 0.1}
 
 
@@ -97,6 +104,8 @@ class Card:
     edition: Edition = Edition.NONE
     seal: Seal = Seal.NONE
     extra_chips: int = 0  # permanent bonus from Hiker etc.
+    # Set only when something changes the card's suit; see original_suit.
+    _original_suit: "Suit | None" = None
     # Whether this card has already been played this ante, which is what The
     # Pillar debuffs. It lives on the card rather than on the run because
     # changing the card's *enhancement* wipes it -- see set_enhancement.
@@ -115,6 +124,16 @@ class Card:
         return self.rank.chips + self.extra_chips
 
     @property
+    def original_suit(self) -> Suit:
+        """The suit this card was built as, which a conversion does not clear.
+
+        base.suit_nominal_original in the game. It only ever differs on a
+        deck or an effect that changes a card's suit, and it is invisible
+        until two cards look identical -- then it is what separates them.
+        """
+        return self._original_suit if self._original_suit is not None else self.suit
+
+    @property
     def sort_value(self) -> float:
         """The game's get_nominal, which is what orders a hand on screen.
 
@@ -122,13 +141,16 @@ class Card:
         a simulator holding the same eight cards in a different order plays
         different ones for the same choice. Ranks come first, then face cards
         separate within the tens (Ace .4, King .3, Queen .2, Jack .1), then
-        the suit breaks what is left -- Diamonds lowest, Spades highest.
+        the suit breaks what is left -- Diamonds lowest, Spades highest --
+        and finally the suit the card was originally built as.
         """
+        original = ORIGINAL_SUIT_WEIGHT * SUIT_NOMINAL[self.original_suit]
         if self.is_stone:
             # The game multiplies the suit term by -1000 for stone cards,
             # which sinks them below everything else.
-            return self.rank.chips - 1000 * SUIT_NOMINAL[self.suit]
-        return (self.rank.chips + SUIT_NOMINAL[self.suit]
+            return (self.rank.chips - 1000 * SUIT_NOMINAL[self.suit]
+                    - 1000 * original)
+        return (self.rank.chips + SUIT_NOMINAL[self.suit] + original
                 + FACE_NOMINAL.get(self.rank, 0.0))
 
     @property
@@ -139,10 +161,24 @@ class Card:
         dominates and the rank only breaks ties within it. Everything else is
         the same as the ordinary sort.
         """
+        original = 1000 * ORIGINAL_SUIT_WEIGHT * SUIT_NOMINAL[self.original_suit]
         if self.is_stone:
-            return -1000 * SUIT_NOMINAL[self.suit] + self.rank.chips
-        return (1000 * SUIT_NOMINAL[self.suit] + self.rank.chips
+            return (-1000 * SUIT_NOMINAL[self.suit] - original
+                    + self.rank.chips)
+        return (1000 * SUIT_NOMINAL[self.suit] + original + self.rank.chips
                 + FACE_NOMINAL.get(self.rank, 0.0))
+
+    def set_suit(self, suit: Suit) -> None:
+        """Change the suit, remembering what it was.
+
+        Card:set_base keeps suit_nominal_original across the change, and that
+        remembered suit is part of what orders the hand -- so a Club turned
+        into a Spade is not interchangeable with a natural Spade even though
+        nothing on the card says so.
+        """
+        if self._original_suit is None:
+            self._original_suit = self.suit
+        self.suit = suit
 
     def counts_as_suit(self, suit: Suit) -> bool:
         """Wild cards count as every suit; stone cards have no suit."""
