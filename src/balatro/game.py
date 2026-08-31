@@ -87,6 +87,7 @@ class ActionType(Enum):
     SELL_JOKER = "sell_joker"
     SELL_CONSUMABLE = "sell_consumable"
     BUY = "buy"
+    BUY_AND_USE = "buy_and_use"
     BUY_VOUCHER = "buy_voucher"
     REROLL = "reroll"
     BUY_PACK = "buy_pack"
@@ -354,8 +355,11 @@ class GameState:
                 pile.remove(card)
 
     def add_card(self, card: Card) -> None:
+        # CardArea:emplace puts a card at the *front* of a deck, which is its
+        # bottom -- drawing takes from the back. A card added mid-round is
+        # therefore the last one you will see, not the next.
         self.full_deck.append(card)
-        self.draw_pile.append(card)
+        self.draw_pile.insert(0, card)
         for joker in self.jokers:
             if joker.name == "Hologram":
                 joker.counter += 0.25
@@ -422,6 +426,43 @@ class GameState:
         spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
         self.jokers.append(JokerInstance(spec))
         self.log(f"{source}: gained {spec.name}")
+
+    def refuses_use(self, spec: ConsumableSpec) -> bool:
+        """Card:check_use -- the one card the game refuses at the last moment.
+
+        Ankh is the only entry in it, and it disagrees with the check that
+        enables the button: can_use_consumeable asks only for a joker and a
+        limit above one, while this asks for a *free slot*. So with a full
+        row the button is live, you press it, and the game says No Room.
+        """
+        return (spec.name == "Ankh"
+                and len(self.jokers) >= self.joker_slots)
+
+    def buy_and_use(self, index: int) -> None:
+        """The shop's buy-and-use button, quirk included.
+
+        The game charges for the card, takes it out of the shop, and -- on
+        this path only -- never files it anywhere: the line that would put it
+        in a consumable slot is guarded against buy_and_use, because it is
+        about to be used and destroyed. If the use is then refused, the card
+        has been paid for and belongs to no card area at all. It is gone.
+
+        That is a bug in the game rather than a rule, but it is a bug you can
+        hit -- buy-and-use an Ankh with a full joker row and you are out the
+        money and the card -- so the simulator has to lose it too.
+        """
+        assert self.shop is not None
+        slot = self.shop.slots.pop(index)
+        self.add_money(-slot.price, f"bought {slot.label}")
+        spec = slot.consumable
+        if spec is None:                     # a joker: buy-and-use is a buy
+            if slot.joker is not None:
+                self.jokers.append(slot.joker)
+            return
+        if self.refuses_use(spec):
+            self.log(f"{spec.name}: No Room -- bought, used by nothing, lost")
+            return
+        self.use_consumable(spec, [])
 
     def use_consumable(self, spec: ConsumableSpec,
                        targets: list[Card] | None = None) -> None:
@@ -1036,12 +1077,21 @@ class GameState:
                                      max(0, self.money) // 5)
                                + gold)
 
-        # Every card returns to the deck as the round closes, which is why the
-        # engine reads fifty-two here and a simulator that only rebuilds the
-        # deck when the next round starts reads whatever was left.
+        # Every card returns to the deck as the round closes -- but in the
+        # game's order, not in the order the deck was built. The hand goes to
+        # the discard a card at a time from the front, and the discard then
+        # goes to the deck from the back, each card inserted at the deck's
+        # front, which leaves the discard's own order sitting under the cards
+        # that were never drawn.
+        #
+        # The order matters because the next thing to draw from this deck is
+        # not the next round -- that reshuffles -- but an Arcana or Spectral
+        # pack opened in the shop, whose hand is what a Tarot from that pack
+        # is used on. Rebuilding the deck in build order dealt that hand from
+        # the wrong end of it entirely.
         self.discard_pile.extend(self.hand)
         self.hand = []
-        self.draw_pile = list(self.full_deck)
+        self.draw_pile = self.discard_pile + self.draw_pile
         self.discard_pile = []
 
         self.beaten_blind = self.blind
@@ -1431,9 +1481,13 @@ class GameState:
         self.pack_options = []
         self.pack_picks_left = 0
         if self._pack_dealt_hand:
-            # draw_from_hand_to_deck: the hand the pack dealt goes back, and
-            # the shop is looking at an empty hand again.
-            self.draw_pile.extend(self.hand)
+            # draw_from_hand_to_deck: the hand the pack dealt goes back to the
+            # deck, a card at a time from the front of the hand, each one
+            # emplaced at the deck's front -- which is its bottom, since
+            # drawing takes from the back. So the next pack in the same shop
+            # deals a different hand, and this one is under everything.
+            for card in self.hand:
+                self.draw_pile.insert(0, card)
             self.hand = []
             self._pack_dealt_hand = False
         self.phase = Phase.SHOP if self.shop is not None else Phase.BLIND_SELECT
@@ -1742,6 +1796,8 @@ class GameState:
             self.cards_sold += 1
         elif t is ActionType.BUY:
             self._buy(action.index)
+        elif t is ActionType.BUY_AND_USE:
+            self.buy_and_use(action.index)
         elif t is ActionType.BUY_VOUCHER:
             assert self.shop is not None and self.shop.voucher is not None
             voucher = self.shop.voucher

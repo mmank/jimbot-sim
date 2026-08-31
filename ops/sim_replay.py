@@ -144,6 +144,39 @@ def match_hand_order(game, recorded_ids, deck_index):
         else:
             by_id.setdefault(index, []).append(card)
 
+    # A card the recording has in hand that the simulator has in its deck.
+    # This happens for the hand an Arcana or Spectral pack deals in the shop:
+    # it comes off the deck in the order the round left it, and reproducing
+    # that order exactly is the one piece of card movement still unverified
+    # -- see the note in the README. Pulling the named cards in keeps the
+    # recording useful for everything downstream of the pack instead of
+    # stopping the replay dead on a known gap.
+    if len(game.hand) == len(recorded_ids):
+        in_hand = {deck_index.get(id(c)) for c in game.hand}
+        wrong = [w for w in recorded_ids if w not in in_hand]
+        if wrong:
+            spare = [c for c in game.hand
+                     if deck_index.get(id(c)) not in set(recorded_ids)]
+            for want in wrong:
+                found = next((c for c in game.draw_pile
+                              if deck_index.get(id(c)) == want), None)
+                if found is None or not spare:
+                    break
+                loser = spare.pop()
+                game.draw_pile.remove(found)
+                game.draw_pile.append(loser)
+                game.hand[game.hand.index(loser)] = found
+            # The swaps changed what is in hand, so the index has to be
+            # rebuilt before it is used to order anything.
+            by_id = {}
+            made = []
+            for card in game.hand:
+                index = deck_index.get(id(card))
+                if index is None:
+                    made.append(card)
+                else:
+                    by_id.setdefault(index, []).append(card)
+
     ordered, leftover = [], list(game.hand)
     for want in recorded_ids:
         pool = by_id.get(want)
@@ -246,7 +279,11 @@ def apply(game, action, params, selected):
                         % (index + 1, len(packs or [])))
             game.step(Action(ActionType.BUY_PACK, index=index))
         elif area == "pack_cards":
-            game.step(Action(ActionType.PICK_PACK, index=index))
+            # A consumable taken from a pack is used on the spot, so it needs
+            # the cards it was used on. Dropping them meant The Chariot made
+            # nothing steel and every hand after it scored a third short.
+            game.step(Action(ActionType.PICK_PACK, index=index,
+                             cards=targets))
         elif area == "shop_vouchers":
             offered = game.shop.voucher if game.shop else None
             key = getattr(offered, "key", None)
@@ -285,11 +322,7 @@ def buy(game, params):
         if params.get("buy_and_use"):
             if index >= len(shop.slots):
                 return "no slot %d to buy and use" % (index + 1)
-            game.step(Action(ActionType.BUY, index=index))
-            if not game.consumables:
-                return "buying %s put nothing in a consumable slot" % wanted
-            game.step(Action(ActionType.USE_CONSUMABLE,
-                             index=len(game.consumables) - 1))
+            game.step(Action(ActionType.BUY_AND_USE, index=index))
             return None
         if index >= len(shop.slots):
             return "no slot %d; the simulator's shop has %d" % (index + 1,
