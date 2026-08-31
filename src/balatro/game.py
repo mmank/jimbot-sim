@@ -289,6 +289,10 @@ class GameState:
     # A high score the game only ever raises, and the one number that says how
     # strong a build has become rather than how far it has got.
     best_hand: int = 0
+    # G.GAME.current_round.reroll_cost, which survives the shop closing: the
+    # game resets it at the start of a round, not when the shop is left, so a
+    # shop rerolled twice still reads its climbed price afterwards.
+    reroll_cost_carried: int = 5
     cards_sold: int = 0
     glass_destroyed: int = 0
     lucky_triggers: int = 0
@@ -1295,6 +1299,9 @@ class GameState:
         # to take away. Setting the allowance afterwards handed the discards
         # straight back.
         self.hands_left, self.discards_left = self._round_allowance()
+        # round_resets.reroll_cost, restored as the round begins.
+        self.reroll_cost_carried = max(
+            0, 5 - sum(v.reroll_discount for v in self.vouchers))
 
         # round_start_bonus, applied to every tag held rather than the first:
         # three Juggle Tags are nine cards, not three. The tag was mapped and
@@ -1623,7 +1630,16 @@ class GameState:
             self.hand_levels.levels[result.hand] = max(
                 1, self.hand_levels.levels[result.hand] - 1)
 
-        ctx = score_hand(self, result, played, held)
+        # A boss can zero the hand outright. The game skips the whole scoring
+        # block when debuff_hand answers yes -- `mult = mod_mult(0);
+        # hand_chips = mod_chips(0)` -- so no joker and no card triggers at
+        # all, and the hand is simply spent.
+        if self.hand_is_debuffed(result.hand, played):
+            self.log("%s debuffed by %s: scores nothing"
+                     % (result.hand.label, boss.name if boss else "the blind"))
+            ctx = None
+        else:
+            ctx = score_hand(self, result, played, held)
 
         # The run's hand count goes up once the hand has scored, not before:
         # the game raises it alongside draw_from_play_to_discard, after the
@@ -1636,16 +1652,17 @@ class GameState:
         # Séance, Vagabond -- run once the hand has resolved, so they can ask
         # what it turned out to be.
         for joker in list(self.jokers):
-            if joker.spec.after_hand is not None:
+            if joker.spec.after_hand is not None and ctx is not None:
                 joker.spec.after_hand(joker, ctx)
-        gained = ctx.score
+        gained = ctx.score if ctx is not None else 0
         self.chips_scored += gained
         # check_and_set_high_score only ever raises this.
         self.best_hand = max(self.best_hand, int(gained))
-        self.log(f"{result.hand.label} scored {gained} "
-                 f"({ctx.chips:g} x {ctx.mult:g}) -> {self.chips_scored}")
-        if ctx.money_gained:
-            self.add_money(ctx.money_gained, "cards")
+        if ctx is not None:
+            self.log(f"{result.hand.label} scored {gained} "
+                     f"({ctx.chips:g} x {ctx.mult:g}) -> {self.chips_scored}")
+            if ctx.money_gained:
+                self.add_money(ctx.money_gained, "cards")
 
         boss = self.boss
         if boss is not None:
@@ -2341,6 +2358,9 @@ class GameState:
                 joker.spec.on_shop_end(joker, self)
         # The blind index and the ante moved on at cash-out; leaving the shop
         # only chooses which blind is now on offer.
+        if self.shop is not None:
+            self.reroll_cost_carried = self.shop.reroll_cost(
+                sum(v.reroll_discount for v in self.vouchers))
         self.shop = None
         self._next_blind()
 
@@ -2622,34 +2642,54 @@ class GameState:
                 and all(a < b for a, b in zip(cards, cards[1:])))
 
     def _restriction_ok(self, cards: tuple[int, ...]) -> bool:
+        """Whether a play is *legal*, which is narrower than it looks.
+
+        Only Cerulean Bell belongs here. It sets ability.forced_selection on
+        a card and keeps it highlighted, so the game will genuinely not let
+        the hand go without it.
+
+        The Psychic, The Eye and The Mouth used to be here too, and they are
+        not legality at all: Blind:debuff_hand answers "is this hand
+        debuffed", and a debuffed hand is played, consumes a hand, counts as
+        played, and scores nothing. Forbidding the play instead gave the
+        simulator a smaller action space than the engine -- a policy trained
+        against the engine would offer a four-card hand into The Psychic,
+        which the engine accepts and zeroes, and the simulator refuse it.
+        """
         boss = self.boss
         if boss is None:
             return True
-        if boss.min_cards_played and len(cards) != boss.min_cards_played:
-            return False
         if boss.forces_a_card and self.forced_card is not None:
-            # Cerulean Bell nominates a card and every hand played or
-            # discarded has to include it.
             if not any(self.hand[i] is self.forced_card for i in cards
                        if i < len(self.hand)):
                 return False
-        if boss.no_repeat_hand or boss.lock_first_hand_type:
-            hand = self.evaluate_selection([self.hand[i] for i in cards]).hand
-            if boss.no_repeat_hand and hand in self.hands_played_this_round:
-                return False
-            if (boss.lock_first_hand_type and self.hands_played_this_round
-                    and hand not in self.hands_played_this_round):
-                return False
         return True
+
+    def hand_is_debuffed(self, hand: HandType, cards: list) -> bool:
+        """Blind:debuff_hand -- the boss zeroing a hand it dislikes.
+
+        The Psychic wants five cards, The Eye a hand type not yet played this
+        round, The Mouth the same type as the round's first. Failing any of
+        them is allowed; it just scores nothing.
+        """
+        boss = self.boss
+        if boss is None or (self.blind is not None and self.blind.disabled):
+            return False
+        if boss.min_cards_played and len(cards) < boss.min_cards_played:
+            return True
+        if boss.no_repeat_hand and hand in self.hands_played_this_round:
+            return True
+        if (boss.lock_first_hand_type and self.hands_played_this_round
+                and hand not in self.hands_played_this_round):
+            return True
+        return False
 
     def _restriction_satisfiable(self) -> bool:
         """Whether any subset satisfies the boss restriction (see _play_actions)."""
         boss = self.boss
         if boss is None:
             return True
-        if boss.min_cards_played and len(self.hand) < boss.min_cards_played:
-            return False
-        if not (boss.no_repeat_hand or boss.lock_first_hand_type):
+        if not boss.forces_a_card:
             return True
         key = (len(self.hand), frozenset(self.hands_played_this_round),
                tuple(c.uid for c in self.hand))

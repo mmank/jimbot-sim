@@ -261,6 +261,17 @@ function api.enter_round_eval()
   if G.STATE_COMPLETE then return end
   G.STATE_COMPLETE = true
   G.GAME.facing_blind = nil
+  -- Clear last round's total before this round's rows are built.
+  --
+  -- current_round.dollars is written by add_round_eval_row and never reset,
+  -- so between rounds it holds whatever the previous one paid. cash_out pays
+  -- exactly that field, and waiting for it to be non-zero is satisfied
+  -- instantly from round two on -- by the wrong number. Measured on one
+  -- seed: a round whose rows read blind1=4, hands=1, bottom=5 paid 7,
+  -- because 7 was the round before. Clearing it here rather than in cash_out
+  -- so that the wait is for a value this round actually produced; clearing
+  -- it there would throw away rows that had already been built.
+  G.GAME.current_round.dollars = 0
   if G.buttons then G.buttons:remove(); G.buttons = nil end
   if not G.round_eval then
     G.round_eval = UIBox{
@@ -302,6 +313,9 @@ function api.cash_out()
   -- so the guard below could not fire either, and the field was filled in
   -- immediately afterwards with the amount nobody received. A run reached
   -- its first shop on the deck's starting stake alone.
+  --
+  -- enter_round_eval clears the field before the rows are built, so this
+  -- waits for a total this round produced rather than the last one's.
   api.pump_until(function()
     return (G.GAME.current_round.dollars or 0) > 0
   end, 600)
