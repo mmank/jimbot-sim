@@ -104,6 +104,12 @@ class JokerInstance:
     edition: Edition = Edition.NONE
     counter: float = 0.0
     eternal: bool = False
+    # The stake's stickers. Perishable counts rounds down and debuffs the
+    # joker at zero; rental takes three dollars at the end of every round.
+    perishable: bool = False
+    perish_tally: int = 0
+    rental: bool = False
+    debuffed: bool = False
     # Jokers that count hands measure from when they were acquired, not from
     # the start of the run -- the game stores this as hands_played_at_create.
     hands_at_create: int = 0

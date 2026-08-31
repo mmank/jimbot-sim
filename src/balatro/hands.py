@@ -25,7 +25,15 @@ class HandType(IntEnum):
 
     @property
     def label(self) -> str:
-        return self.name.replace("_", " ").title()
+        """The game's own name for the hand, from G.handlist.
+
+        Title-casing the enum gives "Five Of A Kind" where the game says
+        "Five of a Kind", and the name is not cosmetic: it is the key into
+        G.GAME.hands, so anything comparing levels or plays by name misses.
+        """
+        words = self.name.replace("_", " ").title().split()
+        return " ".join(w if i == 0 or w not in ("Of", "A") else w.lower()
+                        for i, w in enumerate(words))
 
 
 # level 1 (chips, mult) and the per-level increment (chips, mult)

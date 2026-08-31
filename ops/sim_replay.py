@@ -215,6 +215,8 @@ def apply(game, action, params, selected):
         game.sort_hand("suit")
     elif action == "cash_out":
         pass                       # the simulator cashes out by itself
+    elif action == "skip_booster":
+        game.step(Action(ActionType.SKIP_PACK))
     elif action == "toggle_shop":
         game.step(Action(ActionType.LEAVE_SHOP))
     elif action == "reroll_shop":
@@ -314,7 +316,8 @@ def main() -> None:
 
     payload = json.loads(open(args.recording).read())
     actions = merge_buy_and_use(payload["actions"])
-    game = GameState(seed=payload["seed"], deck=payload["deck"])
+    game = GameState(seed=payload["seed"], deck=payload["deck"],
+                     stake=payload.get("stake") or 1)
     if payload.get("money") is not None:
         game.money = payload["money"]
 

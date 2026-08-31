@@ -2,26 +2,41 @@
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from enum import Enum
 
 from .cards import Suit
 
-# White-stake base chip requirement per ante.
-ANTE_BASE: dict[int, int] = {
-    0: 100, 1: 300, 2: 800, 3: 2000, 4: 5000,
-    5: 11000, 6: 20000, 7: 35000, 8: 50000,
+# The chip requirement per ante, one row per scaling. get_blind_amount keeps
+# three tables and picks by G.GAME.modifiers.scaling, which the stake sets:
+# 1 up to Green, 2 from Green, 3 from Purple. The higher rows are steeper
+# everywhere, not just at the top -- ante 3 is 2000, 2600 or 3200.
+ANTE_BASE: dict[int, list[int]] = {
+    1: [300, 800, 2000, 5000, 11000, 20000, 35000, 50000],
+    2: [300, 900, 2600, 8000, 20000, 36000, 60000, 100000],
+    3: [300, 1000, 3200, 9000, 25000, 60000, 110000, 200000],
 }
 
 
-def ante_base_chips(ante: int) -> int:
-    """Endless mode keeps growing roughly geometrically past ante 8."""
-    if ante in ANTE_BASE:
-        return ANTE_BASE[ante]
-    chips = ANTE_BASE[8]
-    for _ in range(ante - 8):
-        chips = int(chips * 1.6)
-    return chips
+def ante_base_chips(ante: int, scaling: int = 1) -> int:
+    """The chips an ante asks for, exactly as get_blind_amount computes them.
+
+    Past ante eight the game leaves the table behind for a formula, and then
+    rounds the result down to two significant figures -- `amount - amount %
+    10^floor(log10(amount)-1)`. Multiplying by 1.6 in a loop, which is what
+    this did, drifts from it immediately.
+    """
+    amounts = ANTE_BASE.get(scaling, ANTE_BASE[1])
+    if ante < 1:
+        return 100
+    if ante <= 8:
+        return amounts[ante - 1]
+    a, b, c, k = amounts[7], 1.6, ante - 8, 0.75
+    d = 1 + 0.2 * (ante - 8)
+    amount = math.floor(a * (b + (k * c) ** d) ** c)
+    return amount - amount % (10 ** math.floor(math.log10(amount) - 1))
 
 
 class BlindKind(Enum):
@@ -124,7 +139,8 @@ class Blind:
 
 
 def make_blind(kind: BlindKind, ante: int, boss: BossEffect | None = None,
-               ante_scaling: float = 1.0) -> Blind:
+               ante_scaling: float = 1.0, scaling: int = 1,
+               no_reward: bool = False) -> Blind:
     """The game: get_blind_amount(ante) * mult * ante_scaling.
 
     ante_scaling comes from the deck -- the Plasma Deck doubles every target
@@ -134,8 +150,8 @@ def make_blind(kind: BlindKind, ante: int, boss: BossEffect | None = None,
     return Blind(
         kind=kind,
         ante=ante,
-        target=int(ante_base_chips(ante) * mult * ante_scaling),
-        reward=BLIND_REWARD[kind],
+        target=int(ante_base_chips(ante, scaling) * mult * ante_scaling),
+        reward=0 if no_reward else BLIND_REWARD[kind],
         boss=boss,
     )
 

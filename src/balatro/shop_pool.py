@@ -458,7 +458,8 @@ def pack_contents(rng: RunRng, kind: str, cards: int, ante: int,
                   pool_flags: Iterable[str] = (),
                   soul_used: bool = False, black_hole_used: bool = False,
                   telescope: bool = False, omen_globe: bool = False,
-                  most_played_planet: str | None = None) -> list[dict]:
+                  most_played_planet: str | None = None,
+                  stickers: dict | None = None) -> list[dict]:
     """Everything a pack offers, in the order the game creates it.
 
     The simulator drew pack contents uniformly from whole card sets, which is
@@ -497,8 +498,11 @@ def pack_contents(rng: RunRng, kind: str, cards: int, ante: int,
         elif kind == "Buffoon":
             key = draw_joker(rng, ante, owned_enhancements, made,
                              showman, pool_flags=pool_flags, append=append)
+            # A pack joker takes the same sticker polls a shop joker does,
+            # under the pack's own pool names.
+            marks = poll_stickers(rng, ante, in_pack=True, **(stickers or {}))
             edition = poll_edition(rng, "edi%s%d" % (append, ante))
-            card = {"set": "Joker", "key": key, "edition": edition}
+            card = {"set": "Joker", "key": key, "edition": edition, **marks}
         elif kind == "Standard":
             card = _standard_card(rng, ante)
         else:
@@ -555,3 +559,36 @@ def draw_voucher(rng: RunRng, ante: int, redeemed: Iterable[str] = (),
 KEY_BY_JOKER_NAME = {name: key for key, name in NAME_BY_JOKER_KEY.items()}
 KEY_BY_CONSUMABLE_NAME = {name: key
                           for key, name in NAME_BY_CONSUMABLE_KEY.items()}
+
+
+# --------------------------------------------------------------------------
+# stickers
+# --------------------------------------------------------------------------
+
+def poll_stickers(rng: RunRng, ante: int, in_pack: bool = False,
+                  eternals: bool = False, perishables: bool = False,
+                  rentals: bool = False) -> dict:
+    """Eternal, perishable and rental, as create_card polls them.
+
+    Every joker made for a shop or a Buffoon pack takes this poll, and the
+    first draw happens *whether or not any sticker is enabled* -- the game
+    reads the roll into a local and only then asks whether the stake allows
+    anything. So a White-stake run still spends it, and a simulator that
+    skips it stands one draw behind on that pool for the rest of the run.
+    The rental roll is different: it sits behind an `and`, so it is only
+    spent when rentals are on.
+
+    The names change inside a pack: "packetper" and "packssjr" rather than
+    "etperpoll" and "ssjr".
+    """
+    out = {"eternal": False, "perishable": False, "rental": False}
+    poll = rng.pseudorandom("%s%d" % ("packetper" if in_pack else "etperpoll",
+                                      ante))
+    if eternals and poll > 0.7:
+        out["eternal"] = True
+    elif perishables and 0.4 < poll <= 0.7:
+        out["perishable"] = True
+    if rentals and rng.pseudorandom(
+            "%s%d" % ("packssjr" if in_pack else "ssjr", ante)) > 0.7:
+        out["rental"] = True
+    return out

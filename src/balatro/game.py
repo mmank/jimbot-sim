@@ -56,6 +56,9 @@ BASE_HAND_SIZE = 8
 BASE_HANDS = 4
 BASE_DISCARDS = 3
 BASE_INTEREST_CAP = 5
+# G.GAME.perishable_rounds and G.GAME.rental_rate.
+PERISHABLE_ROUNDS = 5
+RENTAL_RATE = 3
 WIN_ANTE = 8
 
 
@@ -253,6 +256,12 @@ class GameState:
     _pack_dealt_hand: bool = False
     # G.GAME.shop_free -- the Coupon Tag, which lasts for the one shop.
     shop_free: bool = False
+    # G.GAME.last_tarot_planet -- the key The Fool copies.
+    last_tarot_planet: str = ""
+    # The stake, one to eight. It is not a difficulty label: it changes the
+    # chips every ante asks for, the discards a round starts with, whether
+    # the Small Blind pays, and what stickers the shop puts on its jokers.
+    stake: int = 1
     pack_options: list = field(default_factory=list)
     pack_picks_left: int = 0
 
@@ -326,6 +335,15 @@ class GameState:
             self.log(f"{source}: {'+' if amount >= 0 else '-'}${abs(amount)}")
 
     def destroy_joker(self, joker: JokerInstance, reason: str = "") -> None:
+        """Remove a joker, unless it is eternal.
+
+        Nothing removes an eternal joker: not selling it, not Hex, not Ankh,
+        not Madness, not going extinct. The game checks at each call site and
+        the checks are easy to miss one of, so the gate is here instead --
+        anything that wants a joker gone has to come through this.
+        """
+        if joker.eternal:
+            return
         if joker in self.jokers:
             self.jokers.remove(joker)
             self.log(f"{joker.name} destroyed{f' ({reason})' if reason else ''}")
@@ -404,6 +422,23 @@ class GameState:
         spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
         self.jokers.append(JokerInstance(spec))
         self.log(f"{source}: gained {spec.name}")
+
+    def use_consumable(self, spec: ConsumableSpec,
+                       targets: list[Card] | None = None) -> None:
+        """Apply a consumable and remember it if it was a Tarot or a Planet.
+
+        The remembering is what The Fool reads, and it was never written --
+        the field existed and nothing ever set it, so The Fool copied nothing
+        for the whole of a run. The game records it after the effect has run,
+        which is why using The Fool leaves The Fool as the last one used and
+        the game refuses to let you use it twice in a row.
+        """
+        if spec.apply is not None:
+            spec.apply(self, list(targets or []))
+        self.log(f"Used {spec.name}")
+        if spec.kind in (ConsumableKind.TAROT, ConsumableKind.PLANET):
+            self.last_tarot_planet = shop_pool.KEY_BY_CONSUMABLE_NAME.get(
+                spec.name, "")
 
     def add_joker_copy(self, joker: JokerInstance, source: str = "") -> None:
         """A copy of a joker already held, editions and all."""
@@ -502,6 +537,35 @@ class GameState:
             keys.add(joker_key(name) or cons_key(name))
         keys.discard(None)
         return keys
+
+    @property
+    def sticker_rules(self) -> dict:
+        """Which stickers the stake lets the shop put on a joker."""
+        return {"eternals": self.stake >= 4, "perishables": self.stake >= 7,
+                "rentals": self.stake >= 8}
+
+    def _apply_stickers(self, joker: JokerInstance, price: int,
+                        in_pack: bool = False) -> int:
+        """Poll a shop joker's stickers and return what it now costs.
+
+        The first poll happens whether or not any sticker is enabled, so it
+        is made on every stake -- see shop_pool.poll_stickers. A rental costs
+        a dollar however expensive the joker is, which is six dollars a
+        recording said the run still had.
+        """
+        stickers = shop_pool.poll_stickers(self.rng, self.ante, in_pack,
+                                           **self.sticker_rules)
+        joker.eternal = stickers["eternal"]
+        joker.perishable = stickers["perishable"]
+        joker.rental = stickers["rental"]
+        if joker.perishable:
+            joker.perish_tally = PERISHABLE_ROUNDS
+        return 1 if joker.rental else price
+
+    @property
+    def blind_scaling(self) -> int:
+        """G.GAME.modifiers.scaling: 1, 2 from Green stake, 3 from Purple."""
+        return 3 if self.stake >= 6 else 2 if self.stake >= 3 else 1
 
     @property
     def edition_rate(self) -> float:
@@ -605,6 +669,17 @@ class GameState:
         self.joker_slots += config.get("joker_slot", 0)
         self.extra_consumable_slots += config.get("consumable_slot", 0)
 
+        # A few decks change the cards themselves rather than the numbers,
+        # and the game does it by walking the deck it has just built rather
+        # than by building a different one -- so a card keeps its place, and
+        # its id, and changes suit where it stands.
+        if self.deck == "Checkered Deck":
+            for card in self.full_deck:
+                if card.suit is Suit.CLUBS:
+                    card.suit = Suit.SPADES
+                elif card.suit is Suit.DIAMONDS:
+                    card.suit = Suit.HEARTS
+
     def _roll_ante_tags(self) -> None:
         """Both skip rewards for the ante, rolled together.
 
@@ -633,7 +708,9 @@ class GameState:
         boss = self._pick_boss() if kind is BlindKind.BOSS else None
         self.blind = make_blind(
             kind, self.ante, boss,
-            ante_scaling=self.deck_config.get("ante_scaling", 1))
+            ante_scaling=self.deck_config.get("ante_scaling", 1),
+            scaling=self.blind_scaling,
+            no_reward=(kind is BlindKind.SMALL and self.stake >= 2))
         # The counters, not the cards. A recording's first snapshot reads
         # hands_left 4 and discards_left 3 with hand_size 0 and an empty hand
         # -- nothing is dealt until the blind is taken, but the allowance is
@@ -722,7 +799,9 @@ class GameState:
         hands = BASE_HANDS + sum(v.extra_hands for v in self.vouchers)
         hands += sum(j.spec.extra_hands for j in self.jokers)
         hands += config.get("hands", 0)
-        discards = BASE_DISCARDS + sum(v.extra_discards for v in self.vouchers)
+        # Blue stake and up start a round with one discard fewer.
+        discards = BASE_DISCARDS - (1 if self.stake >= 5 else 0)
+        discards += sum(v.extra_discards for v in self.vouchers)
         discards += sum(j.spec.extra_discards for j in self.jokers)
         discards += config.get("discards", 0)
         boss = self.boss
@@ -1019,6 +1098,18 @@ class GameState:
             if joker.spec.round_end is not None:
                 joker.spec.round_end(joker, self)
 
+        # The stake's stickers are paid for here: a rental takes three
+        # dollars every round, and a perishable counts one round closer to
+        # being switched off for good.
+        for joker in self.jokers:
+            if joker.rental:
+                self.add_money(-RENTAL_RATE, f"{joker.name} rental")
+            if joker.perishable and joker.perish_tally > 0:
+                joker.perish_tally -= 1
+                if joker.perish_tally == 0:
+                    joker.debuffed = True
+                    self.log(f"{joker.name} perished")
+
         # Cashing out is also where the round's counters go back: the engine
         # already reads a full complement of hands and discards, and no chips
         # scored, before the shop opens.
@@ -1079,8 +1170,9 @@ class GameState:
                 self.rng, "edi%s%d" % (shop_pool.SHOP_APPEND, self.ante),
                 edition_rate=self.edition_rate)]
             joker = JokerInstance(spec, edition=edition)
-            return ShopSlot("joker", self.price(shop_mod.joker_price(spec, edition)),
-                            joker=joker)
+            price = self._apply_stickers(
+                joker, self.price(shop_mod.joker_price(spec, edition)))
+            return ShopSlot("joker", price, joker=joker)
         if kind in ("Tarot", "Planet", "Spectral"):
             spec = cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]]
             return ShopSlot("consumable", self.price(spec.cost), consumable=spec)
@@ -1295,7 +1387,8 @@ class GameState:
             self.rng, spec.kind.value.title(), spec.options, self.ante,
             played_hands=played, seen=self.seen_centers,
             seen_jokers=self.seen_centers, owned_enhancements=owned,
-            showman=any(j.name == "Showman" for j in self.jokers))
+            showman=any(j.name == "Showman" for j in self.jokers),
+            stickers=self.sticker_rules)
 
         self.pack_options = []
         for entry in contents:
@@ -1315,8 +1408,14 @@ class GameState:
         """One entry from shop_pool.pack_contents, as a simulator object."""
         if entry["set"] == "Joker":
             spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[entry["key"]]]
-            return JokerInstance(spec,
-                                 edition=_EDITION_BY_NAME[entry["edition"]])
+            joker = JokerInstance(spec,
+                                  edition=_EDITION_BY_NAME[entry["edition"]])
+            joker.eternal = entry.get("eternal", False)
+            joker.perishable = entry.get("perishable", False)
+            joker.rental = entry.get("rental", False)
+            if joker.perishable:
+                joker.perish_tally = PERISHABLE_ROUNDS
+            return joker
         if entry["set"] == "Playing":
             card = Card(_RANK_BY_CODE[entry["rank"]], _SUIT_BY_CODE[entry["suit"]])
             if entry["enhancement"]:
@@ -1355,9 +1454,7 @@ class GameState:
             # one place out.
             targets = [self.hand[i] for i in card_indices
                        if i < len(self.hand)]
-            if choice.apply is not None:
-                choice.apply(self, targets)
-            self.log(f"Pack: used {choice.name}")
+            self.use_consumable(choice, targets)
         self.pack_options.pop(index)
         self.pack_picks_left -= 1
         if self.pack_picks_left <= 0 or not self.pack_options:
@@ -1627,9 +1724,7 @@ class GameState:
         elif t is ActionType.USE_CONSUMABLE:
             spec = self.consumables.pop(action.index)
             targets = [self.hand[i] for i in action.cards]
-            if spec.apply is not None:
-                spec.apply(self, targets)
-            self.log(f"Used {spec.name}")
+            self.use_consumable(spec, targets)
         elif t is ActionType.SELL_JOKER:
             joker = self.jokers.pop(action.index)
             self.add_money(joker.sell_value, f"sold {joker.name}")

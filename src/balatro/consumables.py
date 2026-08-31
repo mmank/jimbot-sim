@@ -261,9 +261,13 @@ def by_kind(kind: ConsumableKind) -> list[ConsumableSpec]:
 
 def _fool(game: "GameState", cards: list[Card]) -> None:
     """Copy the last Tarot or Planet used this run, itself excepted."""
-    last = getattr(game, "last_tarot_planet", None)
-    if last and last in REGISTRY:
-        game.add_consumables([REGISTRY[last]])
+    from .shop_pool import NAME_BY_CONSUMABLE_KEY
+    last = getattr(game, "last_tarot_planet", "")
+    if not last or last == "c_fool":
+        return
+    name = NAME_BY_CONSUMABLE_KEY.get(last)
+    if name in REGISTRY:
+        game.add_consumables([REGISTRY[name]])
 
 
 def _grim(game: "GameState", cards: list[Card]) -> None:
@@ -286,10 +290,17 @@ def _incantation(game: "GameState", cards: list[Card]) -> None:
 
 
 def _cryptid(game: "GameState", cards: list[Card]) -> None:
-    """Two copies of a chosen card."""
+    """Two copies of a chosen card, into the hand.
+
+    G.hand:emplace, not into the deck to be drawn later -- the copies are
+    there to be played with the hand they came from. They join the deck too,
+    so they come round again in later rounds.
+    """
     for card in cards:
         for _ in range(2):
-            game.add_card(card.copy())
+            copy = card.copy()
+            game.full_deck.append(copy)
+            game.hand.append(copy)
 
 
 def _ankh(game: "GameState", cards: list[Card]) -> None:
@@ -303,7 +314,7 @@ def _ankh(game: "GameState", cards: list[Card]) -> None:
         return
     chosen = game.rng.choice("ankh_choice", game.jokers)
     for joker in list(game.jokers):
-        if joker is not chosen and not joker.eternal:
+        if joker is not chosen:
             game.destroy_joker(joker, "Ankh")
     game.add_joker_copy(chosen, "Ankh")
 
@@ -321,7 +332,7 @@ def _hex(game: "GameState", cards: list[Card]) -> None:
     chosen = game.rng.choice("hex", plain)
     chosen.edition = Edition.POLYCHROME
     for joker in list(game.jokers):
-        if joker is not chosen and not joker.eternal:
+        if joker is not chosen:
             game.destroy_joker(joker, "Hex")
     game.log("Hex: %s is now polychrome" % chosen.name)
 
