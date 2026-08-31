@@ -1833,6 +1833,20 @@ class GameState:
             seen_jokers=self.seen_centers, played_hands=played,
             owned_enhancements={"m_%s" % e for e in owned})
 
+        # Illusion's first roll costs a draw on *every* slot, whatever the
+        # slot turns out to be. The game decides Enhanced-or-Base inside the
+        # table of candidate types, and Lua builds that table in full before
+        # picking from it -- so the draw is made and then thrown away for a
+        # Joker or a Tarot. Rolling it only for playing cards, which is what
+        # this did, under-draws by one per non-card slot and walks the
+        # illusion pool out of step for the rest of the run.
+        #
+        # Counted on the engine over twelve slots: no Illusion, no draws at
+        # all; with Illusion, thirteen draws for twelve slots, the extra one
+        # belonging to the single playing card among them.
+        illusion = any(v.key == "v_illusion" for v in self.vouchers)
+        enhanced = illusion and self.rng.pseudorandom("illusion") > 0.6
+
         if kind == "Joker":
             spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
             # "edi" + the append + the ante. The ante was missing, so every
@@ -1859,8 +1873,6 @@ class GameState:
         # shop card is Enhanced rather than Base six times in ten, and may
         # carry an edition and a seal besides. Without it the roll is not
         # made at all -- the game short-circuits on used_vouchers.
-        illusion = any(v.key == "v_illusion" for v in self.vouchers)
-        enhanced = illusion and self.rng.pseudorandom("illusion") > 0.6
         enhancement = Enhancement.NONE
         if enhanced:
             key = self.rng.random_element(
@@ -2077,7 +2089,14 @@ class GameState:
                 self.shop.slots.append(self._modify_shop_slot(slot))
 
         if voucher.ante_shift:
-            self.ante = max(1, self.ante + voucher.ante_shift)
+            # No floor. ease_ante is a bare addition, and the ante really does
+            # go to zero and below -- measured: two Hieroglyphs at ante one
+            # leave it at minus one, with get_blind_amount returning 100 for
+            # anything under one. Clamping at one was not a safety net but a
+            # divergence: it kept the blind at 300 where the engine asks 100,
+            # and it named every pool for the wrong ante, so the whole shop
+            # stream went with it.
+            self.ante += voucher.ante_shift
         self.hands_left += voucher.extra_hands
         self.discards_left += voucher.extra_discards
 
