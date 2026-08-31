@@ -277,6 +277,10 @@ class GameState:
     # G.GAME.orbital_choices[ante][blind]. Rolled once per ante and blind and
     # remembered, so a Double Tag's copy levels the same hand as the original.
     orbital_choices: dict = field(default_factory=dict)
+    # G.GAME.round_resets.temp_handsize -- the Juggle Tag's three cards. It
+    # lasts one round and is handed back when that round ends, and it stacks:
+    # round_start_bonus is applied to every tag held, without breaking.
+    temp_hand_size: int = 0
     cards_sold: int = 0
     glass_destroyed: int = 0
     lucky_triggers: int = 0
@@ -700,10 +704,21 @@ class GameState:
         tag = TAG_BY_KEY.get(key)
         if tag is None:
             return
+
+        # add_tag walks the whole tag list firing `tag_add` and never breaks,
+        # so *every* Double Tag held copies the incoming one -- not just the
+        # first. Each sets triggered before its copy is queued, so the copies
+        # do not cascade into each other. Consuming one Double at a time was
+        # the difference between one spare and a row of them, and a row is
+        # reachable: sell a stack of Diet Colas, or play the Anaglyph Deck,
+        # which hands over a Double every time a boss falls.
+        doubles = self.tags.count(Tag.DOUBLE) if tag is not Tag.DOUBLE else 0
+        for _ in range(doubles):
+            self.tags.remove(Tag.DOUBLE)
+
         self.tags.append(tag)
         self.log("gained %s" % tag.value)
-        if tag is not Tag.DOUBLE and Tag.DOUBLE in self.tags:
-            self.tags.remove(Tag.DOUBLE)
+        for _ in range(doubles):
             self.tags.append(tag)
             self.log("Double Tag: and another %s" % tag.value)
 
@@ -1009,6 +1024,7 @@ class GameState:
         size += sum(int(j.counter) if j.spec.hand_size_from_counter
                     else j.spec.hand_size for j in self.active_jokers)
         size += self.deck_config.get("hand_size", 0)
+        size += self.temp_hand_size
         if self.boss is not None:
             size += self.boss.hand_size_delta
         # CardArea:update floors this at *zero*, not one -- math.max(0,
@@ -1236,6 +1252,14 @@ class GameState:
         # to take away. Setting the allowance afterwards handed the discards
         # straight back.
         self.hands_left, self.discards_left = self._round_allowance()
+
+        # round_start_bonus, applied to every tag held rather than the first:
+        # three Juggle Tags are nine cards, not three. The tag was mapped and
+        # then read by nothing, so it had been worth zero.
+        while Tag.JUGGLE in self.tags:
+            self.tags.remove(Tag.JUGGLE)
+            self.temp_hand_size += 3
+            self.log("Juggle Tag: +3 hand size for this round")
 
         # Selecting the blind is its own moment, before any card is dealt:
         # Marble Joker's Stone card is in the deck for the first draw, and
@@ -1763,6 +1787,28 @@ class GameState:
         self.draw_pile = self.discard_pile + self.draw_pile
         self.discard_pile = []
 
+        # An Investment Tag pays as a row on the cash-out screen rather than
+        # the instant the boss falls, and every one held pays: the game's eval
+        # loop walks the whole tag list and adds a row for each.
+        # The Anaglyph Deck hands over a Double Tag every time a boss falls,
+        # from Back:trigger_effect on the same 'eval' the Investment Tag reads.
+        # That is where an arbitrarily long tag stack comes from without a
+        # single Diet Cola: one Double a boss, every one of them copying
+        # whatever tag arrives next.
+        if (self.blind.kind is BlindKind.BOSS
+                and self.deck_config.get("double_tag_after_boss")):
+            self.add_tag_by_key("tag_double")
+
+        if self.blind.kind is BlindKind.BOSS:
+            while Tag.INVESTMENT in self.tags:
+                self.tags.remove(Tag.INVESTMENT)
+                self.pending_payout += 25
+                self.log("Investment Tag: +$25 on the cash-out")
+
+        # The Juggle Tag's cards go back as the round closes -- a loan for one
+        # round, not a permanent gain.
+        self.temp_hand_size = 0
+
         self.beaten_blind = self.blind
         # Beating a boss puts Campfire back to X1.
         if self.blind.kind is BlindKind.BOSS:
@@ -1875,9 +1921,6 @@ class GameState:
         was_boss = self.beaten_was_boss
         self.beaten_blind = None
         if was_boss:
-            if Tag.INVESTMENT in self.tags:
-                self.tags.remove(Tag.INVESTMENT)
-                self.add_money(25, "Investment Tag")
             for card in self.full_deck:
                 card.played_this_ante = False
             if self.ante >= WIN_ANTE:
@@ -2039,22 +2082,27 @@ class GameState:
                                 for j in self.active_jokers)
         self._fill_shop(shop)
         shop.packs = [self._roll_pack() for _ in range(2)]
-        shop.voucher = (shop_mod.VOUCHER_BY_KEY[self.round_voucher]
-                        if self.round_voucher else None)
+        shop.vouchers = ([shop_mod.VOUCHER_BY_KEY[self.round_voucher]]
+                         if self.round_voucher else [])
 
-        # A Voucher Tag adds a second voucher beside the round's own, drawn
-        # under 'Voucher_fromtag' rather than the ante's pool name, and with
-        # the one already on offer withheld so the shop cannot show the same
-        # voucher twice.
-        if Tag.VOUCHER in self.tags:
+        # Every Voucher Tag held adds one more, drawn under 'Voucher_fromtag'
+        # rather than the ante's pool name. Each draw withholds the vouchers
+        # already in the row -- the game reads G.shop_vouchers.cards for that,
+        # so the exclusion grows as the row does and none can appear twice.
+        #
+        # There is no cap on how many tags are waiting. Diet Cola sells into a
+        # free Double Tag, every Double Tag copies the next tag that is not
+        # another Double, and add_tag walks the whole list without breaking --
+        # so selling a stack of Colas and then taking one Voucher Tag fills
+        # the row with as many vouchers as there were Colas, plus one.
+        while Tag.VOUCHER in self.tags:
             self.tags.remove(Tag.VOUCHER)
-            on_offer = {self.round_voucher} if self.round_voucher else set()
             key = shop_pool.draw_voucher(
                 self.rng, self.ante,
                 redeemed=[v.key for v in self.vouchers],
-                on_offer=on_offer, from_tag=True)
-            shop.extra_voucher = shop_mod.VOUCHER_BY_KEY[key]
-            self.log("Voucher Tag: %s as well" % shop.extra_voucher.name)
+                on_offer=[v.key for v in shop.vouchers], from_tag=True)
+            shop.vouchers.append(shop_mod.VOUCHER_BY_KEY[key])
+            self.log("Voucher Tag: %s as well" % shop.vouchers[-1].name)
 
         # The D6 Tag makes this shop's rerolls free from the first one --
         # temp_reroll_cost = 0 -- and fires once, on the shop opening.
@@ -2704,14 +2752,10 @@ class GameState:
             assert self.shop is not None
             # index names which of the shop's vouchers, since a Voucher Tag
             # puts a second one beside the round's own.
-            voucher = self.shop.vouchers_on_offer()[action.index]
+            voucher = self.shop.vouchers.pop(action.index)
             self.add_money(-self.price(voucher.cost),
                            f"bought {voucher.name}")
             self.vouchers.append(voucher)
-            if voucher is self.shop.voucher:
-                self.shop.voucher_bought = True
-            else:
-                self.shop.extra_voucher_bought = True
             self._redeem_voucher(voucher)
         elif t is ActionType.REROLL:
             assert self.shop is not None

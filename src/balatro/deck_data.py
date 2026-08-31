@@ -11,7 +11,7 @@ than replacing them.
 # display name -> (key, {config})
 DECK_DATA = {
     'Abandoned Deck': ('b_abandoned', {'remove_faces': True}),
-    'Anaglyph Deck': ('b_anaglyph', {}),
+    'Anaglyph Deck': ('b_anaglyph', {'double_tag_after_boss': True}),
     'Black Deck': ('b_black', {'hands': -1, 'joker_slot': 1}),
     'Blue Deck': ('b_blue', {'hands': 1}),
     'Challenge Deck': ('b_challenge', {}),

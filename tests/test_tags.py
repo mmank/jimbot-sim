@@ -249,3 +249,103 @@ def test_the_shop_tags_are_spent_when_they_fire():
 def test_the_immediate_list_holds_only_tags_that_pay_on_the_skip():
     assert set(IMMEDIATE_TAGS) == {Tag.HANDY, Tag.GARBAGE, Tag.SPEED,
                                    Tag.TOP_UP, Tag.ORBITAL}
+
+
+# ------------------------------------------------------------------
+# stacking, which is not a corner case
+# ------------------------------------------------------------------
+
+def test_every_double_tag_copies_the_next_one_not_just_the_first():
+    """add_tag walks the whole list firing tag_add and never breaks.
+
+    Marcin's route to a stack: sell a pile of Diet Colas, each of which
+    leaves a free Double Tag behind. The Anaglyph Deck gets there without
+    any jokers at all -- a Double every time a boss falls.
+    """
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.tags.extend([Tag.DOUBLE] * 4)
+    game.add_tag_by_key("tag_voucher")
+    assert game.tags.count(Tag.VOUCHER) == 5
+    assert Tag.DOUBLE not in game.tags, "all four are spent, not one"
+
+
+def test_a_double_tag_does_not_copy_another_double_tag():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.tags.append(Tag.DOUBLE)
+    game.add_tag_by_key("tag_double")
+    assert game.tags.count(Tag.DOUBLE) == 2
+
+
+def test_the_anaglyph_deck_hands_over_a_double_tag_after_each_boss():
+    game = GameState(seed="TESTSEED", deck="Anaglyph Deck")
+    game.blind_index = 2
+    game._next_blind()
+    game._start_round()
+    game.chips_scored = game.blind.target
+    game._beat_blind()
+    assert Tag.DOUBLE in game.tags
+
+
+def test_a_shop_can_hold_an_arbitrary_number_of_vouchers():
+    """One row, one card limit, raised by one for each Voucher Tag held."""
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._roll_voucher()
+    game.tags.extend([Tag.VOUCHER] * 5)
+    game._open_shop()
+
+    offered = game.shop.vouchers_on_offer()
+    assert len(offered) == 6, "the round's own plus one per tag"
+    keys = [v.key for v in offered]
+    assert len(set(keys)) == len(keys), "each draw withholds the row so far"
+    assert Tag.VOUCHER not in game.tags
+
+
+def test_buying_from_a_long_voucher_row_takes_the_right_one():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._roll_voucher()
+    game.tags.extend([Tag.VOUCHER] * 3)
+    game._open_shop()
+    game.money = 100
+
+    wanted = game.shop.vouchers_on_offer()[2]
+    game.step(Action(ActionType.BUY_VOUCHER, index=2))
+    assert wanted in game.vouchers
+    assert wanted not in game.shop.vouchers_on_offer()
+    assert len(game.shop.vouchers_on_offer()) == 3
+
+
+def test_juggle_tags_stack_and_last_one_round():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    plain = game.hand_size
+    game.tags.extend([Tag.JUGGLE] * 3)
+    game._next_blind()
+    game._start_round()
+    assert game.hand_size == plain + 9, "three tags, nine cards"
+
+    game.chips_scored = game.blind.target
+    game._beat_blind()
+    assert game.hand_size == plain, "and they are handed back at round end"
+
+
+def test_every_investment_tag_pays():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.blind_index = 2
+    game._next_blind()
+    game._start_round()
+    game.tags.extend([Tag.INVESTMENT] * 3)
+    game.chips_scored = game.blind.target
+    before = game.money
+    game._beat_blind()
+    # A cash-out row, not money the moment the boss falls.
+    assert game.money == before
+    assert game.pending_payout >= 75
+
+
+def test_uncommon_tags_stack_across_the_shop_slots():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._roll_voucher()
+    game.tags.extend([Tag.UNCOMMON] * 2)
+    game._open_shop()
+    free = [s for s in game.shop.slots if s.kind == "joker" and s.price == 0]
+    assert len(free) == 2
+    assert Tag.UNCOMMON not in game.tags

@@ -160,22 +160,17 @@ class ShopSlot:
 class Shop:
     slots: list[ShopSlot] = field(default_factory=list)
     packs: list[PackSpec] = field(default_factory=list)
-    voucher: Voucher | None = None
-    voucher_bought: bool = False
-    # A Voucher Tag raises G.shop_vouchers' card limit by one and puts a
-    # second voucher in it, drawn under 'Voucher_fromtag'. It is a separate
-    # slot rather than a replacement: both are buyable.
-    extra_voucher: Voucher | None = None
-    extra_voucher_bought: bool = False
+    # G.shop_vouchers, whose card limit is one plus however many Voucher Tags
+    # were held when the shop opened -- each raises it by one and emplaces a
+    # card. There is no ceiling on that: sell a stack of Diet Colas for Double
+    # Tags, take a Voucher Tag, and every Double copies it, so the row can be
+    # arbitrarily long. Buying takes the card out of the row, so this list is
+    # exactly what is still for sale.
+    vouchers: list = field(default_factory=list)
 
     def vouchers_on_offer(self) -> list:
         """The vouchers still buyable, in the order the shop shows them."""
-        out = []
-        if self.voucher is not None and not self.voucher_bought:
-            out.append(self.voucher)
-        if self.extra_voucher is not None and not self.extra_voucher_bought:
-            out.append(self.extra_voucher)
-        return out
+        return self.vouchers
     rerolls: int = 0
     # Chaos the Clown's free reroll. current_round.free_rerolls in the game,
     # topped up as the shop opens.
