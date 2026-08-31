@@ -248,7 +248,7 @@ class GameState:
     hands_left: int = 0
     discards_left: int = 0
     hands_played_this_round: set[HandType] = field(default_factory=set)
-    played_this_ante: set[int] = field(default_factory=set)
+
 
     phase: Phase = Phase.BLIND_SELECT
     shop: Shop | None = None
@@ -393,6 +393,24 @@ class GameState:
         self.full_deck.append(card)
         self.hand.append(card)
         self.note_card_created(card)
+
+    def set_enhancement(self, card: Card, enhancement: Enhancement) -> None:
+        """Change a card's enhancement, and lose what that costs.
+
+        Card:set_ability rebuilds the whole ability table from the new centre
+        and carries exactly two things across: perma_bonus, so a Hiker's chips
+        survive, and forced_selection, so Cerulean Bell keeps its grip.
+        Everything else is rebuilt -- including played_this_ante, which is
+        what The Pillar debuffs.
+
+        So changing an *enhancement* launders a card that has already been
+        played this ante, and changing its suit, rank, edition or seal does
+        not: those write self.base, self.edition and self.seal and never
+        touch ability at all. It is a real difference and an easy one to have
+        backwards.
+        """
+        card.enhancement = enhancement
+        card.played_this_ante = False
 
     def note_card_created(self, card: Card) -> None:
         """Tell the jokers that count cards added that one has been.
@@ -1057,7 +1075,7 @@ class GameState:
                 card.debuffed = True
             if boss.debuff_face and card.rank.is_face:
                 card.debuffed = True
-            if boss.debuff_previously_played and card.uid in self.played_this_ante:
+            if boss.debuff_previously_played and card.played_this_ante:
                 card.debuffed = True
 
     def _roll_boss(self) -> None:
@@ -1303,7 +1321,7 @@ class GameState:
 
         self.hands_played_this_round.add(result.hand)
         for card in played:
-            self.played_this_ante.add(card.uid)
+            card.played_this_ante = True
 
         for card in shattered_glass(self, result.scoring):
             self.remove_card(card)
@@ -1521,7 +1539,8 @@ class GameState:
             if Tag.INVESTMENT in self.tags:
                 self.tags.remove(Tag.INVESTMENT)
                 self.add_money(25, "Investment Tag")
-            self.played_this_ante = set()
+            for card in self.full_deck:
+                card.played_this_ante = False
             if self.ante >= WIN_ANTE:
                 self.phase = Phase.WON
                 self.log(f"Run won at ante {self.ante}")

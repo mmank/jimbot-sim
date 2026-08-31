@@ -75,7 +75,7 @@ for _hand, _planet in PLANET_FOR_HAND.items():
 def _enhance(enh: Enhancement) -> ApplyHook:
     def apply(game: "GameState", cards: list[Card]) -> None:
         for card in cards:
-            card.enhancement = enh
+            game.set_enhancement(card, enh)
     return apply
 
 
@@ -152,10 +152,7 @@ def _death(game: "GameState", cards: list[Card]) -> None:
     # The rest of the table is the enhancement's own numbers -- bonus, mult,
     # h_dollars and so on -- which come across with the enhancement itself.
     left.extra_chips = right.extra_chips
-    if right.uid in game.played_this_ante:
-        game.played_this_ante.add(left.uid)
-    else:
-        game.played_this_ante.discard(left.uid)
+    left.played_this_ante = right.played_this_ante
 
 
 def _hermit(game: "GameState", cards: list[Card]) -> None:

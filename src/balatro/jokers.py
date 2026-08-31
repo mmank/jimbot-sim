@@ -476,7 +476,7 @@ def _vampire(j: JokerInstance, ctx: ScoreContext) -> None:
     gained = 0
     for c in ctx.scoring:
         if c.enhancement not in (Enhancement.NONE, Enhancement.STONE):
-            c.enhancement = Enhancement.NONE
+            ctx.game.set_enhancement(c, Enhancement.NONE)
             gained += 1
     j.counter += 0.1 * gained
 
@@ -916,7 +916,7 @@ register("To Do List", Rarity.COMMON,
 
 register("Midas Mask", Rarity.UNCOMMON,
          "All played face cards become Gold cards when scored", cost=7,
-         scored=lambda j, c, ctx: setattr(c, "enhancement", Enhancement.GOLD)
+         scored=lambda j, c, ctx: ctx.game.set_enhancement(c, Enhancement.GOLD)
          if is_face(c, ctx) else None)
 register("Seltzer", Rarity.UNCOMMON,
          "Retrigger all played cards for the next 10 hands", cost=6,

@@ -80,13 +80,51 @@ def test_death_copies_whether_the_card_has_been_played_this_ante():
     game._start_round()
     left, right = game.hand[0], game.hand[1]
 
-    game.played_this_ante = {right.uid}
+    right.played_this_ante, left.played_this_ante = True, False
     CONSUMABLES["Death"].apply(game, [left, right])
-    assert left.uid in game.played_this_ante, "a spent card should spend it"
+    assert left.played_this_ante, "copying a spent card should spend it"
 
-    game.played_this_ante = {left.uid}
+    right.played_this_ante, left.played_this_ante = False, True
     CONSUMABLES["Death"].apply(game, [left, right])
-    assert left.uid not in game.played_this_ante, "a fresh card should clear it"
+    assert not left.played_this_ante, "copying a fresh card should clear it"
+
+
+def test_changing_an_enhancement_launders_a_spent_card():
+    """And changing anything else does not, which is the surprising half.
+
+    set_ability rebuilds the whole ability table from the new centre and
+    carries across exactly two things -- perma_bonus and forced_selection --
+    so played_this_ante goes. Suit, rank, edition and seal are written
+    somewhere else entirely and leave it alone. A card The Pillar has
+    debuffed can therefore be freed with a Chariot and not with a Sun.
+    """
+    from balatro.cards import Edition, Enhancement, Seal, Suit
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._start_round()
+    card = game.hand[0]
+
+    card.played_this_ante = True
+    card.seal = Seal.RED
+    card.edition = Edition.FOIL
+    card.suit = Suit.HEARTS
+    assert card.played_this_ante, "a seal, an edition and a suit change it not"
+
+    game.set_enhancement(card, Enhancement.STEEL)
+    assert not card.played_this_ante
+
+
+def test_an_enhancement_change_keeps_the_hiker_chips():
+    """The two fields set_ability does carry across."""
+    from balatro.cards import Enhancement
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._start_round()
+    card = game.hand[0]
+    card.extra_chips = 15
+
+    game.set_enhancement(card, Enhancement.GLASS)
+    assert card.extra_chips == 15
 
 
 def test_death_still_copies_what_is_printed_on_the_card():

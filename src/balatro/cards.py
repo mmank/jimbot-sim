@@ -97,6 +97,10 @@ class Card:
     edition: Edition = Edition.NONE
     seal: Seal = Seal.NONE
     extra_chips: int = 0  # permanent bonus from Hiker etc.
+    # Whether this card has already been played this ante, which is what The
+    # Pillar debuffs. It lives on the card rather than on the run because
+    # changing the card's *enhancement* wipes it -- see set_enhancement.
+    played_this_ante: bool = False
     uid: int = field(default_factory=lambda: next(_ids))
     debuffed: bool = False
 
