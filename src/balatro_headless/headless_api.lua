@@ -375,9 +375,29 @@ end
 function api.skip_blind()
   local on_deck = api.blind_on_deck()
   G.GAME.blind_on_deck = on_deck
+
+  -- Counted before the tag is handed over, which is the game's own order in
+  -- G.FUNCS.skip_blind and the reason a Speed Tag pays for its own skip.
+  -- Nothing here incremented it, so Throwback -- X0.25 Mult per blind
+  -- skipped -- read zero for the whole of every run in this environment.
+  G.GAME.skips = (G.GAME.skips or 0) + 1
+  for i = 1, #G.jokers.cards do
+    G.jokers.cards[i]:calculate_joker({ skip_blind = true })
+  end
+
   local tag = G.GAME.round_resets.blind_tags[on_deck]
   if tag then
     add_tag(Tag(tag))
+  end
+
+  -- The tags that pay the instant a blind is skipped: Economy doubles the
+  -- bankroll, Handy and Garbage pay per hand and per unspent discard, Speed
+  -- per skip, Top-up makes two jokers, Orbital levels a hand three times.
+  -- The game fires this loop in skip_blind itself; only the new_blind_choice
+  -- one below was copied, so all six did nothing at all here -- a skip
+  -- handed over a tag that was then never applied.
+  for i = 1, #G.GAME.tags do
+    G.GAME.tags[i]:apply_to_run({ type = 'immediate' })
   end
   G.GAME.round_resets.blind_states[on_deck] = 'Skipped'
   G.GAME.round_resets.blind_states[on_deck == 'Small' and 'Big' or 'Boss'] = 'Select'

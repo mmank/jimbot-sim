@@ -122,6 +122,15 @@ class HeadlessRun:
             # that watch the balance still see a consistent value.
             delta = self.starting_money - self._lua("G.GAME.dollars")
             self._exec(f"ease_dollars({delta}, true)")
+        # Let the deck's own start-of-run effects land before anybody looks.
+        #
+        # Back:apply_to_run queues them: the Ghost Deck's Hex and the Magic
+        # Deck's two Fools are created inside an event behind a delay(0.4),
+        # and start_run itself returns long before that runs. Nothing here
+        # pumped, so the first observation of a Ghost Deck run showed an
+        # empty consumable row -- the deck's entire identity missing, on
+        # every run, in the environment policies are trained in.
+        self._exec("api.pump(120)")
         if self.seed is None:
             self.seed = self._lua("G.GAME.pseudorandom.seed")
         self._started = True

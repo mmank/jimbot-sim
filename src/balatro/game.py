@@ -293,6 +293,11 @@ class GameState:
     # game resets it at the start of a round, not when the shop is left, so a
     # shop rerolled twice still reads its climbed price afterwards.
     reroll_cost_carried: int = 5
+    # round_resets.blind_states, for the ante in progress: which of this
+    # ante's three blinds were skipped rather than beaten. The run info
+    # screen shows the difference and a skipped blind pays nothing, so it is
+    # not the same as a defeated one.
+    skipped_this_ante: set = field(default_factory=set)
     cards_sold: int = 0
     glass_destroyed: int = 0
     lucky_triggers: int = 0
@@ -1919,6 +1924,8 @@ class GameState:
         if self.beaten_was_boss:
             self.blind_index = 0
             self.ante += 1
+            # reset_blinds puts all three back to Upcoming for the new ante.
+            self.skipped_this_ante.clear()
             # After the ante turns over, not before: the game raises the ante
             # and *then* rolls, so the voucher for the ante about to start is
             # drawn from that ante's pool. Rolling a step earlier draws it
@@ -2822,10 +2829,18 @@ class GameState:
             # incremented this at all before, so Throwback -- X0.25 per blind
             # skipped -- read zero for the whole of every run.
             self.blinds_skipped += 1
+            self.skipped_this_ante.add(self.blind_index)
             self.add_tag_by_key(key)
             self.log("Skipped %s, gained %s"
                      % (self.blind.name, tag.value if tag else key))
             self._fire_immediate_tags()
+            # The game fires new_blind_choice from several places, each with
+            # its own `break`, and Tag.triggered stops any one tag firing
+            # twice. Skipping therefore runs it once for the skip and again
+            # for the blind-select screen that follows -- which is how two
+            # Boss Tags, doubled off one Double Tag, both re-roll. Firing it
+            # only from _next_blind left the second one held for ever.
+            self._apply_blind_select_tags()
             self.blind_index += 1
             self._next_blind()
         elif t is ActionType.PLAY:
