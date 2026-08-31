@@ -1197,6 +1197,16 @@ class GameState:
     def _cash_out(self) -> None:
         """Take the payout and move on, as pressing Cash Out does."""
         assert self.beaten_blind is not None
+
+        # Pressing Cash Out shuffles the deck, under its own pool name. That
+        # is not a detail: the next thing to draw from this deck is the hand
+        # an Arcana or Spectral pack deals in the shop, so without this the
+        # pack deals off the order the round happened to leave -- which is
+        # why not one pack hand in any recording matched. Sorted by card id
+        # first, as pseudoshuffle does.
+        self.draw_pile.sort(key=lambda card: card.uid)
+        self.rng.shuffle(self.draw_pile, "cashout%d" % self.ante)
+
         self.add_money(self.pending_payout, f"{self.beaten_blind.name} payout")
         self.pending_payout = 0
 

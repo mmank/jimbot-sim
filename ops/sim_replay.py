@@ -144,65 +144,11 @@ def match_hand_order(game, recorded_ids, deck_index):
         else:
             by_id.setdefault(index, []).append(card)
 
-    # A card the recording has in hand that the simulator has in its deck.
-    # This happens for the hand an Arcana or Spectral pack deals in the shop:
-    # it comes off the deck in the order the round left it, and reproducing
-    # that order exactly is the one piece of card movement still unverified
-    # -- see the note in the README. Pulling the named cards in keeps the
-    # recording useful for everything downstream of the pack instead of
-    # stopping the replay dead on a known gap.
-    # Only for a hand a pack dealt. During a round the simulator deals from a
-    # deck it shuffled itself and the cards are its own business; if they
-    # disagree with the recording there, that is a divergence worth stopping
-    # on rather than papering over.
-    if getattr(game, "_pack_dealt_hand", False)             and len(game.hand) == len(recorded_ids):
-        in_hand = {deck_index.get(c.uid) for c in game.hand}
-        wrong = [w for w in recorded_ids if w not in in_hand]
-        if wrong:
-            spare = [c for c in game.hand
-                     if deck_index.get(c.uid) not in set(recorded_ids)]
-            for want in wrong:
-                if want < len(deck_index):
-                    found = next((c for c in game.draw_pile
-                                  if deck_index.get(c.uid) == want), None)
-                else:
-                    # An id past the starting deck names a card the run made,
-                    # and the simulator numbers its own, so the number cannot
-                    # be matched. Only when there is exactly one such card to
-                    # choose from is the choice not a guess -- and a guess
-                    # here turns "the deck order differs" into a divergence
-                    # somewhere later that looks like something else.
-                    spares = [c for c in game.draw_pile
-                              if c.uid not in deck_index]
-                    found = spares[0] if len(spares) == 1 else None
-                if found is None or not spare:
-                    break
-                loser = spare.pop()
-                game.draw_pile.remove(found)
-                game.draw_pile.append(loser)
-                game.hand[game.hand.index(loser)] = found
-            # The swaps changed what is in hand, so the index has to be
-            # rebuilt before it is used to order anything.
-            by_id = {}
-            made = []
-            for card in game.hand:
-                index = deck_index.get(card.uid)
-                if index is None:
-                    made.append(card)
-                else:
-                    by_id.setdefault(index, []).append(card)
-
-    # Cards the run made cannot be matched by number -- the simulator numbers
-    # its own -- but they can be matched by *order*. Both sides hand out ids
-    # in creation order, so the nth-oldest made card in the recording is the
-    # nth-oldest here. Sorting both by age and pairing them off is what tells
-    # a Cryptid copy from the purple-sealed card that was made three rounds
-    # earlier, which decides which card a position discards.
+    # Cards the run made cannot be matched to a recording by number -- the
+    # simulator numbers its own -- but they can be matched by age. Both sides
+    # hand out ids in creation order, so the nth-oldest made card here is the
+    # nth-oldest there. An id past the starting deck is one of them.
     made.sort(key=lambda card: card.uid)
-    # An id past the starting deck is a card the run made. Testing against
-    # the deck's size rather than against what happens to be in hand matters:
-    # a starting card the simulator has misplaced would otherwise be counted
-    # as a made one and shift the whole pairing.
     made_ids = sorted(w for w in recorded_ids if w >= len(deck_index))
     by_made = dict(zip(made_ids, made))
 
