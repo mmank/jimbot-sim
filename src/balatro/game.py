@@ -1688,10 +1688,28 @@ class GameState:
 
         # DNA and Sixth Sense act on the played cards before they score, and
         # only on the round's first hand.
+        #
+        # Through effective_specs, so a Blueprint or a Brainstorm copying a
+        # DNA makes a second copy of the card. The game guards its other DNA
+        # branch with `not context.blueprint` and this one with nothing, so a
+        # copied DNA does fire:
+        #
+        #     if self.ability.name == 'DNA'
+        #        and G.GAME.current_round.hands_played == 0 then
+        #         if #context.full_hand == 1 then
+        #             ... table.insert(G.playing_cards, _card)
+        #
+        # Recording 8 shows it plainly: playing one card into a DNA with a
+        # Brainstorm on its left grew the deck by two, and by one here. The
+        # copies are permanent, so the decks drifted further apart with every
+        # such hand, and the extra cards were steel -- which is how a scoring
+        # divergence turned out to be a deck-size one.
         if self.hands_played_this_round == set():
-            for joker in list(self.jokers):
-                if joker.spec.before_hand is not None:
-                    joker.spec.before_hand(joker, played, self)
+            from .scoring import effective_specs
+
+            for spec, source in effective_specs(list(self.jokers)):
+                if spec.before_hand is not None:
+                    spec.before_hand(source, played, self)
 
         # And the held cards are read *after* them, because DNA puts its copy
         # in hand and the game scores that copy as a held card like any other.

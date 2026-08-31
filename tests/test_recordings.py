@@ -16,8 +16,12 @@ scripted driver never does: drags cards, sells at odd moments, buys and uses
 in one press, skips for tags, and walks into interactions nobody would think
 to write a test for.
 
-Two recordings do not replay to the end, and both are blocked on the
-recording rather than on the simulator -- see REACHES.
+All eight now replay to the end. The last to get there was 8, which spent a
+long time stopping at 190 of 443 and took seven fixes to finish: the legendary
+pool key, Merry Andy handing over its discards on arrival, and five separate
+places where a copier was not treated as the joker it copies -- in scoring, in
+held retriggers, in the before-hand hooks -- plus the ordering of the bosses
+that move money, and DNA's copy counting as a held card.
 """
 
 import json
@@ -33,14 +37,16 @@ from balatro.game import GameState                       # noqa: E402
 
 RECORDINGS = pathlib.Path(__file__).resolve().parents[1] / "recordings"
 
-# How far each recording gets. `None` means all the way; a number is a floor
-# that must not regress, with the reason it stops.
+# How far each recording gets. `None` means all the way; a number would be a
+# floor that must not regress, with the reason it stops.
 #
-#   8  Reaches 164 of 443. This one carries a reconstructed action -- see
-#      ops/repair_recording.py -- because the recorder was not capturing the
-#      boss reroll when it was made, and the engine's own replay of it now
-#      runs through that point with nothing wrong.
-REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None, 8: 164}
+# All eight go the whole way now. 8 is the one that took the longest -- it
+# carries a reconstructed action, see ops/repair_recording.py, because the
+# recorder was not capturing the boss reroll when it was made -- and it is
+# worth keeping the entry shape around: a recording that stops part way is a
+# perfectly good regression test for the part it does reach.
+REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None,
+           8: None}
 
 
 def _replay(path):

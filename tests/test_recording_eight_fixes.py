@@ -300,3 +300,44 @@ def test_the_held_pass_sees_a_card_added_before_scoring():
     held = [c for c in game.hand if not any(c is p for p in played)]
     assert any(c is extra for c in held), (
         "a card added to hand before scoring must be read as held")
+
+
+# ------------------------------------------------------------------
+# a copier fires the before-hand hooks too
+# ------------------------------------------------------------------
+
+def test_a_brainstorm_copying_a_dna_makes_a_second_copy():
+    """The game guards its other DNA branch with `not context.blueprint` and
+    this one with nothing, so a copied DNA does fire:
+
+        if self.ability.name == 'DNA'
+           and G.GAME.current_round.hands_played == 0 then
+            if #context.full_hand == 1 then
+                ... table.insert(G.playing_cards, _card)
+
+    The copies are permanent, so a simulator making one where the game makes
+    two drifts further from it with every such hand -- and in recording 8 the
+    copied card was steel, so the divergence surfaced as a scoring one long
+    after the decks had parted.
+    """
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.gain_joker(JokerInstance(JOKER_REGISTRY["DNA"]))
+    game.gain_joker(JokerInstance(JOKER_REGISTRY["Brainstorm"]))
+    game._next_blind()
+    game._start_round()
+
+    before = len(game.full_deck)
+    game.step(Action(ActionType.PLAY, cards=(0,)))
+    assert len(game.full_deck) == before + 2, (
+        "expected two copies -- the DNA and the Brainstorm copying it -- got %d"
+        % (len(game.full_deck) - before))
+
+
+def test_one_dna_alone_makes_one_copy():
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.gain_joker(JokerInstance(JOKER_REGISTRY["DNA"]))
+    game._next_blind()
+    game._start_round()
+    before = len(game.full_deck)
+    game.step(Action(ActionType.PLAY, cards=(0,)))
+    assert len(game.full_deck) == before + 1
