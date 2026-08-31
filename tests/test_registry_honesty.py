@@ -96,3 +96,27 @@ def test_the_hook_list_matches_the_spec():
 def test_every_name_is_real():
     unknown = (READ_ELSEWHERE | NOT_YET_BUILT) - set(REGISTRY)
     assert not unknown, "listed a joker that is not registered: %s" % sorted(unknown)
+
+
+def test_every_declaration_is_read_by_something():
+    """A declared flag with no reader is a joker that silently does nothing.
+
+    DECLARATIONS is the escape hatch of this file: a joker carrying one of
+    these counts as implemented without owning a hook, because the run or the
+    evaluator is supposed to read the flag directly. Nothing checked that the
+    reader existed. Mr. Bones went the whole project that way -- registered,
+    offered in shops, bought, held, and worth exactly nothing, because
+    prevents_death appeared once in the spec and nowhere else. It is the
+    difference between losing a run and continuing it.
+    """
+    import pathlib
+
+    package = pathlib.Path(__file__).resolve().parents[1] / "src" / "balatro"
+    body = "\n".join(path.read_text(encoding="utf-8")
+                     for path in sorted(package.glob("*.py"))
+                     if path.name != "jokers.py")
+
+    unread = [flag for flag in DECLARATIONS if flag not in body]
+    assert not unread, (
+        "declared on JokerSpec and read by nothing outside jokers.py: %s"
+        % sorted(unread))

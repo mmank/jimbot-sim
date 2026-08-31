@@ -484,7 +484,7 @@ class GameState:
                     ConsumableKind.PLANET: "Planet",
                     ConsumableKind.SPECTRAL: "Spectral"}[kind]
         played = [h.label for h, n in self.hand_levels.plays.items() if n > 0]
-        showman = any(j.name == "Showman" for j in self.jokers)
+        showman = any(j.spec.allows_duplicates for j in self.jokers)
         # The game tests for a free slot *before* it creates the card, so a
         # full row of consumables costs nothing at all. Drawing and then
         # dropping the card, which is what this did, spends a roll the game
@@ -852,7 +852,12 @@ class GameState:
         size += self.deck_config.get("hand_size", 0)
         if self.boss is not None:
             size += self.boss.hand_size_delta
-        return max(1, size)
+        # CardArea:update floors this at *zero*, not one -- math.max(0,
+        # real_card_limit). Flooring it at one made the hand-size loss
+        # unreachable, which matters because reaching zero is a real way to
+        # end a run: Troubadour and Stuntman are -2 each, Merry Andy -1, a
+        # decayed Turtle Bean another, and The Manacle one more on top.
+        return max(0, size)
 
     @property
     def interest_cap(self) -> int:
@@ -1078,6 +1083,14 @@ class GameState:
         self.discard_pile = []
         self._apply_debuffs()
         self._draw_to_hand_size()
+        if self.phase is Phase.GAME_OVER:
+            # A run whose hand size has reached zero dies on the deal itself.
+            # The game returns out of update_draw_to_hand the moment
+            # draw_from_deck_to_hand reports it -- `if
+            # G.FUNCS.draw_from_deck_to_hand(nil) then return true end` -- so
+            # the first_hand_drawn jokers never fire and the round never
+            # properly begins.
+            return
 
         # After the deal, not before. The game fires these on
         # `first_hand_drawn`, so Certificate's card lands on top of a hand
@@ -1220,6 +1233,20 @@ class GameState:
         self._sort_hand()
 
     def _draw_to_hand_size(self) -> None:
+        # Checked before anything is dealt, at the top of the game's own
+        # draw_from_deck_to_hand, and it is the one loss that does not go
+        # through the end of the round: no target check, no Mr. Bones, no
+        # cash-out. Verified on the engine -- with the blind's target already
+        # beaten and with Mr. Bones held, both still ended the run.
+        #
+        # An Arcana or Spectral pack suspends it. Those two deal you a hand to
+        # use their cards on, and one of those cards may well be how you fix
+        # the problem, so the game refuses to call it while either is open.
+        if self.hand_size <= 0 and not self.hand and not self._in_hand_pack():
+            self.phase = Phase.GAME_OVER
+            self.log("No hand size left")
+            return
+
         boss = self.boss
         if (boss is not None and boss.always_draw_three
                 and (self.hands_played_this_round or self.discards_used)):
@@ -1233,8 +1260,20 @@ class GameState:
             self.hand.append(self.draw_pile.pop())
         self._sort_hand()
         self._nominate_forced_card()
-        if not self.hand and self.phase is Phase.PLAYING:
-            # Deck exhausted mid-blind: nothing left to play with.
+        if not self.hand and not self.draw_pile and self.phase is Phase.PLAYING:
+            # Hand and deck both empty ends the round where it stands --
+            # update_selecting_hand calls end_round the moment nothing is left
+            # anywhere. That is not itself a loss: with the target already met
+            # the engine goes to the cash-out screen as usual. It cannot be
+            # met here, though, because a play that reaches the target ends
+            # the round before this runs, so by the time the cards are gone
+            # the run is short and the round is lost.
+            #
+            # Mr. Bones does not help, and the reason is worth writing down.
+            # He does fire -- the engine dissolves him -- but the save returns
+            # the run to SELECTING_HAND with the hand and deck still empty, so
+            # end_round fires again immediately and this time there is nothing
+            # to spend. He is consumed and the run ends anyway.
             self.phase = Phase.GAME_OVER
             self.log("Ran out of cards")
 
@@ -1399,8 +1438,7 @@ class GameState:
         if self.chips_scored >= self.blind.target:
             self._beat_blind()
         elif self.hands_left <= 0:
-            self.phase = Phase.GAME_OVER
-            self.log(f"Lost on ante {self.ante} {self.blind.name}")
+            self._lose_round()
         else:
             self._draw_to_hand_size()
 
@@ -1437,8 +1475,40 @@ class GameState:
             self.discard_pile.append(card)
         self._draw_to_hand_size()
 
-    def _beat_blind(self) -> None:
+    def _in_hand_pack(self) -> bool:
+        """Is an Arcana or Spectral pack open? Those two deal a hand."""
+        return (self.phase is Phase.PACK and self.pack is not None
+                and self.pack.kind in (PackKind.ARCANA, PackKind.SPECTRAL))
+
+    def _lose_round(self) -> None:
+        """The round ended short of the target.
+
+        Mr. Bones is the only way back, and the flag saying so had never been
+        read by anything -- the run simply ended. He needs a quarter of the
+        target, and what he buys is specific: the engine dissolves him, marks
+        the blind defeated so the run moves on to the next one rather than
+        replaying it, and stops at the cash-out screen -- but pays no blind
+        reward, because the blind was not beaten. Measured: from $10, a saved
+        small blind cashes out at $12 and a beaten one at $15, the $3 gap
+        being the reward.
+        """
+        assert self.blind is not None
+        if self.blind.target > 0:
+            for joker in list(self.jokers):
+                if (joker.spec.prevents_death
+                        and self.chips_scored / self.blind.target >= 0.25):
+                    self.log(f"{joker.name} saved the run")
+                    self.destroy_joker(joker)
+                    self._beat_blind(reward=False)
+                    return
+        self.phase = Phase.GAME_OVER
+        self.log(f"Lost on ante {self.ante} {self.blind.name}")
+
+    def _beat_blind(self, reward: bool = True) -> None:
         """Close the round and stop on the cash-out screen.
+
+        `reward` is False when Mr. Bones brought the run here rather than the
+        score -- see _lose_round.
 
         The payout is worked out here but not paid: the game shows it and
         waits, and paying early makes the two engines disagree about money for
@@ -1475,9 +1545,18 @@ class GameState:
         config = self.deck_config
         per_hand = config.get("extra_hand_bonus", 1)
         per_discard = config.get("extra_discard_bonus", 0)
+        # G.GAME.interest_amount: one by default, raised by To the Moon on
+        # acquisition and lowered on sale. It multiplies the number of
+        # five-dollar blocks *after* the cap has bitten, so the cap does not
+        # limit the bonus -- measured on the engine at $100 against the $25
+        # cap, where one To the Moon pays $10 and two pay $15 against a base
+        # of $5. It is a run-level counter rather than a scoring hook, so a
+        # debuffed To the Moon still pays; every joker held counts.
+        per_block = 1 + sum(j.spec.interest_bonus for j in self.jokers)
         interest = (0 if config.get("no_interest")
-                    else min(self.interest_cap, max(0, self.money) // 5))
-        self.pending_payout = (self.blind.reward
+                    else per_block * min(self.interest_cap,
+                                         max(0, self.money) // 5))
+        self.pending_payout = ((self.blind.reward if reward else 0)
                                + max(0, self.hands_left) * per_hand
                                + max(0, self.discards_left) * per_discard
                                + interest)
@@ -1943,7 +2022,7 @@ class GameState:
             self.rng, spec.kind.value.title(), spec.options, self.ante,
             played_hands=played, seen=self.seen_centers,
             seen_jokers=self.seen_centers, owned_enhancements=owned,
-            showman=any(j.name == "Showman" for j in self.jokers),
+            showman=any(j.spec.allows_duplicates for j in self.jokers),
             stickers=self.sticker_rules,
             # Two vouchers change what a pack holds rather than what it
             # costs: Telescope forces the first card of a Celestial pack to
