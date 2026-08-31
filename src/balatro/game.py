@@ -189,7 +189,7 @@ class GameState:
     hand_levels: HandLevels = field(default_factory=HandLevels.new)
 
     base_hand_size: int = BASE_HAND_SIZE
-    joker_slots: int = BASE_JOKER_SLOTS
+    base_joker_slots: int = BASE_JOKER_SLOTS
     # The Nebula Deck takes a consumable slot away, the Painted Deck a joker
     # slot; both are set once from the deck rather than derived.
     extra_consumable_slots: int = 0
@@ -547,6 +547,20 @@ class GameState:
         self.log(f"{source}: {boss.name} is disabled")
 
     @property
+    def joker_slots(self) -> int:
+        """How many jokers the row holds.
+
+        A negative joker does not take a slot -- add_to_deck raises the limit
+        by one for it and remove_from_deck lowers it again -- so a row of five
+        with a negative among them has room for a sixth. The simulator had no
+        idea, so a Judgement that should have made a joker made nothing, and
+        the run went on a joker short.
+        """
+        return (self.base_joker_slots
+                + sum(1 for j in self.jokers if j.edition is Edition.NEGATIVE)
+                + sum(v.joker_slots for v in self.vouchers))
+
+    @property
     def active_jokers(self) -> list:
         """The jokers that still do anything.
 
@@ -719,7 +733,7 @@ class GameState:
             if voucher is not None:
                 self.vouchers.append(voucher)
 
-        self.joker_slots += config.get("joker_slot", 0)
+        self.base_joker_slots += config.get("joker_slot", 0)
         self.extra_consumable_slots += config.get("consumable_slot", 0)
 
         # A few decks change the cards themselves rather than the numbers,
