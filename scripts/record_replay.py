@@ -187,9 +187,22 @@ def _match_hand_order(bridge, expected_ids) -> bool:
     expected = list(expected_ids)
     if current == expected:
         return True
-    if sorted(current) != sorted(expected):
-        return False          # different cards entirely, not a reorder
-    bridge.command("set_hand_order", *expected)
+    if sorted(current) == sorted(expected):
+        bridge.command("set_hand_order", *expected)
+        return True
+
+    # The numbers can drift apart while the hand is the same hand: the run's
+    # card counter moves whenever the real game builds something the engine
+    # does not, so a card is the same card under a different number. That is
+    # what _ranked exists for, and the comparison already uses it -- but this
+    # was matching raw, so a hand the player had merely dragged looked like a
+    # different set of cards and was left in whatever order it landed in.
+    # Ranking both sides and mapping back gives the reorder anyway.
+    if len(current) != len(expected) or _ranked(current) == _ranked(expected):
+        return _ranked(current) == _ranked(expected)
+    by_rank = sorted(current)
+    wanted = [by_rank[r] for r in _ranked(expected)]
+    bridge.command("set_hand_order", *wanted)
     return True
 
 

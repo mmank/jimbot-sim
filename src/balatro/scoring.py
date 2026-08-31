@@ -124,7 +124,16 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     chips, mult = game.hand_levels.values(result.hand)
     boss = game.boss
     if boss is not None and boss.halve_base:
-        chips, mult = chips / 2, mult / 2
+        # The Flint rounds rather than halving. Blind:modify_hand is
+        #
+        #     max(floor(mult*0.5 + 0.5), 1), max(floor(chips*0.5 + 0.5), 0)
+        #
+        # so a Three of a Kind's three mult becomes two, not one and a half.
+        # Dividing by two loses a whole point of mult on every odd number,
+        # and it is the base mult, so everything the hand multiplies by
+        # magnifies it.
+        chips = max(int(chips * 0.5 + 0.5), 0)
+        mult = max(int(mult * 0.5 + 0.5), 1)
     ctx.add_chips(chips, result.hand.label)
     ctx.add_mult(mult, result.hand.label)
 
