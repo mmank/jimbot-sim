@@ -123,6 +123,7 @@ class Tag(Enum):
     METEOR = "Meteor Tag"
     BUFFOON = "Buffoon Tag"
     BOSS = "Boss Tag"
+    DOUBLE = "Double Tag"
     ETHEREAL = "Ethereal Tag"
     STANDARD = "Standard Tag"
     FOIL = "Foil Tag"
@@ -150,6 +151,7 @@ TAG_BY_KEY = {
     "tag_meteor": Tag.METEOR,
     "tag_buffoon": Tag.BUFFOON,
     "tag_boss": Tag.BOSS,
+    "tag_double": Tag.DOUBLE,
     "tag_ethereal": Tag.ETHEREAL,
     "tag_standard": Tag.STANDARD,
     "tag_foil": Tag.FOIL,
@@ -334,6 +336,7 @@ class GameState:
         self._roll_voucher()
         self._roll_ante_tags()
         self._reset_round_cards()
+        self._reroll_todo_hands()
         self._next_blind()
 
     # ------------------------------------------------------------------
@@ -518,6 +521,24 @@ class GameState:
             for joker in self.jokers:
                 if joker.name == "Constellation":
                     joker.counter += 0.1
+
+    def add_tag_by_key(self, key: str) -> None:
+        """Hand the run a tag the game names by key, if it is one we model.
+
+        A Double Tag copies whatever arrives next -- anything but another
+        Double Tag -- and is spent doing it. That is `tag_add`, the moment a
+        tag joins the list rather than the moment it fires, so everything has
+        to come through here.
+        """
+        tag = TAG_BY_KEY.get(key)
+        if tag is None:
+            return
+        self.tags.append(tag)
+        self.log("gained %s" % tag.value)
+        if tag is not Tag.DOUBLE and Tag.DOUBLE in self.tags:
+            self.tags.remove(Tag.DOUBLE)
+            self.tags.append(tag)
+            self.log("Double Tag: and another %s" % tag.value)
 
     def note_card_sold(self) -> None:
         """Tell the jokers that count sales that one has happened.
@@ -808,6 +829,21 @@ class GameState:
     # ------------------------------------------------------------------
     # blind flow
     # ------------------------------------------------------------------
+
+    def _reroll_todo_hands(self) -> None:
+        """To Do List names a poker hand, and picks a new one every round.
+
+        Drawn from the hands it is *not* already on, so it never repeats
+        itself two rounds running, and each copy rolls separately. The field
+        it reads was declared on the run and never written, so the joker paid
+        out for whatever HandType happened to be None -- which is nothing.
+        """
+        visible = [h for h in HandType]
+        for joker in self.jokers:
+            if not joker.spec.rerolls_a_hand:
+                continue
+            pool = [h for h in visible if h is not self.todo_hand]
+            self.todo_hand = self.rng.random_element(pool, "to_do")
 
     def _reset_round_cards(self) -> None:
         """Re-roll the card and the suits that some jokers name.
@@ -1391,6 +1427,7 @@ class GameState:
         # Every round, after the ante has turned over and the voucher has been
         # drawn -- the game's own order in update_round_eval.
         self._reset_round_cards()
+        self._reroll_todo_hands()
 
         # The cash-out screen holds nothing the policy decides. You can
         # reorder or sell jokers there, which is real but niche, and the
@@ -1782,6 +1819,9 @@ class GameState:
         """
         self.pack = spec
         self.pack_picks_left = spec.picks
+        for joker in list(self.jokers):
+            if joker.spec.on_pack_open is not None:
+                joker.spec.on_pack_open(joker, self)
         played = [h.label for h, n in self.hand_levels.plays.items() if n > 0]
         owned = {"m_%s" % c.enhancement.value for c in self.full_deck}
         contents = shop_pool.pack_contents(
@@ -2138,8 +2178,7 @@ class GameState:
         elif t is ActionType.SKIP_BLIND:
             tag = self.ante_tags[self.blind_index]
             key = self.ante_tag_keys[self.blind_index]
-            if tag is not None:
-                self.tags.append(tag)
+            self.add_tag_by_key(key)
             # Sixteen of the twenty-four tags have no effect here yet. The
             # skip still happens and the tag is still what the game offered --
             # naming it in the log keeps the gap visible instead of crashing

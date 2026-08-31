@@ -30,13 +30,13 @@ from balatro.jokers import REGISTRY
 # which is how thirteen implemented jokers were briefly still counted hollow.
 HOOKS = ("update", "scored", "held", "independent", "round_end", "discarded",
          "retrigger_scored", "retrigger_held", "copier",
-         "on_blind_select", "on_round_start", "on_sell", "on_reroll", "on_pack_skip",
+         "on_blind_select", "on_round_start", "on_sell", "on_reroll", "on_pack_skip", "on_pack_open",
          "before_hand", "after_hand", "on_first_discard")
 DECLARATIONS = ("hand_size", "extra_hands", "extra_discards", "free_rerolls",
                 "debt_limit", "interest_bonus", "free_planets",
                 "allows_duplicates", "prevents_death",
                 "disables_boss_on_sell", "enhancement_gate",
-                "hand_size_from_counter")
+                "hand_size_from_counter", "rerolls_a_hand")
 
 # Correct with no hook: the run or the evaluator reads these directly.
 READ_ELSEWHERE = {
@@ -46,17 +46,12 @@ READ_ELSEWHERE = {
     "Perkeo",                            # shop, on leaving
 }
 
-# Registered, triggers recorded, effect not yet built. Both are blocked on
-# machinery this engine does not have rather than on the joker itself, and
-# each one says which.
-NOT_YET_BUILT = {
-    # The tag pool here holds 8 of the game's 24 tags and Double Tag is not
-    # among them, so Diet Cola has nothing to leave behind when sold.
-    "Diet Cola",
-    # Nothing opens a Booster Pack in this engine yet, so the trigger has no
-    # moment to fire at.
-    "Hallucination",
-}
+# Registered, triggers recorded, effect not yet built. Empty, and worth
+# keeping: the two that used to be here were blocked on machinery rather than
+# on themselves -- Diet Cola wanted a tag pool that held Double Tag, and
+# Hallucination wanted something that opens a booster pack -- and both
+# blockers are gone. The set stays so that anything new has to be named.
+NOT_YET_BUILT = set()
 
 
 def _behaviourless():

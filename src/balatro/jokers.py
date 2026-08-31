@@ -72,6 +72,8 @@ class JokerSpec:
     on_sell: RoundHook | None = None           # Diet Cola, Luchador
     on_reroll: RoundHook | None = None         # Flash Card
     on_pack_skip: RoundHook | None = None      # Red Card
+    on_pack_open: RoundHook | None = None      # Hallucination
+    rerolls_a_hand: bool = False               # To Do List
     before_hand: object = None                 # DNA, Sixth Sense
     after_hand: IndepHook | None = None        # Superposition, Séance
     on_first_discard: DiscardHook | None = None   # Burnt Joker, Trading Card
@@ -904,6 +906,7 @@ register("Ancient Joker", Rarity.RARE,
          and suit_matches(c, ctx.game.ancient_suit, ctx) else None)
 register("To Do List", Rarity.COMMON,
          "Earn $4 if the poker hand is one that changes each round", cost=4,
+         rerolls_a_hand=True,
          independent=lambda j, ctx: ctx.__setattr__(
              "money_gained", ctx.money_gained + 4)
          if ctx.hand is ctx.game.todo_hand else None)
@@ -1045,8 +1048,13 @@ register("Luchador", Rarity.UNCOMMON,
 register("Invisible Joker", Rarity.RARE,
          "After 2 rounds, sell this card to duplicate a random Joker", cost=8,
          round_end=lambda j, g: _bump(j, 1))
+def _diet_cola(j: JokerInstance, game: "GameState") -> None:
+    game.add_tag_by_key("tag_double")
+
+
 register("Diet Cola", Rarity.UNCOMMON,
-         "Sell this card to create a free Double Tag", cost=6)
+         "Sell this card to create a free Double Tag", cost=6,
+         on_sell=_diet_cola)
 
 
 # -- cards created on a condition -------------------------------------------
@@ -1114,9 +1122,22 @@ register("8 Ball", Rarity.COMMON,
              ctx.game.random_consumables(ConsumableKind.TAROT, 1, "8ba"))
          if c.rank is Rank.EIGHT and not c.is_stone
          and _chance(ctx, "8ball", 1, 4) else None)
+def _hallucination(j: JokerInstance, game: "GameState") -> None:
+    """One in two to make a Tarot whenever a booster pack is opened.
+
+    The odds are drawn against "halu" plus the ante, and the room check comes
+    first -- a full row of consumables costs no roll at all.
+    """
+    if len(game.consumables) >= game.consumable_slots:
+        return
+    if game.rng.chance("halu%d" % game.ante, game.probability_scale(), 2):
+        game.add_consumables(
+            game.random_consumables(ConsumableKind.TAROT, 1, "hal"))
+
+
 register("Hallucination", Rarity.COMMON,
          "1 in 2 chance to create a Tarot card when a Booster Pack is opened",
-         cost=4)
+         cost=4, on_pack_open=_hallucination)
 register("Superposition", Rarity.COMMON,
          "Create a Tarot card if the poker hand contains an Ace and a Straight",
          cost=4,
