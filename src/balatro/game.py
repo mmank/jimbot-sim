@@ -1430,6 +1430,22 @@ class GameState:
         self.bosses_used[key] = self.bosses_used.get(key, 0) + 1
         self.ante_boss = key
 
+    def _reroll_boss_blind(self) -> None:
+        """Draw a new boss and put it in force if the boss blind is on deck.
+
+        Rolling alone is not enough. `blind` is built when the blind comes up
+        and holds its boss, so a re-roll that only moves ante_boss leaves the
+        run facing the old one -- which is what a Boss Tag did after the tag
+        firing moved to *after* _next_blind, where the blind already exists.
+        The paid re-roll had always done both; now they share this.
+        """
+        self._roll_boss()
+        if self.blind is not None and self.blind.kind is BlindKind.BOSS:
+            self.blind = make_blind(
+                BlindKind.BOSS, self.ante, self._pick_boss(),
+                ante_scaling=self.deck_config.get("ante_scaling", 1),
+                scaling=self.blind_scaling)
+
     def _pick_boss(self):
         if not self.ante_boss:
             return None
@@ -2287,7 +2303,7 @@ class GameState:
                 # Re-rolls the boss, free -- the paid reroll is the Director's
                 # Cut button, which costs ten.
                 self.tags.remove(tag)
-                self._roll_boss()
+                self._reroll_boss_blind()
                 self.log("Boss Tag: the boss is re-rolled")
                 return
             if tag in self.PACK_TAGS:
@@ -2907,12 +2923,7 @@ class GameState:
             # _apply_blind_select_tags instead; this is the paid button.
             self.boss_rerolled = True
             self.add_money(-BOSS_REROLL_COST, "boss reroll")
-            self._roll_boss()
-            if self.blind is not None and self.blind.kind is BlindKind.BOSS:
-                self.blind = make_blind(
-                    BlindKind.BOSS, self.ante, self._pick_boss(),
-                    ante_scaling=self.deck_config.get("ante_scaling", 1),
-                    scaling=self.blind_scaling)
+            self._reroll_boss_blind()
         elif t is ActionType.BUY_VOUCHER:
             assert self.shop is not None
             # index names which of the shop's vouchers, since a Voucher Tag

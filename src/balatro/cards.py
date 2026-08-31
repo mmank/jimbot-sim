@@ -248,9 +248,30 @@ def standard_deck(no_faces: bool = False, erratic=None) -> list[Card]:
                    "A": Rank.ACE}
         by_suit = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
                    "S": Suit.SPADES}
-        out = []
+        # Draw fifty-two, then put them in order.
+        #
+        # The game builds card_protos and then sorts them by the card's own
+        # letters -- `table.sort(card_protos, s..r..e..d..g)` -- which is what
+        # gives a deck a deterministic build order at all, since the protos
+        # come out of `pairs(P_CARDS)` in no defined order. For an ordinary
+        # deck the sort is invisible because the result is the order it was
+        # already in. For an Erratic Deck it is the whole difference: fifty-two
+        # random draws, then sorted, so C2 C4 C4 C6 rather than the order they
+        # were rolled in.
+        #
+        # The draws themselves were right all along -- the two decks held the
+        # same fifty-two cards -- but a card's place in this list is the id it
+        # gets, and the ids are what The Hook and every other positional effect
+        # read.
+        drawn = []
         for _ in range(52):
-            suit, rank = erratic.random_element(fronts, "erratic").split("_")
+            drawn.append(erratic.random_element(fronts, "erratic"))
+        order = {front: i for i, front in enumerate(sorted(
+            fronts, key=lambda f: f.split("_")[0] + f.split("_")[1]))}
+        drawn.sort(key=lambda front: order[front])
+        out = []
+        for front in drawn:
+            suit, rank = front.split("_")
             out.append(Card(by_rank[rank], by_suit[suit]))
         return out
     return [Card(rank, suit)
