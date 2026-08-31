@@ -253,3 +253,50 @@ def test_bootstraps_reads_the_money_the_tooth_has_already_taken():
     game.step(Action(ActionType.PLAY, cards=(0, 1, 2)))
     # $100 becomes $97 before scoring: 2*floor(97/5) = 38, not 2*floor(100/5).
     assert game.money == 97
+
+
+# ------------------------------------------------------------------
+# DNA's copy is in hand before the hand scores
+# ------------------------------------------------------------------
+
+def test_dnas_copy_counts_as_a_held_card():
+    """DNA runs before the hand scores and puts its copy in hand, so the game
+    scores that copy as a held card like any other. Reading the hand before
+    the before-hand hooks left it out of the held pass entirely.
+
+    It is worth whatever the copy is worth, which can be a great deal: in
+    recording 8 the copied card was a steel King with a red seal, so it
+    brought three more x1.5 -- itself, its red seal, and a Mime retriggering
+    it -- and the hand scored 537670 against the game's 568510.
+    """
+    from balatro.cards import Card, Enhancement, Rank, Seal, Suit
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.gain_joker(JokerInstance(JOKER_REGISTRY["DNA"]))
+    game._next_blind()
+    game._start_round()
+
+    steel = Card(Rank.KING, Suit.SPADES, enhancement=Enhancement.STEEL)
+    game.hand[:] = [steel] + list(game.hand[1:])
+    before = len(game.hand)
+
+    game.step(Action(ActionType.PLAY, cards=(0,)))
+    # The copy is in the deck and was drawn: the hand did not simply shrink
+    # by the card that was played.
+    assert len(game.full_deck) == 53, (
+        "DNA did not add a permanent copy: deck is %d" % len(game.full_deck))
+
+
+def test_the_held_pass_sees_a_card_added_before_scoring():
+    """The narrow version: whatever before_hand puts in hand is held."""
+    from balatro.cards import Card, Enhancement, Rank, Suit
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game._next_blind()
+    game._start_round()
+    played = list(game.hand[:1])
+    extra = Card(Rank.TWO, Suit.HEARTS, enhancement=Enhancement.STEEL)
+    game.add_card_to_hand(extra)
+    held = [c for c in game.hand if not any(c is p for p in played)]
+    assert any(c is extra for c in held), (
+        "a card added to hand before scoring must be read as held")

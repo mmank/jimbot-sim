@@ -1684,7 +1684,6 @@ class GameState:
             chosen.debuffed = True
 
         played = [self.hand[i] for i in indices]
-        held = [c for i, c in enumerate(self.hand) if i not in indices]
         result = self.evaluate_selection(played)
 
         # DNA and Sixth Sense act on the played cards before they score, and
@@ -1693,6 +1692,21 @@ class GameState:
             for joker in list(self.jokers):
                 if joker.spec.before_hand is not None:
                     joker.spec.before_hand(joker, played, self)
+
+        # And the held cards are read *after* them, because DNA puts its copy
+        # in hand and the game scores that copy as a held card like any other.
+        # Reading the hand first left the copy out of the held pass entirely.
+        #
+        # It is worth what the copy is worth, which can be a great deal: in
+        # recording 8 the copied card was a steel King with a red seal, so it
+        # brought three more x1.5 -- itself, its red seal, and the Mime
+        # retriggering it -- and the hand scored 537670 here against the
+        # game's 568510.
+        #
+        # By identity rather than by position: the copy joins the hand while
+        # this is being worked out, and an index into the old hand no longer
+        # means what it meant.
+        held = [c for c in self.hand if not any(c is p for p in played)]
         self.hands_left -= 1
         self.hand_levels.plays[result.hand] += 1
 
