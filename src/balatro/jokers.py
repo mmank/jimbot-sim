@@ -204,21 +204,21 @@ def _suit_scorer(suit: Suit, amount: int) -> ScoredHook:
 
 def _hand_mult(hands: set[HandType], amount: int) -> IndepHook:
     def hook(j: JokerInstance, ctx: ScoreContext) -> None:
-        if ctx.hand in hands:
+        if hands & ctx.contains:
             ctx.add_mult(amount, j.name)
     return hook
 
 
 def _hand_chips(hands: set[HandType], amount: int) -> IndepHook:
     def hook(j: JokerInstance, ctx: ScoreContext) -> None:
-        if ctx.hand in hands:
+        if hands & ctx.contains:
             ctx.add_chips(amount, j.name)
     return hook
 
 
 def _hand_xmult(hands: set[HandType], factor: float) -> IndepHook:
     def hook(j: JokerInstance, ctx: ScoreContext) -> None:
-        if ctx.hand in hands:
+        if hands & ctx.contains:
             ctx.times_mult(factor, j.name)
     return hook
 
@@ -241,16 +241,16 @@ def _face_scorer(chips: int = 0, mult: int = 0) -> ScoredHook:
     return hook
 
 
-CONTAINS_PAIR = {HandType.PAIR, HandType.TWO_PAIR, HandType.THREE_OF_A_KIND,
-                 HandType.FULL_HOUSE, HandType.FOUR_OF_A_KIND, HandType.FIVE_OF_A_KIND,
-                 HandType.FLUSH_HOUSE, HandType.FLUSH_FIVE}
-CONTAINS_TRIPS = {HandType.THREE_OF_A_KIND, HandType.FULL_HOUSE, HandType.FOUR_OF_A_KIND,
-                  HandType.FIVE_OF_A_KIND, HandType.FLUSH_HOUSE, HandType.FLUSH_FIVE}
-CONTAINS_TWO_PAIR = {HandType.TWO_PAIR, HandType.FULL_HOUSE, HandType.FLUSH_HOUSE}
-CONTAINS_QUADS = {HandType.FOUR_OF_A_KIND, HandType.FIVE_OF_A_KIND, HandType.FLUSH_FIVE}
-CONTAINS_STRAIGHT = {HandType.STRAIGHT, HandType.STRAIGHT_FLUSH}
-CONTAINS_FLUSH = {HandType.FLUSH, HandType.STRAIGHT_FLUSH, HandType.FLUSH_HOUSE,
-                  HandType.FLUSH_FIVE}
+# Each of these is now the sub-hand itself: the played cards carry a table
+# of everything they contain, so "contains a Pair" is a membership test
+# rather than a list of the top hands that imply one. That list could not
+# express a Flush that happens to hold a pair, which the game counts.
+CONTAINS_PAIR = {HandType.PAIR}
+CONTAINS_TRIPS = {HandType.THREE_OF_A_KIND}
+CONTAINS_TWO_PAIR = {HandType.TWO_PAIR}
+CONTAINS_QUADS = {HandType.FOUR_OF_A_KIND}
+CONTAINS_STRAIGHT = {HandType.STRAIGHT}
+CONTAINS_FLUSH = {HandType.FLUSH}
 
 _EVEN = {Rank.TEN, Rank.EIGHT, Rank.SIX, Rank.FOUR, Rank.TWO}
 _ODD = {Rank.ACE, Rank.NINE, Rank.SEVEN, Rank.FIVE, Rank.THREE}
@@ -371,7 +371,7 @@ register("Green Joker", Rarity.COMMON, "+1 Mult per hand played, -1 per discard"
 
 register("Runner", Rarity.COMMON, "+15 Chips, gains +15 Chips per Straight played",
          cost=5, init_counter=0.0,   # the game starts extra.chips at 0
-         update=lambda j, ctx: _bump(j, 15) if ctx.hand in CONTAINS_STRAIGHT else None,
+         update=lambda j, ctx: _bump(j, 15) if CONTAINS_STRAIGHT & ctx.contains else None,
          update_before_scoring=True,
          independent=lambda j, ctx: ctx.add_chips(j.counter, j.name))
 
@@ -748,7 +748,7 @@ register("Wee Joker", Rarity.RARE, "Gains +8 Chips when each played 2 scores",
 register("Spare Trousers", Rarity.UNCOMMON,
          "Gains +2 Mult if the played hand contains a Two Pair", cost=6,
          update=lambda j, ctx: _bump(j, 2)
-         if ctx.hand in CONTAINS_TWO_PAIR else None,
+         if CONTAINS_TWO_PAIR & ctx.contains else None,
          update_before_scoring=True,
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
 register("Hiker", Rarity.UNCOMMON,
@@ -1082,7 +1082,7 @@ register("Superposition", Rarity.COMMON,
          cost=4,
          after_hand=lambda j, ctx: ctx.game.add_consumables(
              ctx.game.random_consumables(ConsumableKind.TAROT, 1, "sup"))
-         if ctx.hand in CONTAINS_STRAIGHT
+         if CONTAINS_STRAIGHT & ctx.contains
          and any(c.rank is Rank.ACE for c in ctx.scoring) else None)
 register('Séance', Rarity.UNCOMMON,
          "If the poker hand is a Straight Flush, create a random Spectral card",

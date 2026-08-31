@@ -21,6 +21,9 @@ class ScoreContext:
     played: tuple[Card, ...]
     held: tuple[Card, ...]
     game: "GameState"
+    # Every hand the played cards contain, which is what the "if hand
+    # contains a Pair" jokers actually ask about.
+    contains: frozenset = frozenset()
     chips: float = 0.0
     mult: float = 0.0
     money_gained: int = 0

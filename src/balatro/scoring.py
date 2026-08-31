@@ -113,6 +113,7 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
         played=tuple(played),
         held=tuple(held),
         game=game,
+        contains=result.contains,
     )
     # A debuffed joker scores nothing at all -- a perishable that has run out
     # its rounds sits in the row contributing neither chips nor mult.

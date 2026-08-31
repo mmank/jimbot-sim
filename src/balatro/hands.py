@@ -109,6 +109,13 @@ class HandLevels:
 class HandResult:
     hand: HandType
     scoring: tuple[Card, ...]
+    # Every hand the played cards *contain*, not just the best one. The game
+    # keeps a table of all of them -- results["Pair"] is set whenever two
+    # cards share a rank, whatever the top hand turns out to be -- and the
+    # jokers that say "if hand contains a Pair" read that table. A Flush with
+    # two Kings in it contains a Pair, so Sly Joker fires on it, and testing
+    # the best hand instead silently misses every one of those.
+    contains: frozenset = frozenset()
 
 
 _SMEARED_PAIRS = {Suit.HEARTS: Suit.DIAMONDS, Suit.DIAMONDS: Suit.HEARTS,
@@ -197,15 +204,40 @@ def evaluate(
             if cnt >= 2:
                 full_house = trips + [c for c in ranked if c.rank is rank][:2]
 
+    held = {HandType.HIGH_CARD}
+    if pairs:
+        held.add(HandType.PAIR)
+    if len(pairs) >= 2:
+        held.add(HandType.TWO_PAIR)
+    if trips:
+        held.add(HandType.THREE_OF_A_KIND)
+    if four:
+        held.add(HandType.FOUR_OF_A_KIND)
+    if five:
+        held.add(HandType.FIVE_OF_A_KIND)
+    if full_house:
+        held.add(HandType.FULL_HOUSE)
+    if flush:
+        held.add(HandType.FLUSH)
+    if straight:
+        held.add(HandType.STRAIGHT)
+    if flush and straight:
+        held.add(HandType.STRAIGHT_FLUSH)
+    if flush and full_house:
+        held.add(HandType.FLUSH_HOUSE)
+    if flush and five:
+        held.add(HandType.FLUSH_FIVE)
+
     def result(hand: HandType, scoring: list[Card]) -> HandResult:
         # Stone cards always score, and scoring keeps the played order.
         # Splash widens the set to everything played without changing which
         # hand it is: a High Card with Splash still scores as a High Card, but
         # all five cards contribute their chips.
         if splash:
-            return HandResult(hand, tuple(cards))
+            return HandResult(hand, tuple(cards), frozenset(held))
         chosen = {c.uid for c in scoring} | {c.uid for c in stones}
-        return HandResult(hand, tuple(c for c in cards if c.uid in chosen))
+        return HandResult(hand, tuple(c for c in cards if c.uid in chosen),
+                          frozenset(held))
 
     if five and flush:
         return result(HandType.FLUSH_FIVE, five)
