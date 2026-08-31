@@ -281,6 +281,10 @@ class GameState:
     # lasts one round and is handed back when that round ends, and it stacks:
     # round_start_bonus is applied to every tag held, without breaking.
     temp_hand_size: int = 0
+    # G.GAME.current_round.most_played_poker_hand, which is what The Ox reads.
+    # A snapshot taken when a boss round ends, not a live count -- it starts
+    # at High Card and is only ever rewritten there.
+    most_played_hand: HandType = HandType.HIGH_CARD
     cards_sold: int = 0
     glass_destroyed: int = 0
     lucky_triggers: int = 0
@@ -1680,9 +1684,35 @@ class GameState:
         else:
             self._draw_to_hand_size()
 
+    def _snapshot_most_played(self) -> None:
+        """Fix the hand The Ox will punish, as a boss round closes.
+
+        The game walks G.GAME.hands and keeps `v.played > _played or
+        (v.played == _played and _order > v.order)`. `_order` is initialised
+        to 100 and never assigned inside the loop, so the tie-break compares
+        100 against every hand's order and is always true: any hand equalling
+        the best replaces it, and the winner is simply the last one `pairs`
+        happens to yield.
+
+        That order is not reproducible across processes -- the same LuaJIT
+        string hashing that moves To Do List's pool -- so a tie is a coin
+        flip in the real game too. Measured, the order runs strongest-first,
+        which leaves the *weakest* of the tied hands standing: with Pair and
+        Flush both on 25 plays the engine picked Pair. Walking HANDLIST
+        backwards reproduces that, and is a stated rule rather than a guess.
+        """
+        plays = self.hand_levels.plays
+        self.most_played_hand = max(reversed(HANDLIST),
+                                    key=lambda h: plays.get(h, 0))
+
     def _is_most_played(self, hand: HandType) -> bool:
-        top = max(self.hand_levels.plays.values())
-        return self.hand_levels.plays[hand] == top
+        """The Ox compares against the snapshot, not against a live count.
+
+        Reading the counts live made every hand tied for the lead count as
+        the most played, so a run with two hands on three plays each had its
+        money zeroed by either of them.
+        """
+        return hand is self.most_played_hand
 
     def _discard(self, indices: tuple[int, ...]) -> None:
         cards = [self.hand[i] for i in indices]
@@ -1821,6 +1851,11 @@ class GameState:
         self.hand = []
         self.draw_pile = self.discard_pile + self.draw_pile
         self.discard_pile = []
+
+        if self.blind.kind is BlindKind.BOSS:
+            # The Ox's target for the ante ahead is fixed here, as the boss
+            # round closes, and nowhere else.
+            self._snapshot_most_played()
 
         # An Investment Tag pays as a row on the cash-out screen rather than
         # the instant the boss falls, and every one held pays: the game's eval

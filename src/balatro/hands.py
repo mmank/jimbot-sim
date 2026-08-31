@@ -233,29 +233,57 @@ def evaluate(
             if cnt >= 2:
                 full_house = trips + [c for c in ranked if c.rank is rank][:2]
 
+    # Containment is built from groups of an *exact* size, not "at least".
+    # get_X_same(3, hand) matches a rank with three cards and skips one with
+    # four or five, and the game then patches a cascade on the end: a Five of
+    # a Kind counts as a Four of a Kind, which counts as a Three of a Kind,
+    # which counts as a Pair. Nothing in that chain reaches Two Pair.
+    #
+    # Reading "at least three" instead made a Five of a Kind contain a Full
+    # House -- three of the five plus two of the same five -- which the game
+    # never does, because both halves would be the same rank. Checked against
+    # the engine across twelve hands, that and the Flush Five that followed
+    # from it were the only two places the tables disagreed.
+    #
+    # The top hand is still chosen from the at-least groups below, which is
+    # what the game does too: it reads _5 for a Five of a Kind whether or not
+    # _3 also matched.
+    sizes = Counter(counts.values())
+    n_five, n_four, n_trips = sizes[5], sizes[4], sizes[3]
+    n_pairs = sizes[2]
+
     held = {HandType.HIGH_CARD}
-    if pairs:
-        held.add(HandType.PAIR)
-    if len(pairs) >= 2:
-        held.add(HandType.TWO_PAIR)
-    if trips:
-        held.add(HandType.THREE_OF_A_KIND)
-    if four:
-        held.add(HandType.FOUR_OF_A_KIND)
-    if five:
+    if n_five:
         held.add(HandType.FIVE_OF_A_KIND)
-    if full_house:
+        if flush:
+            held.add(HandType.FLUSH_FIVE)
+    if n_trips and n_pairs:
         held.add(HandType.FULL_HOUSE)
+        if flush:
+            held.add(HandType.FLUSH_HOUSE)
+    if n_four:
+        held.add(HandType.FOUR_OF_A_KIND)
     if flush:
         held.add(HandType.FLUSH)
     if straight:
         held.add(HandType.STRAIGHT)
     if flush and straight:
         held.add(HandType.STRAIGHT_FLUSH)
-    if flush and full_house:
-        held.add(HandType.FLUSH_HOUSE)
-    if flush and five:
-        held.add(HandType.FLUSH_FIVE)
+    if n_trips:
+        held.add(HandType.THREE_OF_A_KIND)
+    # Two Pair takes two pairs, or a set and a pair -- the one place a Full
+    # House reaches down. A Four of a Kind never gets here.
+    if n_pairs == 2 or (n_trips == 1 and n_pairs == 1):
+        held.add(HandType.TWO_PAIR)
+    if n_pairs:
+        held.add(HandType.PAIR)
+    # The cascade, in the game's own order and stopping where it stops.
+    if HandType.FIVE_OF_A_KIND in held:
+        held.add(HandType.FOUR_OF_A_KIND)
+    if HandType.FOUR_OF_A_KIND in held:
+        held.add(HandType.THREE_OF_A_KIND)
+    if HandType.THREE_OF_A_KIND in held:
+        held.add(HandType.PAIR)
 
     def result(hand: HandType, scoring: list[Card]) -> HandResult:
         # Stone cards always score, and scoring keeps the played order.

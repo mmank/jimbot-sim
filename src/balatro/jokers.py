@@ -279,6 +279,7 @@ CONTAINS_TWO_PAIR = {HandType.TWO_PAIR}
 CONTAINS_QUADS = {HandType.FOUR_OF_A_KIND}
 CONTAINS_STRAIGHT = {HandType.STRAIGHT}
 CONTAINS_FLUSH = {HandType.FLUSH}
+CONTAINS_STRAIGHT_FLUSH = {HandType.STRAIGHT_FLUSH}
 
 _EVEN = {Rank.TEN, Rank.EIGHT, Rank.SIX, Rank.FOUR, Rank.TWO}
 _ODD = {Rank.ACE, Rank.NINE, Rank.SEVEN, Rank.FIVE, Rank.THREE}
@@ -1293,11 +1294,16 @@ register("Superposition", Rarity.COMMON,
          if CONTAINS_STRAIGHT & ctx.contains
          and any(c.rank is Rank.ACE for c in ctx.scoring) else None)
 register('Séance', Rarity.UNCOMMON,
-         "If the poker hand is a Straight Flush, create a random Spectral card",
+         "If the poker hand contains a Straight Flush, create a Spectral card",
          cost=6,
+         # `next(context.poker_hands[...])`, like every other joker that names
+         # a hand -- not a test of what the hand *is*. The two agree on any
+         # hand vanilla can make, since nothing that outranks a Straight Flush
+         # contains one, but reading the top hand is the wrong shape and would
+         # be wrong the moment a mod or an unusual joker made one.
          after_hand=lambda j, ctx: ctx.game.add_consumables(
              ctx.game.random_consumables(ConsumableKind.SPECTRAL, 1, "sea"))
-         if ctx.hand is HandType.STRAIGHT_FLUSH else None)
+         if CONTAINS_STRAIGHT_FLUSH & ctx.contains else None)
 register("Vagabond", Rarity.RARE,
          "Create a Tarot card if a hand is played with $4 or less", cost=8,
          after_hand=lambda j, ctx: ctx.game.add_consumables(
