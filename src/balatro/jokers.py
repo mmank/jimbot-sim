@@ -890,6 +890,11 @@ register("Midas Mask", Rarity.UNCOMMON,
 register("Seltzer", Rarity.UNCOMMON,
          "Retrigger all played cards for the next 10 hands", cost=6,
          init_counter=10.0,
+         # Ten hands and then it is gone. The countdown runs after the hand
+         # it retriggered, so the tenth hand still gets its retrigger and the
+         # joker leaves with it. Nothing was counting at all, so a Seltzer
+         # bought once retriggered for the rest of the run.
+         update=lambda j, ctx: _decay(j, -1, ctx.game),
          retrigger_scored=lambda j, c, ctx: 1 if j.counter > 0 else 0)
 register("Matador", Rarity.UNCOMMON,
          "Earn $8 if the played hand triggers the Boss Blind ability", cost=7,
