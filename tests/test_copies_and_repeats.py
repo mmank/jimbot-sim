@@ -142,3 +142,35 @@ def test_death_still_copies_what_is_printed_on_the_card():
     assert left.enhancement is Enhancement.GLASS
     assert left.edition is Edition.POLYCHROME
     assert left.seal is Seal.RED
+
+
+def test_a_copied_joker_shares_the_registrys_spec():
+    """A copy carries the joker's state, not a second copy of the rules.
+
+    `gain_joker(copy.deepcopy(joker))` is how a duplicate joins the row, and
+    a spec is what a joker *is* -- built once at import, pointed at by every
+    instance in every game. Deep-copying it made a private set of the rules
+    per copy: harmless to arithmetic, since the hooks behave identically, but
+    it broke identity, so `spec is REGISTRY[name]` stopped holding, and it
+    made a run impossible to serialise at all -- the hooks are closures over
+    the joker's numbers, which pickle refuses outright.
+
+    Both specs answer __reduce__ with their own name and are restored by
+    lookup, so a copy points back at the registry.
+    """
+    import copy
+    import pickle
+
+    from balatro.jokers import REGISTRY as JOKERS
+    from balatro.jokers import make
+
+    joker = make("Blueprint")
+    joker.counter = 7.0
+    for copied in (copy.deepcopy(joker), pickle.loads(pickle.dumps(joker, -1))):
+        assert copied.spec is JOKERS["Blueprint"], "the rules were copied"
+        assert copied.counter == 7.0, "the joker's own state was not"
+        assert copied is not joker
+
+    fool = CONSUMABLES["The Fool"]
+    assert copy.deepcopy(fool) is fool
+    assert pickle.loads(pickle.dumps(fool, -1)) is fool
