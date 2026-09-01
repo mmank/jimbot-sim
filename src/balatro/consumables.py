@@ -42,6 +42,16 @@ class ConsumableSpec:
         high = self.max_targets if self.max_targets is not None else self.targets
         return low <= n_selected <= high
 
+    def __reduce__(self):
+        """Pickle and copy as the registry entry, by name.
+
+        Same reason as JokerSpec.__reduce__, and the same closure: `apply` is
+        built by _planet_apply and its kin, which pickle cannot reach. A
+        consumable held in the row would otherwise make a run unserialisable
+        exactly as a joker does.
+        """
+        return (_registered, (self.name,))
+
 
 @dataclass
 class ConsumableInstance:
@@ -78,6 +88,17 @@ class ConsumableInstance:
 
 
 REGISTRY: dict[str, ConsumableSpec] = {}
+
+
+def _registered(name: str) -> ConsumableSpec:
+    """The spec of this name, for ConsumableSpec.__reduce__ to restore through."""
+    try:
+        return REGISTRY[name]
+    except KeyError:
+        raise LookupError(
+            "no consumable named %r is registered, so a copy of one cannot "
+            "be restored; every spec is built inside register()" % (name,)
+        ) from None
 
 
 def register(spec: ConsumableSpec) -> ConsumableSpec:

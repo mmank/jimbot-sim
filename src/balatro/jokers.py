@@ -116,6 +116,26 @@ class JokerSpec:
     prevents_death: bool = False      # Mr. Bones
     disables_boss_on_sell: bool = False   # Luchador
 
+    def __reduce__(self):
+        """Pickle and copy as the registry entry, by name.
+
+        A spec is the *rules* for a joker, not any run's state: it is built
+        once at import and every instance in every game points at the same
+        one. Copying it is therefore always wrong, and mostly impossible --
+        the hooks are closures over the joker's numbers, which pickle refuses
+        outright ("Can't get local object '_hand_mult.<locals>.hook'"). That
+        is what a run's state hits the moment a Sly Joker is in the row and
+        anything tries to serialise the game, which is what forking a
+        position does.
+
+        Restored by lookup instead. That keeps identity as well as value:
+        the same Blueprint is the same object on both sides of a copy, so
+        `is` comparisons between a spec and a registry entry still hold, and
+        deepcopy stops silently making second copies of the rules. It applies
+        to copy.deepcopy as well as pickle -- both consult __reduce__.
+        """
+        return (_registered, (self.name,))
+
 
 # What an edition adds to a card's price, and so to half of it. From
 # Card:set_cost, where the same numbers serve buying and selling.
@@ -186,6 +206,17 @@ class JokerInstance:
 
 
 REGISTRY: dict[str, JokerSpec] = {}
+
+
+def _registered(name: str) -> JokerSpec:
+    """The spec of this name, for JokerSpec.__reduce__ to restore through."""
+    try:
+        return REGISTRY[name]
+    except KeyError:
+        raise LookupError(
+            "no joker named %r is registered, so a copy of one cannot be "
+            "restored; every spec is built inside register()" % (name,)
+        ) from None
 
 
 def register(name: str, rarity: Rarity, text: str, **kwargs) -> JokerSpec:
