@@ -337,6 +337,12 @@ class GameState:
     # chips every ante asks for, the discards a round starts with, whether
     # the Small Blind pays, and what stickers the shop puts on its jokers.
     stake: int = 1
+    # Endless: keep playing past the ante-eight boss instead of ending there.
+    # The rest of the game already supports it and always did -- blinds.py has
+    # the post-ante-eight chip formula the real game switches to, and
+    # boss_data picks a finisher every eighth ante rather than only at eight.
+    # This flag is only about whether the run *stops*.
+    endless: bool = False
     pack_options: list = field(default_factory=list)
     pack_picks_left: int = 0
 
@@ -2152,7 +2158,7 @@ class GameState:
             # is, and it was invisible until the simulator was driven as a
             # training environment and started reporting wins the engine
             # never gave for the same policy.
-            if self.ante > WIN_ANTE:
+            if self.ante > WIN_ANTE and not self.endless:
                 self.phase = Phase.WON
                 self.log(f"Run won after ante {WIN_ANTE}")
                 return
