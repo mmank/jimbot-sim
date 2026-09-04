@@ -605,6 +605,15 @@ function api.snapshot()
     state = G.STATE,
     state_name = api.state_name(),
     ante = G.GAME.round_resets.ante,
+    -- Which deck and which stake, read exactly as bot_api.lua reads them:
+    -- the observation is shared between the two backends, so a field that
+    -- means one thing here and another there is worse than not having it.
+    -- The stake sets the blind scaling table and gates the shop's stickers;
+    -- the deck decides what the run starts with. Both are constant for a
+    -- run, and both are inputs the policy could not see at all until
+    -- training began randomising them.
+    deck = (G.GAME.selected_back and G.GAME.selected_back.name) or 'Red Deck',
+    stake = G.GAME.stake or 1,
     round = G.GAME.round,
     dollars = G.GAME.dollars,
     chips = G.GAME.chips,
