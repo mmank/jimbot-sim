@@ -165,6 +165,93 @@ local RANK_IDS = { ['2']=1, ['3']=2, ['4']=3, ['5']=4, ['6']=5, ['7']=6,
 local SUIT_IDS = { Spades = 1, Hearts = 2, Clubs = 3, Diamonds = 4 }
 
 local STATE_NAMES
+-- Where each scaling joker keeps the number that is actually its worth.
+--
+-- There is no rule to infer this from. `card.ability` carries every field the
+-- game ever uses, defaulted -- a Seltzer reports mult=0 and x_mult=1 as well
+-- as the extra=10 that is its real counter -- so anything that picked the
+-- first plausible field would confidently read the wrong one and never say
+-- so. The table is explicit and tests/test_joker_counters.py checks all of it
+-- against the simulator.
+--
+-- A joker absent from the table has no counter and reports zero: most do not
+-- scale, and Hiker, Matador, Triboulet and Bootstraps compute their effect
+-- from elsewhere rather than accumulating it.
+local COUNTER_FIELD = {
+  j_caino              = { "caino_xmult" },
+  j_selzer             = { "extra" },
+  j_ice_cream          = { "extra.chips" },
+  j_runner             = { "extra.chips" },
+  j_castle             = { "extra.chips" },
+  j_wee                = { "extra.chips" },
+  j_square             = { "extra.chips" },
+  j_rocket             = { "extra.dollars" },
+  j_turtle_bean        = { "extra.h_size" },
+  j_yorick             = { "extra.xmult", "extra.discards" },
+  j_popcorn            = { "mult" },
+  j_trousers           = { "mult" },
+  j_ride_the_bus       = { "mult" },
+  j_green_joker        = { "mult" },
+  j_red_card           = { "mult" },
+  j_ceremonial         = { "mult" },
+  j_flash              = { "mult" },
+  j_obelisk            = { "x_mult" },
+  -- Steel Joker is deliberately absent. Its X Mult is recomputed from the
+  -- steel cards in the deck rather than accumulated, so the engine's x_mult
+  -- is a derived total where every other entry here is a stored counter.
+  -- Reporting it would have the two backends disagree from the moment the
+  -- joker is bought. What drives it is already visible in the deck block.
+  j_campfire           = { "x_mult" },
+  j_constellation      = { "x_mult" },
+  j_madness            = { "x_mult" },
+  j_hit_the_road       = { "x_mult" },
+  j_glass              = { "x_mult" },
+  j_lucky_cat          = { "x_mult" },
+  j_vampire            = { "x_mult" },
+  j_hologram           = { "x_mult" },
+  j_ramen              = { "x_mult" },
+}
+
+local function ability_number(ability, path)
+  if not path then return 0 end
+  local head, tail = path:match("^([^.]+)%.(.+)$")
+  if head then
+    local nested = ability[head]
+    if type(nested) ~= "table" then return 0 end
+    return tonumber(nested[tail]) or 0
+  end
+  return tonumber(ability[path]) or 0
+end
+
+-- The three stickers, for a row that may hold a voucher or a pack rather than
+-- a joker. Spelled out rather than omitted so every row has the same shape.
+-- The shop is where they matter most: the stickers are rolled when the shop
+-- stocks the joker, not when it is bought, and a rental is priced at $1
+-- however expensive the joker -- so the shelf shows a bargain and says nothing
+-- about the $3 a round behind it.
+-- One of G.GAME.current_round's per-run card nominations, as the same id the
+-- card rows use. The game stores them as words -- {suit = "Spades", rank =
+-- "Ace"} -- and RANK_IDS and SUIT_IDS are already keyed that way, so the two
+-- backends meet on the number rather than on the spelling.
+local function idol_part(which, field, ids)
+  local round = G.GAME and G.GAME.current_round
+  local card = round and round[which]
+  return (card and ids[card[field]]) or 0
+end
+
+local function stickers(card)
+  local a = card.ability or {}
+  return a.eternal and 1 or 0, a.perishable and 1 or 0, a.rental and 1 or 0
+end
+
+local function joker_counters(card)
+  local fields = COUNTER_FIELD[card.config.center.key]
+  if not fields then return 0, 0 end
+  return ability_number(card.ability, fields[1]),
+         ability_number(card.ability, fields[2])
+end
+
+
 local function state_name()
   if not STATE_NAMES then
     STATE_NAMES = {}
@@ -578,6 +665,7 @@ function BotAPI.state()
     deck_cards = (function()
       local ranks, suits = {}, {}
       local enhancements, seals, editions = {}, {}, {}
+      local extra_total, extra_any, extra_cards = 0, 0, 0
       for i = 1, 13 do ranks[i] = 0 end
       for i = 1, 4 do suits[i] = 0 end
       for i = 0, 8 do enhancements[i + 1] = 0 end
@@ -596,10 +684,21 @@ function BotAPI.state()
           seals[seal + 1] = seals[seal + 1] + 1
           local edition = edition_id(card)
           editions[edition + 1] = editions[edition + 1] + 1
+          local perma = (card.ability and card.ability.perma_bonus) or 0
+          extra_total = extra_total + perma
+          if perma > 0 then extra_any = extra_any + 1 end
+          extra_cards = extra_cards + 1
         end
       end
       return { ranks = ranks, suits = suits, enhancements = enhancements,
-               seals = seals, editions = editions }
+               seals = seals, editions = editions,
+               -- How far the pumping has got, and how much of the deck it
+               -- has reached. The two come apart badly when one card has
+               -- been hit twenty times and the rest not at all.
+               extra_chips_mean = extra_cards > 0
+                 and (extra_total / extra_cards) or 0,
+               extra_chips_share = extra_cards > 0
+                 and (extra_any / extra_cards) or 0 }
     end)(),
     -- Redeemed vouchers. A voucher joins no tray and does not touch the deck,
     -- so this is the only visible consequence of buying one. The real game
@@ -607,11 +706,24 @@ function BotAPI.state()
     -- to PLAY_TAROT while it redeems -- but the engine completes the whole
     -- action before anything can look, so that transient is never seen.
     vouchers = (function()
-      if not in_run then return 0 end
-      local n = 0
-      for _ in pairs(G.GAME.used_vouchers or {}) do n = n + 1 end
-      return n
+      local out = {}
+      if not in_run then return out end
+      for key in pairs(G.GAME.used_vouchers or {}) do out[#out + 1] = key end
+      -- Sorted so the list is the same on both sides: `pairs` has no order
+      -- and the simulator sorts its own.
+      table.sort(out)
+      return out
     end)(),
+    -- The four values the run holds on behalf of a joker: The Idol scores a
+    -- rank and a suit re-rolled every ante, Ancient Joker a suit, Mail-In
+    -- Rebate a rank every round, Castle a suit. Without these, holding any of
+    -- the four is holding a joker whose effect cannot be known. Zero means
+    -- not rolled yet, which is a real state before the first ante.
+    idol_rank = in_run and idol_part("idol_card", "rank", RANK_IDS) or 0,
+    idol_suit = in_run and idol_part("idol_card", "suit", SUIT_IDS) or 0,
+    ancient_suit = in_run and idol_part("ancient_card", "suit", SUIT_IDS) or 0,
+    mail_rank = in_run and idol_part("mail_card", "rank", RANK_IDS) or 0,
+    castle_suit = in_run and idol_part("castle_card", "suit", SUIT_IDS) or 0,
     -- Which stake and deck the run is on. Stake decides whether jokers can
     -- come out eternal, perishable or rental, so it changes what is legal to
     -- do with them.
@@ -750,88 +862,17 @@ function BotAPI.state()
       suit = (card.base and SUIT_IDS[card.base.suit]) or 0,
       center = key_id(card.config.center.key),
       chips = (card.base and card.base.nominal) or 0,
+      -- What Hiker and friends have added to this card for good. Beside the
+      -- nominal, not folded into it: reporting the bonus *instead* of the
+      -- nominal is exactly the bug the nominal was introduced to fix, and
+      -- swapping which of the two is visible is not showing both.
+      extra_chips = (card.ability and card.ability.perma_bonus) or 0,
       highlighted = is_highlighted(i) and 1 or 0,
       debuffed = card.debuff and 1 or 0,
       edition = edition_id(card),
       seal = seal_id(card),
     }
   end
-
--- Where each scaling joker keeps the number that is actually its worth.
---
--- There is no rule to infer this from. `card.ability` carries every field the
--- game ever uses, defaulted -- a Seltzer reports mult=0 and x_mult=1 as well
--- as the extra=10 that is its real counter -- so anything that picked the
--- first plausible field would confidently read the wrong one and never say
--- so. The table is explicit and tests/test_joker_counters.py checks all of it
--- against the simulator.
---
--- A joker absent from the table has no counter and reports zero: most do not
--- scale, and Hiker, Matador, Triboulet and Bootstraps compute their effect
--- from elsewhere rather than accumulating it.
-local COUNTER_FIELD = {
-  j_caino              = { "caino_xmult" },
-  j_selzer             = { "extra" },
-  j_ice_cream          = { "extra.chips" },
-  j_runner             = { "extra.chips" },
-  j_castle             = { "extra.chips" },
-  j_wee                = { "extra.chips" },
-  j_square             = { "extra.chips" },
-  j_rocket             = { "extra.dollars" },
-  j_turtle_bean        = { "extra.h_size" },
-  j_yorick             = { "extra.xmult", "extra.discards" },
-  j_popcorn            = { "mult" },
-  j_trousers           = { "mult" },
-  j_ride_the_bus       = { "mult" },
-  j_green_joker        = { "mult" },
-  j_red_card           = { "mult" },
-  j_ceremonial         = { "mult" },
-  j_flash              = { "mult" },
-  j_obelisk            = { "x_mult" },
-  -- Steel Joker is deliberately absent. Its X Mult is recomputed from the
-  -- steel cards in the deck rather than accumulated, so the engine's x_mult
-  -- is a derived total where every other entry here is a stored counter.
-  -- Reporting it would have the two backends disagree from the moment the
-  -- joker is bought. What drives it is already visible in the deck block.
-  j_campfire           = { "x_mult" },
-  j_constellation      = { "x_mult" },
-  j_madness            = { "x_mult" },
-  j_hit_the_road       = { "x_mult" },
-  j_glass              = { "x_mult" },
-  j_lucky_cat          = { "x_mult" },
-  j_vampire            = { "x_mult" },
-  j_hologram           = { "x_mult" },
-  j_ramen              = { "x_mult" },
-}
-
-local function ability_number(ability, path)
-  if not path then return 0 end
-  local head, tail = path:match("^([^.]+)%.(.+)$")
-  if head then
-    local nested = ability[head]
-    if type(nested) ~= "table" then return 0 end
-    return tonumber(nested[tail]) or 0
-  end
-  return tonumber(ability[path]) or 0
-end
-
--- The three stickers, for a row that may hold a voucher or a pack rather than
--- a joker. Spelled out rather than omitted so every row has the same shape.
--- The shop is where they matter most: the stickers are rolled when the shop
--- stocks the joker, not when it is bought, and a rental is priced at $1
--- however expensive the joker -- so the shelf shows a bargain and says nothing
--- about the $3 a round behind it.
-local function stickers(card)
-  local a = card.ability or {}
-  return a.eternal and 1 or 0, a.perishable and 1 or 0, a.rental and 1 or 0
-end
-
-local function joker_counters(card)
-  local fields = COUNTER_FIELD[card.config.center.key]
-  if not fields then return 0, 0 end
-  return ability_number(card.ability, fields[1]),
-         ability_number(card.ability, fields[2])
-end
 
   state.jokers = {}
   for i, card in ipairs(G.jokers.cards) do
