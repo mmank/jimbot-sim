@@ -757,8 +757,85 @@ function BotAPI.state()
     }
   end
 
+-- Where each scaling joker keeps the number that is actually its worth.
+--
+-- There is no rule to infer this from. `card.ability` carries every field the
+-- game ever uses, defaulted -- a Seltzer reports mult=0 and x_mult=1 as well
+-- as the extra=10 that is its real counter -- so anything that picked the
+-- first plausible field would confidently read the wrong one and never say
+-- so. The table is explicit and tests/test_joker_counters.py checks all of it
+-- against the simulator.
+--
+-- A joker absent from the table has no counter and reports zero: most do not
+-- scale, and Hiker, Matador, Triboulet and Bootstraps compute their effect
+-- from elsewhere rather than accumulating it.
+local COUNTER_FIELD = {
+  j_caino              = { "caino_xmult" },
+  j_selzer             = { "extra" },
+  j_ice_cream          = { "extra.chips" },
+  j_runner             = { "extra.chips" },
+  j_castle             = { "extra.chips" },
+  j_wee                = { "extra.chips" },
+  j_square             = { "extra.chips" },
+  j_rocket             = { "extra.dollars" },
+  j_turtle_bean        = { "extra.h_size" },
+  j_yorick             = { "extra.xmult", "extra.discards" },
+  j_popcorn            = { "mult" },
+  j_trousers           = { "mult" },
+  j_ride_the_bus       = { "mult" },
+  j_green_joker        = { "mult" },
+  j_red_card           = { "mult" },
+  j_ceremonial         = { "mult" },
+  j_flash              = { "mult" },
+  j_obelisk            = { "x_mult" },
+  -- Steel Joker is deliberately absent. Its X Mult is recomputed from the
+  -- steel cards in the deck rather than accumulated, so the engine's x_mult
+  -- is a derived total where every other entry here is a stored counter.
+  -- Reporting it would have the two backends disagree from the moment the
+  -- joker is bought. What drives it is already visible in the deck block.
+  j_campfire           = { "x_mult" },
+  j_constellation      = { "x_mult" },
+  j_madness            = { "x_mult" },
+  j_hit_the_road       = { "x_mult" },
+  j_glass              = { "x_mult" },
+  j_lucky_cat          = { "x_mult" },
+  j_vampire            = { "x_mult" },
+  j_hologram           = { "x_mult" },
+  j_ramen              = { "x_mult" },
+}
+
+local function ability_number(ability, path)
+  if not path then return 0 end
+  local head, tail = path:match("^([^.]+)%.(.+)$")
+  if head then
+    local nested = ability[head]
+    if type(nested) ~= "table" then return 0 end
+    return tonumber(nested[tail]) or 0
+  end
+  return tonumber(ability[path]) or 0
+end
+
+-- The three stickers, for a row that may hold a voucher or a pack rather than
+-- a joker. Spelled out rather than omitted so every row has the same shape.
+-- The shop is where they matter most: the stickers are rolled when the shop
+-- stocks the joker, not when it is bought, and a rental is priced at $1
+-- however expensive the joker -- so the shelf shows a bargain and says nothing
+-- about the $3 a round behind it.
+local function stickers(card)
+  local a = card.ability or {}
+  return a.eternal and 1 or 0, a.perishable and 1 or 0, a.rental and 1 or 0
+end
+
+local function joker_counters(card)
+  local fields = COUNTER_FIELD[card.config.center.key]
+  if not fields then return 0, 0 end
+  return ability_number(card.ability, fields[1]),
+         ability_number(card.ability, fields[2])
+end
+
   state.jokers = {}
   for i, card in ipairs(G.jokers.cards) do
+    local counter, secondary = joker_counters(card)
     state.jokers[i] = {
       id = card_uid(card, base),
       center = key_id(card.config.center.key),
@@ -775,6 +852,18 @@ function BotAPI.state()
       perishable = card.ability.perishable and 1 or 0,
       perish_tally = card.ability.perish_tally or 0,
       rental = card.ability.rental and 1 or 0,
+      -- Switched off -- by a boss, or by a perishable running out. It scores
+      -- nothing while still sitting in the row looking healthy, so without
+      -- this the observation says the board is stronger than it is.
+      debuffed = card.debuff and 1 or 0,
+      -- What it has grown to, and the second number the few that keep two
+      -- use. See COUNTER_FIELD.
+      counter = counter,
+      secondary = secondary,
+      -- Hands played since it joined the row: what the jokers that count
+      -- hands measure from, which is not the start of the run.
+      hands_held = (G.GAME.hands_played or 0)
+        - (card.ability.hands_played_at_create or 0),
     }
   end
 
@@ -797,8 +886,10 @@ function BotAPI.state()
     local area = G[name]
     if area and area.cards then
       for i, card in ipairs(area.cards) do
+        local eternal, perishable, rental = stickers(card)
         state.shop[#state.shop + 1] = {
           area = name, index = i,
+          eternal = eternal, perishable = perishable, rental = rental,
           center = key_id(card.config.center.key),
           set = SET_IDS[card.config.center.set] or 0,
           cost = card.cost or 0,
@@ -830,10 +921,13 @@ function BotAPI.state()
   state.pack = {}
   if G.pack_cards and G.pack_cards.cards then
     for i, card in ipairs(G.pack_cards.cards) do
+      local eternal, perishable, rental = stickers(card)
       state.pack[i] = { center = key_id(card.config.center.key),
                         set = SET_IDS[card.config.center.set] or 0,
                         edition = edition_id(card),
                         seal = seal_id(card),
+                        eternal = eternal, perishable = perishable,
+                        rental = rental,
                         -- A consumable is used the instant it is taken, so it
                         -- faces the same gate. Anything else is always
                         -- takeable.

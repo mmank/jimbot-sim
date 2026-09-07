@@ -337,6 +337,19 @@ class GameState:
     # chips every ante asks for, the discards a round starts with, whether
     # the Small Blind pays, and what stickers the shop puts on its jokers.
     stake: int = 1
+    # Put every sticker on every stake, whatever the stake would allow.
+    #
+    # Training only. The stickers are gated so that eternal appears at stake
+    # four, perishable at seven and rental at eight -- which means the agent
+    # only ever meets them in runs it is also losing quickly for unrelated
+    # reasons, and gets a handful of antes a run to learn three mechanics it
+    # has never seen. Turning them on at stake one puts them in front of a
+    # policy that survives long enough to feel what they do.
+    #
+    # It moves the RNG: poll_stickers only spends its rental draw when rentals
+    # are enabled, so a run under this flag is not the run that seed produces
+    # in the real game. Evaluation therefore leaves it off.
+    all_stickers: bool = False
     # Endless: keep playing past the ante-eight boss instead of ending there.
     # The rest of the game already supports it and always did -- blinds.py has
     # the post-ante-eight chip formula the real game switches to, and
@@ -1074,6 +1087,8 @@ class GameState:
     @property
     def sticker_rules(self) -> dict:
         """Which stickers the stake lets the shop put on a joker."""
+        if self.all_stickers:
+            return {"eternals": True, "perishables": True, "rentals": True}
         return {"eternals": self.stake >= 4, "perishables": self.stake >= 7,
                 "rentals": self.stake >= 8}
 
