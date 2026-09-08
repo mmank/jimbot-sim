@@ -11,8 +11,3 @@ vendor/modded_game/
 !recordings/
 
 .venv/
-
-# built by hand with python native/build.py, not checked in
-native/*.dll
-native/*.so
-native/*.dylib
