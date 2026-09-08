@@ -1,4 +1,4 @@
-# Extracted from the user's own Balatro install at runtime; never redistributed.
+# Extracted from your own Balatro install at runtime; never redistributed.
 vendor/
 __pycache__/
 *.pyc
@@ -10,14 +10,7 @@ vendor/modded_game/
 # recorded human games, kept as regression fixtures
 !recordings/
 
-# The training box's virtualenv. It lives inside the checkout there, so
-# without this a `git add -A` on the box would try to commit torch.
 .venv/
-
-# Starting positions, rebuilt with scripts/make_snapshots.py --ante 3. They
-# are generated data rather than fixtures -- a different seed set on every
-# machine -- and being untracked on the training box was enough to have
-# `receive.denyCurrentBranch=updateInstead` refuse a push.
 
 # built by hand with python native/build.py, not checked in
 native/*.dll

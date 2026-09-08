@@ -171,8 +171,8 @@ local STATE_NAMES
 -- game ever uses, defaulted -- a Seltzer reports mult=0 and x_mult=1 as well
 -- as the extra=10 that is its real counter -- so anything that picked the
 -- first plausible field would confidently read the wrong one and never say
--- so. The table is explicit and tests/test_joker_counters.py checks all of it
--- against the simulator.
+-- so. The table is explicit, and anything relying on it should check it
+-- against src/balatro/jokers.py rather than trust it.
 --
 -- A joker absent from the table has no counter and reports zero: most do not
 -- scale, and Hiker, Matador, Triboulet and Bootstraps compute their effect

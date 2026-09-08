@@ -6,8 +6,8 @@ window with it. It is the bridge's demonstration and its end-to-end check:
 that the mod loads, that the socket answers, that an action taken here has
 the consequence it should in a game that animates.
 
-For the trained policy playing the visible game, see scripts/play_trained.py,
-which takes a checkpoint exported by ops/export_policy.py.
+It reads no checkpoint and holds no model. Driving the window with a trained
+agent is a separate concern and lives with whatever does the training.
 
 Build the modded game first:
 

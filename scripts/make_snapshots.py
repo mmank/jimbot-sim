@@ -1,4 +1,4 @@
-"""Play to a position and freeze it, so training does not only see ante one.
+"""Play to a position and freeze it, so a run can be resumed from there.
 
     python scripts/make_snapshots.py --ante 3 --count 20
 

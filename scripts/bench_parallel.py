@@ -1,8 +1,9 @@
-"""Measure real training throughput: runs and decisions per second, in parallel.
+"""Runs and decisions per second, driving the real engine in parallel.
 
 The Lua engine is single-threaded and lives in-process, so scaling means
-processes. This answers the only question that decides whether driving the real
-game is viable for RL, or whether a fast reimplementation is worth its risk.
+processes rather than threads. This is the measurement that decides whether
+driving the game itself is fast enough for a given job, or whether the
+simulator is worth the risk of being subtly wrong.
 """
 
 from __future__ import annotations

@@ -1,4 +1,5 @@
-"""A Balatro run engine built for reinforcement learning.
+"""A Balatro run engine: deterministic, headless, and checked against the
+game itself.
 
 The engine is deterministic given a seed, has no I/O, and exposes the run as a
 phase-based state machine:
