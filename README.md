@@ -1,134 +1,177 @@
 # jimbot-sim
 
-Balatro as a Python library. Three things that agree with each other:
+Balatro you can drive from Python. Seed a run, ask what the legal moves are,
+take one, repeat — and it plays out as it would in the game.
 
-- **A simulator** of the game in pure Python — jokers, consumables, blinds,
-  the shop, the RNG. No Lua, no game install, about 3,500 steps a second.
-- **A headless driver** that runs the game's *own* Lua under LuaJIT, with the
-  window and the animation taken out. Slower and authoritative.
-- **A bridge** to the real, running game over a socket, so a program can play
-  the version on your screen.
+```python
+from balatro import GameState, ActionType
 
-They serve one purpose between them: the simulator is only worth having if it
-is right, and the other two are how you find out that it is not.
-
-## The RNG is the point
-
-Balatro's randomness is a seeded counter per draw, not one stream. Which
-joker a shop offers depends on the seed, the ante, and how many jokers that
-run has already been offered — so a simulator that draws the *right kind* of
-random number in the wrong order diverges from the real game within an ante
-and stays plausible while it does.
-
-`src/balatro/rng.py` reproduces the game's own scheme, and
-`tests/test_rng.py` pins it against values taken from the engine. That is
-what makes a seed mean the same thing here as it does in Balatro.
-
-## What checks what
-
-Nothing here trusts the simulator on its own.
-
-- `tests/test_differential.py` plays the same seed through the simulator and
-  the headless engine and compares them step by step.
-- `tests/test_recordings.py` replays real games recorded from the bridge and
-  demands the simulator reach the same scores.
-- `recordings/` holds those games — every action a person took, with the
-  state they were looking at when they took it.
-- `ops/run_differential.py` and `ops/explain_divergence.py` are for when they
-  do disagree: the second one finds the first step where they part and says
-  what differs.
-- `ops/record_expectations.py` freezes what the engine scores, so the fast
-  tests need not boot it.
-
-Tests that boot LuaJIT are marked `slow` and deselected by default:
-
-```
-pytest                 # the simulator, seconds
-pytest -m slow         # against the engine, minutes
+game = GameState(seed="SEED0000", deck="Red Deck", stake=1)
+while not game.is_over:
+    actions = game.legal_actions()
+    plays = [a for a in actions if a.type is ActionType.PLAY]
+    game.step(max(plays, key=lambda a: game.preview_score(a.cards))
+              if plays else actions[0])
+print(game.ante, game.money)
 ```
 
-## Playing the real game
+That is a whole bot. It beats the small blind and the big blind of ante one
+and then loses to the boss — because `actions[0]` in a shop is "leave", so it
+never buys a joker. Making it better is the interesting part, and the rest of
+this is about giving you what you need to.
 
-`scripts/build_modded_game.py` builds a copy of your own Balatro install with
-the bridge mod fused in. It reads the Steam install and never writes to it.
-The build embeds the mod, so rebuild after changing `bot_api.lua`.
-
-```
-python scripts/build_modded_game.py
-python scripts/play_visible.py --launch
+```bash
+pip install -e .
 ```
 
-`play_visible.py` drives the window with the engine's own `best_play`
-heuristic. It is the bridge's demonstration and its end-to-end check, not a
-trained agent.
+`lupa` is the only dependency, and only the Lua-backed halves need it. The
+simulator is pure Python.
 
-The build needs the Steam client running even though it launches outside it.
+## The loop
 
-## Every script
-
-`scripts/` is what you run; `ops/` is what maintains the repository itself.
-Each one's docstring says more than the line here does.
-
-**Play a run**
+Four things, and no hidden state between them.
 
 | | |
 |---|---|
-| `scripts/headless_demo.py` | boots the real game headless and plays a hand — start here |
-| `scripts/play_run.py` | complete runs headlessly, with a scripted policy; `--runs 20` |
-| `scripts/play_visible.py` | drives the visible window with the engine's own best play |
-| `scripts/build_modded_game.py` | builds the driveable copy of your Balatro install |
-| `scripts/make_snapshots.py` | freezes a mid-run position so a run can resume from it |
+| `GameState(seed=..., deck=..., stake=...)` | a run. The seed is Balatro's own — the same string is the same run in the real game |
+| `game.legal_actions()` | every legal move right now, as `Action` objects |
+| `game.step(action)` | takes one, and advances as far as that goes |
+| `game.is_over` | the run ended, won or lost |
 
-**Prove the simulator right**
+`legal_actions()` is the entire interface to the rules. It knows that Death
+takes exactly two cards, that an eternal joker cannot be sold, that a boss
+blind cannot be skipped, that a full joker row cannot buy a sixth. You never
+encode a rule yourself, and you cannot choose a move the game would refuse.
 
-This is the part that matters. Nothing here trusts the simulator on its own.
+It enumerates card subsets, so during a hand it returns around 400 actions —
+every play and every discard available. That is deliberate: choosing among
+them is the bot's job, and a smaller interface would be hiding most of the
+game.
 
-| | |
-|---|---|
-| `scripts/record_replay.py` | records a human playing, then replays it and checks every step |
-| `ops/sim_replay.py` | replays a recording through the simulator alone |
-| `ops/run_differential.py` | same run in both engines, reports where they part |
-| `ops/explain_divergence.py` | replays to the point of divergence and explains how it got there |
-| `scripts/check_rng.py` | compares what each side *offers*, not just what it does |
-| `scripts/audit_actions.py` | exercises every player action and asserts a real consequence |
-| `ops/record_expectations.py` | freezes the engine's scores so the fast tests need not boot it |
+`preview_score(indices)` scores a candidate play without advancing anything.
+Joker counters, card enhancements and the run's random stream are all restored
+afterwards, so you can weigh every option before committing to one.
 
-**Repair a recording**
+## Reading a position
 
-The recorder wraps the game's own buttons, so anything the game does to itself
-is not captured — these fix that up rather than throwing the run away.
+Plain attributes. There is no observation format to learn.
 
-| | |
-|---|---|
-| `ops/clean_recording.py` | removes actions the game made itself |
-| `ops/repair_recording.py` | puts back an action the recorder never saw |
+```python
+game.phase           # BLIND_SELECT, PLAYING, ROUND_EVAL, SHOP, GAME_OVER ...
+game.ante            # 1..8, and past it
+game.money           # dollars
+game.hands_left      # and game.discards_left
+game.chips_scored    # against game.blind.target
+game.blind           # kind, target, reward, and the boss effect if any
 
-**Regenerate the data tables**
+game.hand            # what you are holding, as Card objects
+game.full_deck       # all 52, or however many it is by now
+game.jokers          # JokerInstance: name, edition, stickers, counter
+game.consumables     # what is in the consumable slots
+game.shop            # while you are in one
+game.pack_options    # while a booster is open
 
-The simulator's tables are generated from the real game, never typed in. Rerun
-these after a Balatro update.
+game.hand_levels     # per poker hand: level, chips, mult, times played
+game.vouchers        # redeemed
+game.tags            # held
+game.joker_slots     # and consumable_slots, hand_size
+```
 
-| | |
-|---|---|
-| `ops/gen_joker_data.py` | `src/balatro/joker_data.py` from the game's centres |
-| `ops/gen_consumable_data.py` `ops/gen_pack_data.py` | consumables and booster pools |
-| `ops/gen_boss_data.py` `ops/gen_tag_data.py` | blinds and tags |
-| `ops/gen_deck_data.py` `ops/gen_voucher_data.py` | deck backs and vouchers |
-| `ops/joker_catalogue.py` | dumps every joker with its text and config, for reading |
+A joker's `counter` is the number that decides late runs — Ride the Bus at
++2 Mult and at +60 are the same joker and very different cards. The stake's
+stickers are there too: `eternal`, `perishable` with its `perish_tally`,
+`rental`.
 
-**Measure**
+## Actions
 
-| | |
-|---|---|
-| `scripts/bench_parallel.py` | runs and decisions per second, engine driven in parallel |
+```python
+Action(ActionType.PLAY, cards=(0, 2, 3))              # indices into game.hand
+Action(ActionType.DISCARD, cards=(1, 4))
+Action(ActionType.SELECT_BLIND)                       # or SKIP_BLIND
+Action(ActionType.BUY, index=0)                       # into the shop
+Action(ActionType.BUY_AND_USE, index=1)               # the shop's second button
+Action(ActionType.BUY_PACK, index=2)
+Action(ActionType.PICK_PACK, index=0, cards=(1, 3))   # a Tarot needs targets
+Action(ActionType.USE_CONSUMABLE, index=0, cards=(1, 3))
+Action(ActionType.SELL_JOKER, index=2)
+Action(ActionType.REROLL)
+Action(ActionType.LEAVE_SHOP)
+Action(ActionType.CASH_OUT)
+```
+
+You rarely need to build one. `legal_actions()` returns them already filled
+in, including which target combinations each consumable will accept.
+
+## What the seed means
+
+Balatro's randomness is a seeded counter per draw, not one stream. Which joker
+a shop offers depends on the seed, the ante, and how many jokers that run has
+already been offered — so a simulator that draws the right *kind* of random
+number in the wrong order diverges within an ante, and looks plausible while
+it does.
+
+That scheme is reproduced here and pinned against the real game in
+`tests/test_rng.py`. It is why a seed means the same thing in both, and why
+you can develop against the simulator and expect the real game to agree.
+
+Two runs from one seed are identical. Nothing here reads a clock or a global
+random source.
+
+## When you want the real thing instead
+
+The simulator is fast — no game install, no Lua, and a few thousand steps a
+second, so a whole run costs a fraction of one. Two slower backends exist for
+when being *exactly* right matters more:
+
+- **`balatro_headless`** runs Balatro's own Lua under LuaJIT with the window
+  and the animation removed. It is the game rather than a model of it, and it
+  is what the simulator is tested against.
+- **`balatro_bridge`** talks to the actual running game over a socket, so a
+  bot can play the copy on your screen.
+
+All three answer the same questions, so a bot written against one runs against
+the others. `scripts/play_visible.py` drives the real window — build a
+driveable copy of your own install first with `scripts/build_modded_game.py`,
+and note it needs the Steam client running even though it launches outside it.
+
+## Is the simulator actually right?
+
+Mostly, and where it is not, it is written down rather than left to be found.
+
+- `tests/test_differential.py` plays one seed through the simulator and the
+  real engine side by side, comparing them step by step.
+- `tests/test_recordings.py` replays games recorded from a person playing and
+  demands the same scores.
+- `recordings/` holds those games: every action taken, with the state the
+  player was looking at when they took it.
+- 150 jokers, 22 tarots, 12 planets, 18 spectrals, 32 vouchers, 28 bosses and
+  24 tags are implemented. `tests/test_registry_honesty.py` names the ones
+  that are registered but hollow, so that list cannot quietly grow.
+
+The largest known gap is the four bosses that hide cards from the player. They
+carry their chip requirement and no mechanic, and
+`tests/test_finisher_bosses.py` pins them as the only four that are blank — so
+nothing here has ever had to play under uncertainty.
+
+```bash
+pytest              # the simulator, seconds
+pytest -m slow      # against the real engine, minutes
+```
+
+The engine tests need Balatro's Lua extracted from your own install into
+`vendor/balatro_src`, which is never committed. Without it they skip rather
+than fail.
+
+## Everything else
+
+The rest is tooling that keeps the above honest, listed in
+[SCRIPTS.md](SCRIPTS.md): replaying and repairing recordings, finding where
+two backends diverge, and regenerating the simulator's data tables from the
+game after an update.
 
 ## Where it came from
 
-Extracted from a reinforcement learning project, which is why the state the
-bridge reports is shaped the way it is: one dictionary describing a position,
-identical whether it came from the simulator or the real game, so a program
-written against one runs against the other unchanged. That project is the
-consumer, not the point; everything here stands on its own.
-
-Fidelity gaps are written down rather than left to be discovered — see the
-notes in `src/balatro/game.py` and the tests named after the bugs they pin.
+Extracted from a reinforcement learning project, which is why the bridge
+reports a position as a single dictionary that is identical whether it came
+from the simulator or the real game. That project is a consumer of this, not
+the point of it.
