@@ -80,6 +80,35 @@ local function can_use(card)
   return card:can_use_consumeable()
 end
 
+--- Whether a card on offer inside a pack can actually be taken.
+---
+--- The game's own rule, from G.FUNCS.can_select_card in
+--- button_callbacks.lua:2112. That function does not refuse anything -- it
+--- decides whether the card is given a `use_card` button at all, and when the
+--- answer is no it sets the button to nil so there is nothing to click. Which
+--- is why nothing inside G.FUNCS.use_card checks: in normal play the gate is
+--- the button's existence, and use_card is unreachable without it.
+---
+--- BOT.pick_pack calls use_card directly, so the gate was never consulted.
+--- The mod reported a joker as takeable with a full row and then took it,
+--- and a policy played on into a run holding six jokers in five slots -- a
+--- state the game cannot otherwise reach. Seen in play at ante four, from a
+--- Mega Buffoon.
+---
+--- A consumable is used the instant it is taken, so it faces the use gate
+--- instead of a room one. A playing card always goes to the deck. A joker
+--- needs a free slot unless it is Negative, which takes none.
+---
+--- Module level, and deliberately: a helper defined inside `state()` below
+--- its own use is nil when called, and booting the engine does not catch it
+--- because nothing calls state() until something asks for an observation.
+local function pack_takeable(card)
+  if card.ability.consumeable then return can_use(card) end
+  if card.ability.set ~= "Joker" then return true end
+  if card.edition and card.edition.negative then return true end
+  return #G.jokers.cards < G.jokers.config.card_limit
+end
+
 local function edition_id(card)
   local e = card.edition
   return (e and e.type and EDITION_IDS[e.type]) or 0
@@ -969,11 +998,9 @@ function BotAPI.state()
                         seal = seal_id(card),
                         eternal = eternal, perishable = perishable,
                         rental = rental,
-                        -- A consumable is used the instant it is taken, so it
-                        -- faces the same gate. Anything else is always
-                        -- takeable.
-                        usable = ((not card.ability.consumeable)
-                                  or can_use(card)) and 1 or 0 }
+                        -- "Anything else is always takeable" was wrong: a
+                        -- joker needs a free slot. See pack_takeable.
+                        usable = pack_takeable(card) and 1 or 0 }
     end
   end
 
@@ -1698,6 +1725,14 @@ function BotAPI.pick_pack(args)
     end
     use_when_usable(card)
   else
+    -- Checked here as well as reported in the state, because use_card cannot
+    -- refuse. If the mask is ever wrong again the run should stop with a
+    -- readable error rather than carry on from a position the game has no
+    -- way to represent.
+    if not pack_takeable(card) then
+      error("no room for that joker: " .. tostring(#G.jokers.cards) .. " of " ..
+            tostring(G.jokers.config.card_limit) .. " slots filled", 0)
+    end
     queue(function() G.FUNCS.use_card({ config = { ref_table = card } }, true) end)
   end
   return { picked = true }

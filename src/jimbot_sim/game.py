@@ -993,6 +993,35 @@ class GameState:
                 + sum(1 for j in self.jokers if j.edition is Edition.NEGATIVE)
                 + sum(v.joker_slots for v in self.vouchers))
 
+    def room_for_joker(self, joker) -> bool:
+        """Whether this particular joker can be taken, full row or not.
+
+        `joker_slots` counts the Negatives already held, because add_to_deck
+        raises the limit as one arrives. The one being offered has not
+        arrived, so it has to be asked about separately -- a Negative needs no
+        slot, and a full row does not stop it.
+
+        The game says this in two places and says the same thing in both.
+        button_callbacks.lua:2112, can_select_card, which decides whether a
+        pack card is given a use_card button at all:
+
+            set ~= 'Joker' or (edition and edition.negative)
+                           or #G.jokers.cards < card_limit
+
+        and the shop's can_buy at 2396, which adds one to the limit when the
+        card is Negative. Without this the simulator refused a Negative out of
+        a Buffoon pack and refused to buy one from the shop, both of which the
+        game allows -- and both silently, as a mask that was simply narrower
+        than the real one.
+
+        Creation is deliberately not routed through here. A joker made by
+        Riff-raff or a Judgement is checked for room *before* it exists
+        (card.lua:2529, 3967), so its edition cannot be consulted and a full
+        row stops it whatever it would have rolled.
+        """
+        return (len(self.jokers) < self.joker_slots
+                or joker.edition is Edition.NEGATIVE)
+
     @property
     def active_jokers(self) -> list:
         """The jokers that still do anything.
@@ -2722,7 +2751,7 @@ class GameState:
             for i, slot in enumerate(self.shop.slots):
                 if not self.affords(self.slot_price(slot)):
                     continue
-                if slot.kind == "joker" and len(self.jokers) >= self.joker_slots:
+                if slot.kind == "joker" and not self.room_for_joker(slot.joker):
                     continue
                 if slot.kind == "consumable" and len(self.consumables) >= self.consumable_slots:
                     continue
@@ -2747,7 +2776,7 @@ class GameState:
             actions = [Action(ActionType.SKIP_PACK)]
             for i, option in enumerate(self.pack_options):
                 if isinstance(option, JokerInstance):
-                    if len(self.jokers) < self.joker_slots:
+                    if self.room_for_joker(option):
                         actions.append(Action(ActionType.PICK_PACK, index=i))
                 elif isinstance(option, Card):
                     actions.append(Action(ActionType.PICK_PACK, index=i))
@@ -2927,7 +2956,7 @@ class GameState:
                 if not self.affords(self.slot_price(slot)):
                     return False
                 if slot.kind == "joker":
-                    return len(self.jokers) < self.joker_slots
+                    return self.room_for_joker(slot.joker)
                 if slot.kind == "consumable":
                     return len(self.consumables) < self.consumable_slots
                 return True
@@ -2958,7 +2987,7 @@ class GameState:
                     return False
                 option = self.pack_options[index]
                 if isinstance(option, JokerInstance):
-                    return not cards and len(self.jokers) < self.joker_slots
+                    return not cards and self.room_for_joker(option)
                 if isinstance(option, Card):
                     return not cards
                 return any(a.cards == cards
