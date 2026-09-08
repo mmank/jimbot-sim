@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jimbot-sim"
+version = "0.1.0"
+description = "Balatro as a Python library: a simulator checked against the game, a headless driver for the game's own Lua, and a socket bridge to the running game"
+requires-python = ">=3.11"
+# lupa carries the LuaJIT that actually runs the game. It is the only
+# dependency: the simulator is pure Python and the bridge is a socket.
+dependencies = [
+    "lupa>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# LuaJIT signals its own errors with a Windows SEH exception (0xE24C4A02).
+# Python's faulthandler treats that as a hard crash and takes the whole run
+# down with a fault report, so it is turned off rather than left to catch a
+# signal the engine raises on purpose.
+addopts = "-p no:faulthandler -m 'not slow'"
+markers = [
+    "slow: boots the Lua engine, or sweeps every joker",
+]
