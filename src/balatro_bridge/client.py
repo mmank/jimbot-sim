@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -600,13 +601,34 @@ def launch(build: Path = DEFAULT_BUILD, wait: float = 90.0) -> subprocess.Popen:
     if not build.exists():
         raise BridgeError(
             f"{build} not found -- run scripts/build_modded_game.py first")
-    process = subprocess.Popen([str(build)], cwd=str(build.parent))
+    # Kept rather than inherited, because the game says why it is quitting on
+    # stderr and nowhere else. Without this the failure reads "exited during
+    # startup (code 0)", which is indistinguishable between a Lua error in the
+    # mod, a missing dependency, and the actual answer the first time it
+    # happened: Steam was not running, so the Steam API refused and the game
+    # closed itself cleanly.
+    errors = tempfile.TemporaryFile()
+    process = subprocess.Popen([str(build)], cwd=str(build.parent),
+                               stderr=errors)
+
+    def _exit_reason() -> str:
+        try:
+            errors.seek(0)
+            tail = errors.read().decode("utf-8", "replace").strip()
+        except OSError:                                   # pragma: no cover
+            tail = ""
+        if "steam" in tail.lower():
+            return (" -- Steam is not running. The build needs the Steam "
+                    "client up even though it launches outside it.")
+        lines = [line for line in tail.splitlines() if line.strip()]
+        return ("\n  " + "\n  ".join(lines[-6:])) if lines else ""
 
     deadline = time.time() + wait
     while time.time() < deadline:
         if process.poll() is not None:
             raise BridgeError(
-                f"the game exited during startup (code {process.returncode})")
+                "the game exited during startup (code "
+                f"{process.returncode}){_exit_reason()}")
         bridge = BalatroBridge(timeout=5.0)
         try:
             bridge.connect()
