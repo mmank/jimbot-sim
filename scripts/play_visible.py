@@ -1,12 +1,21 @@
-"""Play the real, visible Balatro with a scripted policy.
+"""Play the real, visible Balatro with the *engine's own* best play.
+
+Not the trained bot. This asks bot_api for `best_play` -- the scripted
+heuristic that picks the highest-scoring hand it can see -- and drives the
+window with it. It is the bridge's demonstration and its end-to-end check:
+that the mod loads, that the socket answers, that an action taken here has
+the consequence it should in a game that animates.
+
+For the trained policy playing the visible game, see scripts/play_trained.py,
+which takes a checkpoint exported by ops/export_policy.py.
 
 Build the modded game first:
 
     python scripts/build_modded_game.py
 
 Then either launch it yourself and run this, or pass --launch to do both.
-The game window is the point: this is what a trained policy playing the actual
-game looks like, at the actual game's speed.
+The game window is the point: it is what driving the actual game looks like,
+at the actual game's speed.
 """
 
 from __future__ import annotations
