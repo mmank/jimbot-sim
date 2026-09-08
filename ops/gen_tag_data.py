@@ -1,4 +1,4 @@
-"""Generate src/balatro/tag_data.py from the real game tags.
+"""Generate src/jimbot_sim/tag_data.py from the real game tags.
 
 The simulator rolled skip rewards from eight tags of its own choosing with its
 own generator, so a skipped blind handed over a tag the run never offered --
@@ -17,7 +17,7 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro_headless.runtime import HeadlessBalatro     # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro     # noqa: E402
 
 QUERY = """(function()
   local t = {}
@@ -56,7 +56,7 @@ def main() -> None:
                   % (key, name, int(float(min_ante)), requires))
     out.write("]\n")
 
-    with open("src/balatro/tag_data.py", "w", encoding="utf-8") as handle:
+    with open("src/jimbot_sim/tag_data.py", "w", encoding="utf-8") as handle:
         handle.write(out.getvalue())
     print("wrote %d tags" % len(rows))
     gated = [(r[1], r[2]) for r in rows if float(r[2]) > 1]

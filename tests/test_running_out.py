@@ -21,11 +21,11 @@ carried a prevents_death flag that nothing ever read.
 
 import pytest
 
-from balatro.blinds import BOSSES, BlindKind, make_blind
-from balatro.cards import Card, Rank, Suit
-from balatro.game import Action, ActionType, GameState, Phase
-from balatro.jokers import REGISTRY as JOKERS, JokerInstance
-from balatro.shop import PackKind, PackSpec
+from jimbot_sim.blinds import BOSSES, BlindKind, make_blind
+from jimbot_sim.cards import Card, Rank, Suit
+from jimbot_sim.game import Action, ActionType, GameState, Phase
+from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
+from jimbot_sim.shop import PackKind, PackSpec
 
 
 def _run(*names, **kwargs):

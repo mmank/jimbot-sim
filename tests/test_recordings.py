@@ -33,7 +33,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "ops"))
 
 import sim_replay                                        # noqa: E402
-from balatro.game import GameState                       # noqa: E402
+from jimbot_sim.game import GameState                       # noqa: E402
 
 RECORDINGS = pathlib.Path(__file__).resolve().parents[1] / "recordings"
 

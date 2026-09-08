@@ -20,9 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 def worker(args):
     """One process: boot once, then play runs until told to stop."""
     n_runs, seed_offset, deck = args
-    from balatro_headless.policy import GreedyPolicy
-    from balatro_headless.run import HeadlessRun
-    from balatro_headless.runtime import HeadlessBalatro
+    from jimbot_sim.headless.policy import GreedyPolicy
+    from jimbot_sim.headless.run import HeadlessRun
+    from jimbot_sim.headless.runtime import HeadlessBalatro
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
     from play_run import seed_for

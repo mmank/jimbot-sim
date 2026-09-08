@@ -47,7 +47,7 @@ these after a Balatro update.
 
 | | |
 |---|---|
-| `ops/gen_joker_data.py` | `src/balatro/joker_data.py` from the game's centres |
+| `ops/gen_joker_data.py` | `src/jimbot_sim/joker_data.py` from the game's centres |
 | `ops/gen_consumable_data.py` `ops/gen_pack_data.py` | consumables and booster pools |
 | `ops/gen_boss_data.py` `ops/gen_tag_data.py` | blinds and tags |
 | `ops/gen_deck_data.py` `ops/gen_voucher_data.py` | deck backs and vouchers |

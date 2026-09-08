@@ -11,9 +11,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from balatro_headless.policy import GreedyPolicy  # noqa: E402
-from balatro_headless.run import HeadlessRun  # noqa: E402
-from balatro_headless.runtime import HeadlessBalatro  # noqa: E402
+from jimbot_sim.headless.policy import GreedyPolicy  # noqa: E402
+from jimbot_sim.headless.run import HeadlessRun  # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro  # noqa: E402
 
 
 def seed_for(i: int) -> str:

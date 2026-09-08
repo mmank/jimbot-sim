@@ -1,4 +1,4 @@
-"""Generate src/balatro/joker_data.py from the real game centers.
+"""Generate src/jimbot_sim/joker_data.py from the real game centers.
 
 The shop draws a joker by picking an index into a per-rarity pool, so the
 order of those pools is part of the distribution and not a presentation
@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro_headless.runtime import HeadlessBalatro     # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro     # noqa: E402
 
 QUERY = """(function()
   local t = {}
@@ -73,9 +73,9 @@ def main() -> None:
     out.write("            in sorted(JOKER_DATA.items(), key=lambda kv: kv[1][2])\n")
     out.write("            if r == rarity]\n")
 
-    with open("src/balatro/joker_data.py", "w", encoding="utf-8") as handle:
+    with open("src/jimbot_sim/joker_data.py", "w", encoding="utf-8") as handle:
         handle.write(out.getvalue())
-    print("wrote src/balatro/joker_data.py with %d jokers" % len(rows))
+    print("wrote src/jimbot_sim/joker_data.py with %d jokers" % len(rows))
     locked = [r[1] for r in rows if r[4] != "true"]
     print("locked by default: %d %s" % (len(locked), locked[:8]))
 

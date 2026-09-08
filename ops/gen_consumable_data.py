@@ -1,4 +1,4 @@
-"""Generate src/balatro/consumable_data.py from the real game centers.
+"""Generate src/jimbot_sim/consumable_data.py from the real game centers.
 
 Consumable pools work like the joker pools -- ordered lists drawn by index --
 with two rules of their own. Planet cards carry a softlock: Planet X, Ceres and
@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro_headless.runtime import HeadlessBalatro     # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro     # noqa: E402
 
 QUERY = """(function()
   local t = {}
@@ -70,7 +70,7 @@ def main() -> None:
     out.write("# Never drawn from an ordinary pool; they have their own path.\n")
     out.write("EXCLUDED_FROM_POOLS = %r\n" % (EXCLUDED,))
 
-    with open("src/balatro/consumable_data.py", "w", encoding="utf-8") as fh:
+    with open("src/jimbot_sim/consumable_data.py", "w", encoding="utf-8") as fh:
         fh.write(out.getvalue())
 
     for card_set, entries in sorted(by_set.items()):

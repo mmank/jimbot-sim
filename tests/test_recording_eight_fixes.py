@@ -8,11 +8,11 @@ rather than only generated ones.
 
 import pytest
 
-from balatro.game import Action, ActionType, GameState
-from balatro.jokers import REGISTRY as JOKER_REGISTRY
-from balatro.jokers import JokerInstance
-from balatro.rng import RunRng
-from balatro.shop_pool import draw_joker
+from jimbot_sim.game import Action, ActionType, GameState
+from jimbot_sim.jokers import REGISTRY as JOKER_REGISTRY
+from jimbot_sim.jokers import JokerInstance
+from jimbot_sim.rng import RunRng
+from jimbot_sim.shop_pool import draw_joker
 
 
 # ------------------------------------------------------------------
@@ -85,7 +85,7 @@ def test_merry_andy_hands_over_its_discards_on_arrival():
 
 
 def test_selling_it_takes_them_back():
-    from balatro.game import Action, ActionType
+    from jimbot_sim.game import Action, ActionType
 
     game = _in_a_round()
     before = game.discards_left
@@ -97,7 +97,7 @@ def test_selling_it_takes_them_back():
 def test_the_giving_back_is_clamped_at_zero():
     """ease_discard is `mod = math.max(-discards_left, mod)`, so losing the
     joker after the discards are spent cannot push the count negative."""
-    from balatro.game import Action, ActionType
+    from jimbot_sim.game import Action, ActionType
 
     game = _in_a_round()
     game.gain_joker(JokerInstance(JOKER_REGISTRY["Merry Andy"]))
@@ -130,7 +130,7 @@ def test_a_random_joker_draw_goes_by_age_not_by_row_position():
     been dragged -- reproducibly, out of the right stream, which is what kept
     it hidden.
     """
-    from balatro.consumables import _editionless
+    from jimbot_sim.consumables import _editionless
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     first = JokerInstance(JOKER_REGISTRY["Joker"])
@@ -183,8 +183,8 @@ def test_a_brainstorm_copying_a_mime_retriggers_held_cards():
     Recording 8 stopped on it: two gold Kings with red seals, held under a
     Mime with a Brainstorm copying it, paid $18 against the game's $24.
     """
-    from balatro.cards import Card, Enhancement, Rank, Seal, Suit
-    from balatro.scoring import held_triggers
+    from jimbot_sim.cards import Card, Enhancement, Rank, Seal, Suit
+    from jimbot_sim.scoring import held_triggers
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     card = Card(Rank.KING, Suit.DIAMONDS, enhancement=Enhancement.GOLD,
@@ -201,8 +201,8 @@ def test_a_brainstorm_copying_a_mime_retriggers_held_cards():
 
 
 def test_a_copier_with_nothing_to_copy_adds_no_retrigger():
-    from balatro.cards import Card, Rank, Seal, Suit
-    from balatro.scoring import held_triggers
+    from jimbot_sim.cards import Card, Rank, Seal, Suit
+    from jimbot_sim.scoring import held_triggers
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game.gain_joker(JokerInstance(JOKER_REGISTRY["Brainstorm"]))
@@ -269,7 +269,7 @@ def test_dnas_copy_counts_as_a_held_card():
     brought three more x1.5 -- itself, its red seal, and a Mime retriggering
     it -- and the hand scored 537670 against the game's 568510.
     """
-    from balatro.cards import Card, Enhancement, Rank, Seal, Suit
+    from jimbot_sim.cards import Card, Enhancement, Rank, Seal, Suit
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game.gain_joker(JokerInstance(JOKER_REGISTRY["DNA"]))
@@ -289,7 +289,7 @@ def test_dnas_copy_counts_as_a_held_card():
 
 def test_the_held_pass_sees_a_card_added_before_scoring():
     """The narrow version: whatever before_hand puts in hand is held."""
-    from balatro.cards import Card, Enhancement, Rank, Suit
+    from jimbot_sim.cards import Card, Enhancement, Rank, Suit
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game._next_blind()

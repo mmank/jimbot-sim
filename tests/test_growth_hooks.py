@@ -26,10 +26,10 @@ The numbers below were taken from the engine before they were written down.
 
 import pytest
 
-from balatro.cards import Card, Enhancement, Rank, Suit
-from balatro.consumables import REGISTRY as CONSUMABLES
-from balatro.game import Action, ActionType, GameState
-from balatro.jokers import REGISTRY as JOKERS, JokerInstance
+from jimbot_sim.cards import Card, Enhancement, Rank, Suit
+from jimbot_sim.consumables import REGISTRY as CONSUMABLES
+from jimbot_sim.game import Action, ActionType, GameState
+from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
 
 
 def _run(*names):

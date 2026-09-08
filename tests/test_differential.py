@@ -30,15 +30,15 @@ from dataclasses import dataclass
 
 import pytest
 
-from balatro.blinds import BOSSES, FINISHER_BOSSES, Blind, BlindKind
-from balatro.cards import Card, Enhancement, Rank, Suit, standard_deck
-from balatro.game import GameState
-from balatro.hands import HandType, evaluate
-from balatro.jokers import REGISTRY, make
-from balatro.rng import RunRng
-from balatro.scoring import score_hand
-from balatro_headless.runtime import HeadlessBalatro
-from balatro_headless.scenario import Scenario
+from jimbot_sim.blinds import BOSSES, FINISHER_BOSSES, Blind, BlindKind
+from jimbot_sim.cards import Card, Enhancement, Rank, Suit, standard_deck
+from jimbot_sim.game import GameState
+from jimbot_sim.hands import HandType, evaluate
+from jimbot_sim.jokers import REGISTRY, make
+from jimbot_sim.rng import RunRng
+from jimbot_sim.scoring import score_hand
+from jimbot_sim.headless.runtime import HeadlessBalatro
+from jimbot_sim.headless.scenario import Scenario
 
 _RANKS = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR, "5": Rank.FIVE,
           "6": Rank.SIX, "7": Rank.SEVEN, "8": Rank.EIGHT, "9": Rank.NINE,
@@ -135,7 +135,7 @@ CASES = [
     # Four eights, for the jokers that roll a chance per played 8.
     Case("eights", "S_8 H_8 D_8 C_8 H_2 S_3 D_4 C_5", (1, 2, 3, 4)),
     # Pool states chosen so the next draw lands under the threshold, found
-    # with the replicated generator in balatro.rng.
+    # with the replicated generator in jimbot_sim.rng.
     Case("eights with a winning roll", "S_8 H_8 D_8 C_8 H_2 S_3 D_4 C_5",
          (1, 2, 3, 4),
          lua_setup='G.GAME.pseudorandom["8ball"] = 1.5e-05'),

@@ -22,11 +22,11 @@ compared against the engine key by key instead of by distribution.
 
 import pytest
 
-from balatro.joker_data import JOKER_DATA, pool_for_rarity
-from balatro.rng import RunRng
-from balatro.shop_pool import (GATES, build_consumable_pool, build_pool,
+from jimbot_sim.joker_data import JOKER_DATA, pool_for_rarity
+from jimbot_sim.rng import RunRng
+from jimbot_sim.shop_pool import (GATES, build_consumable_pool, build_pool,
                                draw_consumable, draw_joker, roll_rarity)
-from balatro_headless.runtime import HeadlessBalatro
+from jimbot_sim.headless.runtime import HeadlessBalatro
 
 SEEDS = ["TESTSEED", "ABCD1234", "7EVEN", "XYZZY"]
 

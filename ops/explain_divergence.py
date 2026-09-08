@@ -80,9 +80,9 @@ def main() -> None:
                         help="how many actions to log dollar movements for")
     args = parser.parse_args()
 
-    from balatro.game import GameState
-    from balatro import scoring as scoring_mod
-    import balatro.game as game_mod
+    from jimbot_sim.game import GameState
+    from jimbot_sim import scoring as scoring_mod
+    import jimbot_sim.game as game_mod
 
     replay = replay_module()
     payload = json.loads(args.recording.read_text(encoding="utf-8"))

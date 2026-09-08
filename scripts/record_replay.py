@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from balatro_bridge import (DEFAULT_BUILD, DEFAULT_HOST, DEFAULT_PORT,  # noqa: E402
+from jimbot_sim.bridge import (DEFAULT_BUILD, DEFAULT_HOST, DEFAULT_PORT,  # noqa: E402
                             BalatroBridge, BridgeError, launch)
 
 # Fields compared at every step. Money, jokers and round score are the ones
@@ -388,8 +388,8 @@ def _headless():
     acting while the game is still animating is invisible. This is a filter in
     front of the real run, not a replacement for it.
     """
-    from balatro_headless.runtime import HeadlessBalatro
-    from balatro_bridge.headless import HeadlessBridge
+    from jimbot_sim.headless.runtime import HeadlessBalatro
+    from jimbot_sim.bridge.headless import HeadlessBridge
 
     print("booting the headless engine...")
     return HeadlessBridge(HeadlessBalatro().boot())

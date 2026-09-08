@@ -1,4 +1,4 @@
-"""Generate src/balatro/deck_data.py from the real game backs.
+"""Generate src/jimbot_sim/deck_data.py from the real game backs.
 
 A deck is not decoration. Red Deck grants an extra discard every round, and a
 simulator that ignores it hands the player one fewer -- which is the first
@@ -12,7 +12,7 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro_headless.runtime import HeadlessBalatro     # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro     # noqa: E402
 
 QUERY = """(function()
   local t = {}
@@ -70,7 +70,7 @@ def main() -> None:
         out.write("    %r: (%r, %r),\n" % (name, key, parsed))
     out.write("}\n")
 
-    with open("src/balatro/deck_data.py", "w", encoding="utf-8") as handle:
+    with open("src/jimbot_sim/deck_data.py", "w", encoding="utf-8") as handle:
         handle.write(out.getvalue())
     print("wrote %d decks" % len(rows))
     for key, name, config in sorted(rows, key=lambda r: r[1]):

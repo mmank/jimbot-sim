@@ -16,8 +16,8 @@ so a Credit Card lets a broke run keep re-rolling.
 
 import pytest
 
-from balatro.game import Action, ActionType, BOSS_REROLL_COST, GameState
-from balatro.shop import VOUCHER_BY_KEY
+from jimbot_sim.game import Action, ActionType, BOSS_REROLL_COST, GameState
+from jimbot_sim.shop import VOUCHER_BY_KEY
 
 
 def _run(*voucher_keys, money=100):

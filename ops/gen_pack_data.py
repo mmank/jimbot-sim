@@ -1,4 +1,4 @@
-"""Generate src/balatro/pack_data.py from the real booster pool.
+"""Generate src/jimbot_sim/pack_data.py from the real booster pool.
 
 Packs are weighted, and the weights are not uniform across sizes: a mega pack
 is a quarter as likely as a normal one, and Spectral packs are rarer again.
@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro_headless.runtime import HeadlessBalatro     # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro     # noqa: E402
 
 QUERY = """(function()
   local t = {}
@@ -54,7 +54,7 @@ def main() -> None:
                      int(float(cards)), int(float(cost))))
     out.write("]\n")
 
-    with open("src/balatro/pack_data.py", "w", encoding="utf-8") as handle:
+    with open("src/jimbot_sim/pack_data.py", "w", encoding="utf-8") as handle:
         handle.write(out.getvalue())
 
     kinds = {}

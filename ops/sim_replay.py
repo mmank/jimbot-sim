@@ -25,9 +25,9 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro.game import Action, ActionType, GameState, Phase   # noqa: E402
-from balatro.joker_data import JOKER_DATA                       # noqa: E402
-from balatro.shop_pool import NAME_BY_CONSUMABLE_KEY            # noqa: E402
+from jimbot_sim.game import Action, ActionType, GameState, Phase   # noqa: E402
+from jimbot_sim.joker_data import JOKER_DATA                       # noqa: E402
+from jimbot_sim.shop_pool import NAME_BY_CONSUMABLE_KEY            # noqa: E402
 
 KEY_BY_JOKER = {name: key for name, (key, *_r) in JOKER_DATA.items()}
 KEY_BY_CONSUMABLE = {name: key

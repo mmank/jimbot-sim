@@ -13,9 +13,9 @@ on what the run is carrying.
 
 import pytest
 
-from balatro.blinds import BOSSES, FINISHER_BOSSES, BlindKind, make_blind
-from balatro.game import Action, ActionType, GameState
-from balatro.jokers import REGISTRY as JOKERS, JokerInstance
+from jimbot_sim.blinds import BOSSES, FINISHER_BOSSES, BlindKind, make_blind
+from jimbot_sim.game import Action, ActionType, GameState
+from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
 
 BY_NAME = {b.name: b for b in BOSSES + FINISHER_BOSSES}
 

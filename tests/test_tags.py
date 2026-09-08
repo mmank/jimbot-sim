@@ -22,11 +22,11 @@ being skipped now, since skip_blind counts it before handing the tag over.
 
 import pytest
 
-from balatro.game import (IMMEDIATE_TAGS, TAG_BY_KEY, Action, ActionType,
+from jimbot_sim.game import (IMMEDIATE_TAGS, TAG_BY_KEY, Action, ActionType,
                           GameState, Phase, Tag)
-from balatro.hands import HandType
-from balatro.jokers import REGISTRY as JOKERS, JokerInstance
-from balatro.tag_data import TAG_DATA
+from jimbot_sim.hands import HandType
+from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
+from jimbot_sim.tag_data import TAG_DATA
 
 
 def _run(*tags):
@@ -73,7 +73,7 @@ def test_throwback_scores_more_after_a_skip():
 
     The counter was never written, so this joker scored X1 for whole runs.
     """
-    from balatro.cards import Card, Rank, Suit
+    from jimbot_sim.cards import Card, Rank, Suit
 
     def scored(skips):
         game = GameState(seed="TESTSEED", deck="Red Deck")
@@ -163,7 +163,7 @@ def test_orbital_levels_one_hand_by_three():
 
 def test_orbital_never_names_a_hand_the_run_has_not_seen():
     """Same visible-hands pool as To Do List: nine until a secret hand lands."""
-    from balatro.hands import SECRET_HANDS
+    from jimbot_sim.hands import SECRET_HANDS
 
     seen = set()
     for seed in ("A", "B", "C", "D", "E", "F", "G", "H"):
@@ -356,7 +356,7 @@ def test_uncommon_tags_stack_across_the_shop_slots():
 # ------------------------------------------------------------------
 
 def test_a_negative_tag_makes_a_shop_joker_negative_and_free():
-    from balatro.cards import Edition
+    from jimbot_sim.cards import Edition
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game.tags.append(Tag.NEGATIVE)
@@ -370,7 +370,7 @@ def test_a_negative_tag_makes_a_shop_joker_negative_and_free():
 
 
 def test_a_negative_joker_does_not_take_a_slot():
-    from balatro.cards import Edition
+    from jimbot_sim.cards import Edition
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     base = game.joker_slots
@@ -385,7 +385,7 @@ def test_a_debuffed_negative_joker_keeps_its_slot():
     The negative block is the one thing a debuff deliberately does not undo,
     which is why joker_slots counts every joker rather than the active ones.
     """
-    from balatro.cards import Edition
+    from jimbot_sim.cards import Edition
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     base = game.joker_slots
@@ -404,7 +404,7 @@ def test_the_anaglyph_negative_loop_compounds():
     ever spending a slot. Tags that find no joker in the shop wait for the
     next one rather than being lost.
     """
-    from balatro.cards import Edition
+    from jimbot_sim.cards import Edition
 
     game = GameState(seed="TESTSEED", deck="Anaglyph Deck")
     game.money = 500
@@ -443,8 +443,8 @@ def test_perkeos_copy_does_not_take_a_consumable_slot():
     registry entries, so there was nowhere to record the edition and the copy
     took a slot like any other card.
     """
-    from balatro.cards import Edition
-    from balatro.consumables import REGISTRY as CONSUMABLES
+    from jimbot_sim.cards import Edition
+    from jimbot_sim.consumables import REGISTRY as CONSUMABLES
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game.gain_joker(JokerInstance(JOKERS["Perkeo"]))
@@ -460,7 +460,7 @@ def test_perkeos_copy_does_not_take_a_consumable_slot():
 
 def test_perkeo_copies_into_a_row_that_is_already_full():
     """A full row is exactly when the copy being free matters."""
-    from balatro.consumables import REGISTRY as CONSUMABLES
+    from jimbot_sim.consumables import REGISTRY as CONSUMABLES
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game.gain_joker(JokerInstance(JOKERS["Perkeo"]))
@@ -474,7 +474,7 @@ def test_perkeo_copies_into_a_row_that_is_already_full():
 
 def test_using_the_negative_copy_gives_the_slot_back():
     """remove_from_deck lowers the limit again, so the credit is not permanent."""
-    from balatro.consumables import REGISTRY as CONSUMABLES
+    from jimbot_sim.consumables import REGISTRY as CONSUMABLES
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game.gain_joker(JokerInstance(JOKERS["Perkeo"]))

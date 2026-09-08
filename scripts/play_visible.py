@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from balatro_bridge import BalatroBridge, BridgeError, launch  # noqa: E402
+from jimbot_sim.bridge import BalatroBridge, BridgeError, launch  # noqa: E402
 
 RANKS = {1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "7", 7: "8", 8: "9",
          9: "10", 10: "J", 11: "Q", 12: "K", 13: "A"}

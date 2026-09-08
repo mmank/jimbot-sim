@@ -14,8 +14,8 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro.jokers import REGISTRY                      # noqa: E402
-from balatro_headless.runtime import HeadlessBalatro     # noqa: E402
+from jimbot_sim.jokers import REGISTRY                      # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro     # noqa: E402
 
 QUERY = """(function()
   local out = {}

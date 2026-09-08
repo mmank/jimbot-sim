@@ -22,9 +22,9 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro.game import Action, ActionType, GameState   # noqa: E402
-from balatro.hands import HandType, evaluate                       # noqa: E402
-from balatro_headless.runtime import HeadlessBalatro     # noqa: E402
+from jimbot_sim.game import Action, ActionType, GameState   # noqa: E402
+from jimbot_sim.hands import HandType, evaluate                       # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro     # noqa: E402
 
 RANK_NAME = {"Two": "2", "Three": "3", "Four": "4", "Five": "5", "Six": "6",
              "Seven": "7", "Eight": "8", "Nine": "9", "Ten": "10",

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from balatro.cards import Card, Rank, Suit, standard_deck
+from jimbot_sim.cards import Card, Rank, Suit, standard_deck
 
 _RANKS = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR, "5": Rank.FIVE,
           "6": Rank.SIX, "7": Rank.SEVEN, "8": Rank.EIGHT, "9": Rank.NINE,
@@ -35,12 +35,12 @@ _SUITS = {"S": Suit.SPADES, "H": Suit.HEARTS, "D": Suit.DIAMONDS,
 def _card(code):
     suit, rank = code.split("_")
     return Card(_RANKS[rank], _SUITS[suit])
-from balatro.game import GameState
-from balatro.hands import HandType, evaluate
-from balatro.jokers import make
-from balatro.scoring import score_hand
-from balatro_headless.runtime import HeadlessBalatro
-from balatro_headless.scenario import Scenario
+from jimbot_sim.game import GameState
+from jimbot_sim.hands import HandType, evaluate
+from jimbot_sim.jokers import make
+from jimbot_sim.scoring import score_hand
+from jimbot_sim.headless.runtime import HeadlessBalatro
+from jimbot_sim.headless.scenario import Scenario
 
 HAND = "S_K H_K D_2 C_5 H_7 S_9 D_3 C_4"
 PLAY = (1, 2)

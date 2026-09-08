@@ -7,8 +7,8 @@ tell replication from coincidence. Lua's "%a" prints a double exactly.
 
 import pytest
 
-from balatro.rng import TW223, RunRng, pseudohash
-from balatro_headless.runtime import HeadlessBalatro
+from jimbot_sim.rng import TW223, RunRng, pseudohash
+from jimbot_sim.headless.runtime import HeadlessBalatro
 
 KEYS = ["Joker1", "shop_pack", "Tarot", "erratic", "front", "cry_e", "stdset1"]
 SEEDS = ["TESTSEED", "ABCD1234", "7EVEN", "XYZZY"]

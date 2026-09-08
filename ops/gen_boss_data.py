@@ -1,4 +1,4 @@
-"""Generate src/balatro/boss_data.py from the real game blinds.
+"""Generate src/jimbot_sim/boss_data.py from the real game blinds.
 
 Boss selection is not a uniform draw. The game keeps a usage count per boss,
 narrows the eligible set to those used fewest, and only then rolls -- so a
@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro_headless.runtime import HeadlessBalatro     # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro     # noqa: E402
 
 QUERY = """(function()
   local t = {}
@@ -58,7 +58,7 @@ def main() -> None:
                      float(mult)))
     out.write("}\n")
 
-    with open("src/balatro/boss_data.py", "w", encoding="utf-8") as handle:
+    with open("src/jimbot_sim/boss_data.py", "w", encoding="utf-8") as handle:
         handle.write(out.getvalue())
 
     ordinary = [r for r in rows if r[3] != "true"]

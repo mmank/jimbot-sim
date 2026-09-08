@@ -2193,7 +2193,7 @@ class GameState:
         """One shop slot, rolled the way the game rolls it.
 
         This used to invent its own weights and pools. It now goes through
-        balatro.shop_pool, which is checked against the engine draw for draw
+        jimbot_sim.shop_pool, which is checked against the engine draw for draw
         -- the distribution a policy trains against is as much a part of
         fidelity as the scoring, and it is the half that fails silently.
         """

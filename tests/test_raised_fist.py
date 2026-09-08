@@ -24,14 +24,14 @@ from dataclasses import dataclass
 
 import pytest
 
-from balatro.cards import Card, Rank, Suit, standard_deck
-from balatro.game import GameState
-from balatro.hands import evaluate
-from balatro.jokers import make
-from balatro.rng import RunRng
-from balatro.scoring import score_hand
-from balatro_headless.runtime import HeadlessBalatro
-from balatro_headless.scenario import Scenario
+from jimbot_sim.cards import Card, Rank, Suit, standard_deck
+from jimbot_sim.game import GameState
+from jimbot_sim.hands import evaluate
+from jimbot_sim.jokers import make
+from jimbot_sim.rng import RunRng
+from jimbot_sim.scoring import score_hand
+from jimbot_sim.headless.runtime import HeadlessBalatro
+from jimbot_sim.headless.scenario import Scenario
 
 _RANKS = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR, "5": Rank.FIVE,
           "6": Rank.SIX, "7": Rank.SEVEN, "8": Rank.EIGHT, "9": Rank.NINE,
@@ -45,7 +45,7 @@ PLAY = (1, 2)          # two kings, in every case below
 
 
 def _card(code, enhancement=""):
-    from balatro.cards import Enhancement
+    from jimbot_sim.cards import Enhancement
     suit, rank = code.split("_")
     card = Card(_RANKS[rank], _SUITS[suit])
     if enhancement:
@@ -144,7 +144,7 @@ def _sim_score(case, state):
     game.draw_pile = standard_deck()[:state["draw_pile"]]
     game.full_deck = game.hand + game.draw_pile
     if case.boss:
-        from balatro.blinds import BOSSES, Blind, BlindKind
+        from jimbot_sim.blinds import BOSSES, Blind, BlindKind
         effect = {b.name: b for b in BOSSES}[
             "The Club" if case.boss == "bl_club" else case.boss]
         game.blind = Blind(BlindKind.BOSS, ante=1, target=999999999,

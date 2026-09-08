@@ -21,11 +21,11 @@ dictates one.
 
 import pytest
 
-from balatro.blinds import BOSSES, BlindKind, make_blind
-from balatro.cards import Card, Enhancement, Rank, Suit
-from balatro.game import Action, ActionType, GameState, Phase
-from balatro.hands import HANDLIST, SECRET_HANDS, HandType
-from balatro.jokers import REGISTRY as JOKERS, JokerInstance
+from jimbot_sim.blinds import BOSSES, BlindKind, make_blind
+from jimbot_sim.cards import Card, Enhancement, Rank, Suit
+from jimbot_sim.game import Action, ActionType, GameState, Phase
+from jimbot_sim.hands import HANDLIST, SECRET_HANDS, HandType
+from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
 
 BY_NAME = {b.name: b for b in BOSSES}
 

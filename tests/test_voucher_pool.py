@@ -13,10 +13,10 @@ unavailable at the start of a run and why the odds shift as it goes on.
 
 import pytest
 
-from balatro.rng import RunRng
-from balatro.shop_pool import (UNAVAILABLE, build_voucher_pool, draw_voucher)
-from balatro.voucher_data import VOUCHER_DATA
-from balatro_headless.runtime import HeadlessBalatro
+from jimbot_sim.rng import RunRng
+from jimbot_sim.shop_pool import (UNAVAILABLE, build_voucher_pool, draw_voucher)
+from jimbot_sim.voucher_data import VOUCHER_DATA
+from jimbot_sim.headless.runtime import HeadlessBalatro
 
 SEEDS = ["TESTSEED", "ABCD1234", "7EVEN"]
 

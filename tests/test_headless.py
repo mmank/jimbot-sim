@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("lupa")
 
-from balatro_headless.runtime import HeadlessBalatro, engine_available  # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro, engine_available  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     not engine_available(),
@@ -226,8 +226,8 @@ def test_leaving_the_shop_returns_to_blind_select():
 
 
 def test_driver_plays_a_complete_run_without_hanging():
-    from balatro_headless.policy import GreedyPolicy
-    from balatro_headless.run import HeadlessRun
+    from jimbot_sim.headless.policy import GreedyPolicy
+    from jimbot_sim.headless.run import HeadlessRun
 
     run = HeadlessRun(seed="ABCDEFGH", game=HeadlessBalatro().boot())
     result = run.play_run(GreedyPolicy())
@@ -242,8 +242,8 @@ def test_a_stacked_run_beats_ante_8():
     Deliberately overpowered -- this tests that the driver can traverse and
     finish a whole run, not that the policy is any good.
     """
-    from balatro_headless.policy import GreedyPolicy
-    from balatro_headless.run import HeadlessRun
+    from jimbot_sim.headless.policy import GreedyPolicy
+    from jimbot_sim.headless.run import HeadlessRun
 
     game = HeadlessBalatro().boot()
     run = HeadlessRun(seed="ABCDEFGH", game=game)
@@ -377,7 +377,7 @@ def test_a_voucher_can_only_be_bought_once():
 
 def test_joker_slots_and_hand_size_are_not_hardcoded():
     """Negative jokers add slots; Serpent-style effects grow the hand."""
-    from balatro_headless.run import HeadlessRun
+    from jimbot_sim.headless.run import HeadlessRun
 
     game = HeadlessBalatro().boot()
     run = HeadlessRun(seed=SEED, game=game)
@@ -455,7 +455,7 @@ def test_starting_a_run_tears_down_the_previous_one():
     runtime plays thousands of episodes, throughput decayed from 447 steps/s
     to 184 within minutes.
     """
-    from balatro_headless.run import HeadlessRun
+    from jimbot_sim.headless.run import HeadlessRun
 
     game = HeadlessBalatro().boot()
 

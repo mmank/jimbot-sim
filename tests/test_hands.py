@@ -1,7 +1,7 @@
 import pytest
 
-from balatro.cards import Card, Enhancement, Rank, Suit
-from balatro.hands import HandLevels, HandType, evaluate
+from jimbot_sim.cards import Card, Enhancement, Rank, Suit
+from jimbot_sim.hands import HandLevels, HandType, evaluate
 
 S, H, D, C = Suit.SPADES, Suit.HEARTS, Suit.DIAMONDS, Suit.CLUBS
 

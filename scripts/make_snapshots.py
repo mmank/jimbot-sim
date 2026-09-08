@@ -21,15 +21,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from balatro_headless.driving import advance                      # noqa: E402
-from balatro_headless.policy import GreedyPolicy                  # noqa: E402
-from balatro_headless.run import HeadlessRun                      # noqa: E402
-from balatro_headless.runtime import HeadlessBalatro              # noqa: E402
+from jimbot_sim.headless.driving import advance                      # noqa: E402
+from jimbot_sim.headless.policy import GreedyPolicy                  # noqa: E402
+from jimbot_sim.headless.run import HeadlessRun                      # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro              # noqa: E402
 
 
 def play_to(run: HeadlessRun, policy, ante: int, budget: int = 4000):
     """Advance until the target ante's blind select, or the run ends."""
-    from balatro_headless.run import BLIND_SELECT, PACK, SELECTING_HAND, SHOP
+    from jimbot_sim.headless.run import BLIND_SELECT, PACK, SELECTING_HAND, SHOP
 
     settled = 0
     for _ in range(budget):

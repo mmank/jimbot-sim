@@ -23,7 +23,7 @@ The test fails when either list drifts, so a joker cannot quietly slip from
 saying so.
 """
 
-from balatro.jokers import REGISTRY
+from jimbot_sim.jokers import REGISTRY
 
 # Every hook a joker can carry. Kept in step with JokerSpec deliberately: a
 # hook missing from this list makes the jokers that use it look behaviourless,
@@ -81,7 +81,7 @@ def test_the_hook_list_matches_the_spec():
     """
     import dataclasses
 
-    from balatro.jokers import JokerSpec
+    from jimbot_sim.jokers import JokerSpec
 
     callable_fields = {
         f.name for f in dataclasses.fields(JokerSpec)
@@ -111,7 +111,7 @@ def test_every_declaration_is_read_by_something():
     """
     import pathlib
 
-    package = pathlib.Path(__file__).resolve().parents[1] / "src" / "balatro"
+    package = pathlib.Path(__file__).resolve().parents[1] / "src" / "jimbot_sim"
     body = "\n".join(path.read_text(encoding="utf-8")
                      for path in sorted(package.glob("*.py"))
                      if path.name != "jokers.py")

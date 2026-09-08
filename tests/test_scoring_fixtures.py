@@ -9,8 +9,8 @@ recordings play no steel, no glass, no editions and two jokers.
 
 import pytest
 
-from balatro_headless.runtime import HeadlessBalatro
-from balatro_headless.scenario import Scenario
+from jimbot_sim.headless.runtime import HeadlessBalatro
+from jimbot_sim.headless.scenario import Scenario
 
 PAIR_OF_ACES = "H_A D_A S_2 C_3 H_4 C_5 D_7 S_9"
 

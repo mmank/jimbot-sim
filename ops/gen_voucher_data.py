@@ -1,4 +1,4 @@
-"""Generate src/balatro/voucher_data.py from the real game vouchers.
+"""Generate src/jimbot_sim/voucher_data.py from the real game vouchers.
 
 The simulator had eleven vouchers written from memory, with names that are
 not the game's and effects invented to match. The game has thirty-two: sixteen
@@ -17,7 +17,7 @@ import sys
 
 sys.path.insert(0, "src")
 
-from balatro_headless.runtime import HeadlessBalatro     # noqa: E402
+from jimbot_sim.headless.runtime import HeadlessBalatro     # noqa: E402
 
 QUERY = """(function()
   local t = {}
@@ -67,7 +67,7 @@ def main() -> None:
                      int(value) if value == int(value) else value))
     out.write("]\n")
 
-    with open("src/balatro/voucher_data.py", "w", encoding="utf-8") as handle:
+    with open("src/jimbot_sim/voucher_data.py", "w", encoding="utf-8") as handle:
         handle.write(out.getvalue())
     print("wrote %d vouchers (%d upgrades)"
           % (len(rows), sum(1 for r in rows if r[3])))

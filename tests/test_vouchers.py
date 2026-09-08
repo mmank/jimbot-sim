@@ -29,9 +29,9 @@ see test_every_voucher_either_carries_a_field_or_is_read_by_key.
 
 import pytest
 
-from balatro.blinds import ante_base_chips
-from balatro.game import GameState
-from balatro.shop import VOUCHER_BY_KEY, VOUCHERS
+from jimbot_sim.blinds import ante_base_chips
+from jimbot_sim.game import GameState
+from jimbot_sim.shop import VOUCHER_BY_KEY, VOUCHERS
 
 
 def _run(*keys):
@@ -153,7 +153,7 @@ def test_the_ante_really_does_go_below_one():
 # ------------------------------------------------------------------
 
 def test_an_upgrade_is_not_offered_before_its_base_is_redeemed():
-    from balatro.shop_pool import UNAVAILABLE, build_voucher_pool
+    from jimbot_sim.shop_pool import UNAVAILABLE, build_voucher_pool
 
     pool = build_voucher_pool(redeemed=())
     keys = {v.key for v in VOUCHERS}
@@ -168,7 +168,7 @@ def test_an_upgrade_is_not_offered_before_its_base_is_redeemed():
 
 def test_a_voucher_already_on_offer_is_withheld():
     """Which is what a Voucher Tag's second slot needs."""
-    from balatro.shop_pool import build_voucher_pool
+    from jimbot_sim.shop_pool import build_voucher_pool
 
     assert "v_blank" in build_voucher_pool()
     assert "v_blank" not in build_voucher_pool(on_offer={"v_blank"})
@@ -187,7 +187,7 @@ def test_every_voucher_either_carries_a_field_or_is_read_by_key():
 
     read_by_key = {"v_telescope", "v_observatory", "v_omen_globe",
                    "v_directors_cut", "v_retcon"}
-    package = pathlib.Path(__file__).resolve().parents[1] / "src" / "balatro"
+    package = pathlib.Path(__file__).resolve().parents[1] / "src" / "jimbot_sim"
     body = "\n".join(p.read_text(encoding="utf-8")
                      for p in sorted(package.glob("*.py")))
 

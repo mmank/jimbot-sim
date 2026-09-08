@@ -113,7 +113,7 @@ class HeadlessBalatro:
         # they drifted, and headless silently lacked actions the game offers
         # (the shop's buy-and-use button, for one).
         mod = self._lua_path(
-            Path(__file__).resolve().parents[1] / "balatro_bridge" / "mod")
+            Path(__file__).resolve().parents[1] / "bridge" / "mod")
         self.lua.execute(f'''
             package.path = "{src}/?.lua;{stub}/?.lua;{mod}/?.lua;" .. package.path
             LOVE_STUB = require("love_stub")

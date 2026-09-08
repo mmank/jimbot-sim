@@ -15,10 +15,10 @@ call -- so the second Misprint draws from where the first left it.
 
 import pytest
 
-from balatro.consumables import REGISTRY as CONSUMABLES
-from balatro.game import Action, ActionType, GameState
-from balatro.rng import RunRng
-from balatro_headless.runtime import HeadlessBalatro
+from jimbot_sim.consumables import REGISTRY as CONSUMABLES
+from jimbot_sim.game import Action, ActionType, GameState
+from jimbot_sim.rng import RunRng
+from jimbot_sim.headless.runtime import HeadlessBalatro
 
 POOLS = ('local t = {} for k, v in pairs(G.GAME.pseudorandom) do '
          'if type(v) == "number" then '
@@ -98,7 +98,7 @@ def test_changing_an_enhancement_launders_a_spent_card():
     somewhere else entirely and leave it alone. A card The Pillar has
     debuffed can therefore be freed with a Chariot and not with a Sun.
     """
-    from balatro.cards import Edition, Enhancement, Seal, Suit
+    from jimbot_sim.cards import Edition, Enhancement, Seal, Suit
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game._start_round()
@@ -116,7 +116,7 @@ def test_changing_an_enhancement_launders_a_spent_card():
 
 def test_an_enhancement_change_keeps_the_hiker_chips():
     """The two fields set_ability does carry across."""
-    from balatro.cards import Enhancement
+    from jimbot_sim.cards import Enhancement
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game._start_round()
@@ -128,7 +128,7 @@ def test_an_enhancement_change_keeps_the_hiker_chips():
 
 
 def test_death_still_copies_what_is_printed_on_the_card():
-    from balatro.cards import Edition, Enhancement, Seal
+    from jimbot_sim.cards import Edition, Enhancement, Seal
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game._start_round()
@@ -161,8 +161,8 @@ def test_a_copied_joker_shares_the_registrys_spec():
     import copy
     import pickle
 
-    from balatro.jokers import REGISTRY as JOKERS
-    from balatro.jokers import make
+    from jimbot_sim.jokers import REGISTRY as JOKERS
+    from jimbot_sim.jokers import make
 
     joker = make("Blueprint")
     joker.counter = 7.0

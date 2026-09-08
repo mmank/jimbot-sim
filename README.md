@@ -4,7 +4,7 @@ Balatro you can drive from Python. Seed a run, ask what the legal moves are,
 take one, repeat — and it plays out as it would in the game.
 
 ```python
-from balatro import GameState, ActionType
+from jimbot_sim import GameState, ActionType
 
 game = GameState(seed="SEED0000", deck="Red Deck", stake=1)
 while not game.is_over:
@@ -123,10 +123,10 @@ The simulator is fast — no game install, no Lua, and a few thousand steps a
 second, so a whole run costs a fraction of one. Two slower backends exist for
 when being *exactly* right matters more:
 
-- **`balatro_headless`** runs Balatro's own Lua under LuaJIT with the window
+- **`jimbot_sim.headless`** runs Balatro's own Lua under LuaJIT with the window
   and the animation removed. It is the game rather than a model of it, and it
   is what the simulator is tested against.
-- **`balatro_bridge`** talks to the actual running game over a socket, so a
+- **`jimbot_sim.bridge`** talks to the actual running game over a socket, so a
   bot can play the copy on your screen.
 
 All three answer the same questions, so a bot written against one runs against

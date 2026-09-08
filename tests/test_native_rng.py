@@ -28,7 +28,7 @@ import struct
 
 import pytest
 
-from balatro import native, rng
+from jimbot_sim import native, rng
 
 pytestmark = pytest.mark.skipif(not native.available(),
                                 reason="native/ has not been built")

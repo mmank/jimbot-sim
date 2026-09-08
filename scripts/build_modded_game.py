@@ -112,7 +112,7 @@ def main() -> None:
     parser.add_argument("--install", type=Path, default=DEFAULT_INSTALL)
     parser.add_argument("--out", type=Path, default=Path("vendor/modded_game"))
     parser.add_argument("--mods", type=Path,
-                        default=Path("src/balatro_bridge/mod"))
+                        default=Path("src/jimbot_sim/bridge/mod"))
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 

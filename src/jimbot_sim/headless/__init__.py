@@ -1,6 +1,6 @@
 """Run Balatro's own Lua headlessly, in-process, with no LOVE and no window.
 
-    from balatro_headless import HeadlessBalatro
+    from jimbot_sim.headless import HeadlessBalatro
 
     game = HeadlessBalatro().boot()
     game.execute("G:start_run({seed = 'ABCDEFGH'})")

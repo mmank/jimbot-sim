@@ -24,9 +24,9 @@ is what makes a standalone simulator possible at all.
 
 import pytest
 
-from balatro.cards import standard_deck
-from balatro.rng import RunRng
-from balatro_headless.runtime import HeadlessBalatro
+from jimbot_sim.cards import standard_deck
+from jimbot_sim.rng import RunRng
+from jimbot_sim.headless.runtime import HeadlessBalatro
 
 SEEDS = ["TESTSEED", "ABCD1234", "7EVEN", "XYZZY", "VSEDGHNH"]
 

@@ -1,10 +1,10 @@
 """Scoring checks against values a Balatro player can verify by hand."""
 
-from balatro.cards import Card, Edition, Enhancement, Rank, Seal, Suit
-from balatro.game import GameState
-from balatro.hands import HandType, evaluate
-from balatro.jokers import make
-from balatro.scoring import effective_specs, score_hand
+from jimbot_sim.cards import Card, Edition, Enhancement, Rank, Seal, Suit
+from jimbot_sim.game import GameState
+from jimbot_sim.hands import HandType, evaluate
+from jimbot_sim.jokers import make
+from jimbot_sim.scoring import effective_specs, score_hand
 
 S, H, D, C = Suit.SPADES, Suit.HEARTS, Suit.DIAMONDS, Suit.CLUBS
 

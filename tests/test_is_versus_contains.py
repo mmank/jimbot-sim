@@ -27,9 +27,9 @@ down, by calling evaluate_poker_hand on the played cards.
 
 import pytest
 
-from balatro.cards import Card, Rank, Suit
-from balatro.game import GameState
-from balatro.hands import HANDLIST, HandType, evaluate
+from jimbot_sim.cards import Card, Rank, Suit
+from jimbot_sim.game import GameState
+from jimbot_sim.hands import HANDLIST, HandType, evaluate
 
 RANKS = {"2": Rank.TWO, "3": Rank.THREE, "5": Rank.FIVE, "6": Rank.SIX,
          "7": Rank.SEVEN, "8": Rank.EIGHT, "9": Rank.NINE, "Q": Rank.QUEEN,
@@ -112,7 +112,7 @@ def test_a_flush_holding_a_pair_contains_a_pair():
 # ------------------------------------------------------------------
 
 def _score(hand_codes, joker):
-    from balatro.jokers import REGISTRY as JOKERS, JokerInstance
+    from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game._start_round()
@@ -147,7 +147,7 @@ def test_seance_reads_the_containment_table_like_the_rest():
     The two agree on anything vanilla can make -- nothing outranking a
     Straight Flush contains one -- but the shape has to be right.
     """
-    from balatro.jokers import REGISTRY as JOKERS
+    from jimbot_sim.jokers import REGISTRY as JOKERS
 
     game = GameState(seed="TESTSEED", deck="Red Deck")
     game._start_round()

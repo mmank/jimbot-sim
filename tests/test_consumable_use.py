@@ -19,10 +19,10 @@ constructor, so a freshly conjured card compares a number with nil.
 
 import pytest
 
-from balatro.cards import Card, Edition, Rank, Suit
-from balatro.consumables import REGISTRY as CONSUMABLES
-from balatro.game import Action, ActionType, GameState, Phase
-from balatro.jokers import REGISTRY as JOKERS, JokerInstance
+from jimbot_sim.cards import Card, Edition, Rank, Suit
+from jimbot_sim.consumables import REGISTRY as CONSUMABLES
+from jimbot_sim.game import Action, ActionType, GameState, Phase
+from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
 
 
 def _run(*joker_names, phase=Phase.PLAYING):
