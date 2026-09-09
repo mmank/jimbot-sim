@@ -1834,6 +1834,41 @@ class GameState:
         played = [self.hand[i] for i in indices]
         result = self.evaluate_selection(played)
 
+        # The Hook takes its two cards *before* the hand scores. It lives in
+        # `Blind:press_play`, and the game runs that between moving the
+        # played cards out of the hand and scoring anything:
+        #
+        #     draw_card(G.hand, G.play, ..., G.hand.highlighted[i])   -- x N
+        #     if G.GAME.blind:press_play() then ...
+        #
+        # so the two cards it discards are already gone by the time the held
+        # pass runs. Doing it after scoring -- which is what this did -- left
+        # them in hand for one more hand each round, and a Steel card among
+        # them paid an x1.5 the game never paid. Recording 11 stops on
+        # exactly that at step 227: 75 chips x 193.5 here against the game's
+        # 75 x 186, which is one Steel card, and it wins a 40000 blind on
+        # 40409 that the game failed at 39847.
+        #
+        # This is the third boss to move for this reason. The Arm's level and
+        # The Tooth's dollar are both below, with the same note.
+        #
+        # By creation order, not by what is on screen: the game picks with
+        # pseudorandom_element, which sorts the table by sort_id before
+        # indexing it, so a hand the player has dragged around loses the same
+        # two either way. The pool is the hand *without* the played cards,
+        # which are in G.play by now -- they are still in `self.hand` here
+        # and are taken out below, so they are filtered rather than removed.
+        hook = self.boss
+        if hook is not None and hook.discard_random_on_play:
+            pool = sorted((c for c in self.hand
+                           if not any(c is p for p in played)),
+                          key=lambda card: card.uid)
+            taken = self.rng.sample("hook", pool,
+                                     min(hook.discard_random_on_play,
+                                         len(pool)))
+            if taken:
+                self.discard_cards(list(taken))
+
         # DNA and Sixth Sense act on the played cards before they score, and
         # only on the round's first hand.
         #
@@ -1957,19 +1992,6 @@ class GameState:
                 self.hand.remove(card)
                 self.discard_pile.append(card)
 
-        if boss is not None and boss.discard_random_on_play and self.hand:
-            # By creation order, not by what is on screen. The game draws
-            # these with pseudorandom_element, which sorts the table by
-            # sort_id before picking an index -- so the two cards The Hook
-            # takes depend on when the cards were made, and a hand the player
-            # has dragged around loses the same two either way.
-            pool = sorted(self.hand, key=lambda card: card.uid)
-            for card in self.rng.sample("hook", pool,
-                                        min(boss.discard_random_on_play,
-                                            len(pool))):
-                self.hand.remove(card)
-                self.discard_pile.append(card)
-
         if self.chips_scored >= self.blind.target:
             self._beat_blind()
         elif self.hands_left <= 0:
@@ -2010,8 +2032,35 @@ class GameState:
     def _discard(self, indices: tuple[int, ...]) -> None:
         cards = [self.hand[i] for i in indices]
         self.discards_left -= 1
-        first = self.discards_used == 0
+        self.discard_cards(cards)
         self.discards_used += 1
+        self._draw_to_hand_size()
+
+    def discard_cards(self, cards: list[Card]) -> None:
+        """The discard itself: seals, joker hooks, and the pile.
+
+        Split out because a discard the player did not ask for goes through
+        all of it. The game has one function and a flag --
+        `G.FUNCS.discard_cards_from_highlighted(e, hook)` -- and everything
+        the flag turns off is at the end of it:
+
+            if not hook then
+                if G.GAME.modifiers.discard_cost then ... end
+                ease_discard(-1)
+                G.GAME.current_round.discards_used = ... + 1
+                G.STATE = G.STATES.DRAW_TO_HAND
+
+        so The Hook, which calls it with `hook` true, still fires the seals
+        and the jokers and still fills the discard pile -- it just costs no
+        discard and draws nothing back. Everything above that line is here
+        and everything below it is in `_discard`.
+
+        `discards_used` is read rather than passed, exactly as the game
+        reads it, so a Hook discard on an untouched round counts as the
+        round's first for Burnt Joker -- because a Hook discard never
+        increments it.
+        """
+        first = self.discards_used == 0
         for joker in list(self.jokers):
             if joker.spec.discarded is not None:
                 joker.spec.discarded(joker, cards, self)
@@ -2034,7 +2083,6 @@ class GameState:
                 continue
             self.hand.remove(card)
             self.discard_pile.append(card)
-        self._draw_to_hand_size()
 
     def _in_hand_pack(self) -> bool:
         """Is an Arcana or Spectral pack open? Those two deal a hand."""
