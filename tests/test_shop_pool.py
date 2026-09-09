@@ -240,3 +240,62 @@ def test_black_hole_and_the_soul_never_come_from_a_pool():
     """They have their own path; drawing them normally would be wrong."""
     assert "c_black_hole" not in build_consumable_pool("Spectral")
     assert "c_soul" not in build_consumable_pool("Spectral")
+
+
+def test_a_shop_does_not_offer_the_same_consumable_twice():
+    """A card blanks its own pool entry the moment it is built.
+
+    Card:set_ability writes `G.GAME.used_jokers[k] = true` on creation
+    (card.lua:352), and get_current_pool skips anything in there unless a
+    Showman is held (common_events.lua:1987). So the second slot of a shop is
+    drawn from a pool the first slot has already left.
+
+    The shop was filled before the run could see it, so the exclusion never
+    applied to the shop being built -- a live run against the real game found
+    `c_star, c_star` on a shelf the game had stocked with `c_star,
+    c_heirophant`.
+    """
+    from jimbot_sim.game import GameState
+
+    for episode in range(60):
+        game = GameState(seed="DUPES%03d" % episode, deck="Red Deck")
+        game._open_shop()
+        names = [s.consumable.name for s in game.shop.slots
+                 if s.consumable is not None]
+        assert len(names) == len(set(names)), (episode, names)
+        jokers = [s.joker.name for s in game.shop.slots if s.joker is not None]
+        assert len(jokers) == len(set(jokers)), (episode, jokers)
+
+
+def _shops_offering(name, showman, episodes=80):
+    """How many shops offer `name` while one is already held."""
+    from jimbot_sim.consumables import REGISTRY as CONSUMABLES
+    from jimbot_sim.game import GameState
+    from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
+
+    found = 0
+    for episode in range(episodes):
+        game = GameState(seed="SHOWMAN%03d" % episode, deck="Red Deck")
+        if showman:
+            game.gain_joker(JokerInstance(JOKERS["Showman"]))
+        game.consumables.append(game.hold_consumable(CONSUMABLES[name]))
+        game._open_shop()
+        found += any(s.consumable is not None and s.consumable.name == name
+                     for s in game.shop.slots)
+    return found
+
+
+def test_a_shop_withholds_what_the_run_already_holds():
+    """Holding The Star takes it out of the shop's pool. It is the same
+    `used_jokers` rule as the duplicate above, from the other direction."""
+    assert _shops_offering("The Star", showman=False) == 0
+
+
+def test_a_showman_puts_it_back():
+    """Which is what the joker is for, and the shop draw never asked.
+
+    `pack_contents` was passed `showman` and `draw_shop_card` was not, so a
+    Showman widened a pack's pool and left the shop's alone -- and the shop
+    is where a run buys the second copy it bought the Showman to allow.
+    """
+    assert _shops_offering("The Star", showman=True) > 0

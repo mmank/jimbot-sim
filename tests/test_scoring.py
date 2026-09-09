@@ -126,3 +126,32 @@ def test_hand_level_feeds_the_base_values():
     game.hand_levels.level_up(HandType.PAIR)
     ctx = score_hand(game, evaluate(cards), cards, [])
     assert (ctx.chips, ctx.mult) == (25 + 20, 3)
+
+
+def test_blackboard_counts_a_debuffed_spade_as_black():
+    """The game asks its suit question two ways (card.lua:4064).
+
+    `is_suit(suit)` refuses a debuffed card outright; `is_suit(suit, nil,
+    true)` -- the flush_calc branch Blackboard uses -- reads the printed suit
+    anyway, and only a wild card loses its everything-suit to a debuff. So
+    The Goad debuffs the Queen of Spades held in hand and Blackboard still
+    counts the hand black. The simulator refused it, which took a flush from
+    the game's 6960 to 2320 on the hand that cleared the blind.
+    """
+    from jimbot_sim.cards import Card, Enhancement, Rank, Suit
+    from jimbot_sim.jokers import counts_for_flush
+    from jimbot_sim.game import GameState
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    queen = Card(Rank.QUEEN, Suit.SPADES)
+    queen.debuffed = True
+    assert counts_for_flush(queen, Suit.SPADES, game)
+    assert not counts_for_flush(queen, Suit.HEARTS, game)
+    # A debuffed wild card loses its everything-suit; a stone card never had
+    # a suit to lose.
+    wild = Card(Rank.FIVE, Suit.HEARTS, enhancement=Enhancement.WILD)
+    assert counts_for_flush(wild, Suit.SPADES, game)
+    wild.debuffed = True
+    assert not counts_for_flush(wild, Suit.SPADES, game)
+    stone = Card(Rank.FIVE, Suit.SPADES, enhancement=Enhancement.STONE)
+    assert not counts_for_flush(stone, Suit.SPADES, game)

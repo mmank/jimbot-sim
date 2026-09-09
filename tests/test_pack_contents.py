@@ -266,3 +266,41 @@ def test_pack_data_carries_the_prices():
     by_key = {row[0]: row for row in PACK_DATA}
     assert by_key["p_buffoon_normal_1"][4:] == (2, 4)     # cards, cost
     assert by_key["p_arcana_mega_1"][3:] == (2, 5, 8)     # choose, cards, cost
+
+
+def test_a_standard_packs_cards_are_polled_at_the_runs_edition_rate():
+    """card.lua:1761 passes the pack's own doubling as poll_edition's `_mod`.
+
+    The non-guaranteed branch then multiplies it by `G.GAME.edition_rate`,
+    which Hone sets to 2 and Glow Up to 4 (common_events.lua:2071-2076). The
+    simulator passed the doubling and dropped the run's rate, which moves
+    exactly one boundary -- holographic against foil -- and a live run
+    against the real game showed it as `card-holo` in the game where the
+    shadow had `card-foil`.
+    """
+    from jimbot_sim.shop_pool import _standard_card
+    from jimbot_sim.rng import RunRng
+
+    def editions(rate):
+        return [_standard_card(RunRng("EDITION%d" % ante), ante,
+                               edition_rate=rate)["edition"]
+                for ante in range(1, 60)]
+
+    plain, honed = editions(1.0), editions(2.0)
+    assert sum(e != "none" for e in honed) > sum(e != "none" for e in plain)
+    # Hone never takes an edition away, it only widens the bands.
+    for a, b in zip(plain, honed):
+        assert a == "none" or b != "none"
+
+
+def test_the_run_hands_its_edition_rate_to_the_pack():
+    """The wiring, so the rate cannot be right and unused."""
+    from jimbot_sim.game import GameState
+    from jimbot_sim.shop import VOUCHER_BY_KEY
+
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    assert game.edition_rate == 1
+    voucher = VOUCHER_BY_KEY["v_hone"]
+    game.vouchers.append(voucher)
+    game._redeem_voucher(voucher)
+    assert game.edition_rate == 2

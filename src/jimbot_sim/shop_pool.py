@@ -40,7 +40,8 @@ UNAVAILABLE = "UNAVAILABLE"
 
 # key -> the enhancement a run must already own before the shop offers it.
 GATES = {key: gate
-         for _, (key, _r, _o, _u, gate, _n, _y) in JOKER_DATA.items() if gate}
+         for _, (key, _r, _o, _u, gate, _n, _y, _e, _p)
+         in JOKER_DATA.items() if gate}
 
 # Flags on the run's history rather than its deck. A joker with no_flag leaves
 # the pool once that flag is set, and one with yes_flag only enters after it
@@ -48,9 +49,11 @@ GATES = {key: gate
 # offer depends on whether Gros Michel has gone extinct this run. Neither
 # joker's text says so.
 NO_FLAG = {key: flag
-           for _, (key, _r, _o, _u, _g, flag, _y) in JOKER_DATA.items() if flag}
+           for _, (key, _r, _o, _u, _g, flag, _y, _e, _p)
+           in JOKER_DATA.items() if flag}
 YES_FLAG = {key: flag
-            for _, (key, _r, _o, _u, _g, _n, flag) in JOKER_DATA.items() if flag}
+            for _, (key, _r, _o, _u, _g, _n, flag, _e, _p)
+            in JOKER_DATA.items() if flag}
 
 
 # When every entry is blanked the game does not hand back a pool of nothing:
@@ -442,13 +445,19 @@ def _pack_consumable(rng: RunRng, card_set: str, ante: int, append: str,
     return {"set": card_set, "key": key}
 
 
-def _standard_card(rng: RunRng, ante: int) -> dict:
+def _standard_card(rng: RunRng, ante: int, edition_rate: float = 1.0) -> dict:
     """One card from a Standard pack: face, enhancement, edition, seal.
 
     The order matters as much as the rolls. The game decides enhanced-or-not
     first, then draws the enhancement, then the face, then the edition, then
     whether there is a seal and only then which seal -- five pools, each
     advanced whether or not anything comes of it.
+
+    `edition_rate` is the run's, which Hone and Glow Up raise; card.lua:1761
+    passes its own doubling as poll_edition's `_mod` and the game multiplies
+    the two. Leaving the run's out moved exactly one boundary -- holographic
+    against foil -- which is what a live run showed: `card-holo` from the
+    game where the shadow had `card-foil`.
     """
     enhanced = rng.pseudorandom("stdset%d" % ante) > 0.6
     enhancement = None
@@ -457,7 +466,7 @@ def _standard_card(rng: RunRng, ante: int) -> dict:
     front = rng.random_element(FRONTS, "frontsta%d" % ante)
     suit, rank = front.split("_")
     edition = poll_edition(rng, "standard_edition%d" % ante, mod=2,
-                           no_negative=True)
+                           no_negative=True, edition_rate=edition_rate)
     seal = None
     if rng.pseudorandom("stdseal%d" % ante) > 0.8:          # 1 - 0.02*10
         roll = rng.pseudorandom("stdsealtype%d" % ante)
@@ -476,7 +485,8 @@ def pack_contents(rng: RunRng, kind: str, cards: int, ante: int,
                   soul_used: bool = False, black_hole_used: bool = False,
                   telescope: bool = False, omen_globe: bool = False,
                   most_played_planet: str | None = None,
-                  stickers: dict | None = None) -> list[dict]:
+                  stickers: dict | None = None,
+                  edition_rate: float = 1.0) -> list[dict]:
     """Everything a pack offers, in the order the game creates it.
 
     The simulator drew pack contents uniformly from whole card sets, which is
@@ -521,7 +531,7 @@ def pack_contents(rng: RunRng, kind: str, cards: int, ante: int,
             edition = poll_edition(rng, "edi%s%d" % (append, ante))
             card = {"set": "Joker", "key": key, "edition": edition, **marks}
         elif kind == "Standard":
-            card = _standard_card(rng, ante)
+            card = _standard_card(rng, ante, edition_rate)
         else:
             raise ValueError("unknown pack kind %r" % kind)
         if not showman and card.get("key"):
@@ -581,6 +591,21 @@ KEY_BY_CONSUMABLE_NAME = {name: key
 # --------------------------------------------------------------------------
 # stickers
 # --------------------------------------------------------------------------
+
+# Which stickers a joker will take at all. Card:set_eternal and
+# Card:set_perishable (card.lua:506, 513) drop the sticker when the centre
+# refuses it -- a joker that destroys itself is never eternal, and one whose
+# whole value is a counter it would lose is never perishable. The poll happens
+# either way; only the sticker is refused, so the stream is unaffected.
+STICKER_COMPAT = {name: (eternal_ok, perishable_ok)
+                  for name, (_k, _r, _o, _u, _g, _n, _y, eternal_ok,
+                             perishable_ok) in JOKER_DATA.items()}
+
+
+def takes_sticker(name: str) -> tuple[bool, bool]:
+    """(eternal, perishable) for this joker, by the game's own centre flags."""
+    return STICKER_COMPAT.get(name, (True, True))
+
 
 def poll_stickers(rng: RunRng, ante: int, in_pack: bool = False,
                   eternals: bool = False, perishables: bool = False,

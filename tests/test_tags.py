@@ -346,7 +346,10 @@ def test_uncommon_tags_stack_across_the_shop_slots():
     game._roll_voucher()
     game.tags.extend([Tag.UNCOMMON] * 2)
     game._open_shop()
-    free = [s for s in game.shop.slots if s.kind == "joker" and s.price == 0]
+    # Free by coupon rather than by price: set_cost zeroes a couponed
+    # card after working the price out, and the tag's joker is couponed.
+    free = [s for s in game.shop.slots
+            if s.kind == "joker" and game.slot_price(s) == 0]
     assert len(free) == 2
     assert Tag.UNCOMMON not in game.tags
 

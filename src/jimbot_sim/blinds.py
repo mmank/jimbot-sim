@@ -110,7 +110,13 @@ BOSSES: list[BossEffect] = [
     BossEffect("The Serpent", "After play or discard, always draw 3 cards", always_draw_three=True),
     BossEffect("The Pillar", "Cards played earlier this ante are debuffed",
                debuff_previously_played=True),
-    BossEffect("The Needle", "Play only 1 hand", hands_delta=-99),
+    # One hand, and the *small* blind's requirement for it: bl_needle is
+    # `mult = 1` in game.lua:285, alone among the ordinary bosses. The
+    # default here said two, so the simulator asked for twice what the
+    # game asks -- see the check below, which is why it cannot happen
+    # again.
+    BossEffect("The Needle", "Play only 1 hand", hands_delta=-99,
+               chip_mult=1.0),
     BossEffect("The Head", "All Heart cards are debuffed", debuff_suit=Suit.HEARTS),
     BossEffect("The Tooth", "Lose $1 per card played", money_per_card_played=-1),
     BossEffect("The Flint", "Base Chips and Mult are halved", halve_base=True),
@@ -127,6 +133,26 @@ FINISHER_BOSSES: list[BossEffect] = [
                is_finisher=True, forces_a_card=True),
 ]
 
+
+# The multiplier is written twice -- here, and in the table generated from the
+# game's own P_BLINDS -- so it is checked here rather than trusted. The Needle
+# is what this is for: `mult = 1` in the game and two by default here, so the
+# simulator asked four thousand chips for a blind the game prices at two, and
+# nothing said so until the policy played the engine with a shadow beside it.
+def _check_multipliers() -> None:
+    from .boss_data import BOSS_DATA
+
+    mult_by_name = {name: mult for name, _min, _show, mult in BOSS_DATA.values()}
+    for boss in BOSSES + FINISHER_BOSSES:
+        if boss.name not in mult_by_name:
+            raise AssertionError("%s is not in BOSS_DATA" % boss.name)
+        if boss.chip_mult != mult_by_name[boss.name]:
+            raise AssertionError(
+                "%s asks x%g here and x%g in the game's own table"
+                % (boss.name, boss.chip_mult, mult_by_name[boss.name]))
+
+
+_check_multipliers()
 
 @dataclass
 class Blind:

@@ -41,7 +41,8 @@ _SUIT_BY_CODE = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
 from .consumables import ConsumableInstance, ConsumableKind, ConsumableSpec
 from .hands import (HANDLIST, PLANET_FOR_HAND, SECRET_HANDS, HandLevels,
                     HandType, evaluate)
-from .jokers import EDITION_VALUE, REGISTRY as JOKER_REGISTRY, JokerInstance, Rarity
+from .jokers import (EDITION_VALUE, REGISTRY as JOKER_REGISTRY,
+                     JokerInstance, Rarity, suit_matches_for)
 
 # The game's rarity numbers, which its pools are keyed by.
 _RARITY_INDEX = {Rarity.COMMON: 1, Rarity.UNCOMMON: 2, Rarity.RARE: 3,
@@ -1121,23 +1122,32 @@ class GameState:
         return {"eternals": self.stake >= 4, "perishables": self.stake >= 7,
                 "rentals": self.stake >= 8}
 
-    def _apply_stickers(self, joker: JokerInstance, price: int,
-                        in_pack: bool = False) -> int:
-        """Poll a shop joker's stickers and return what it now costs.
+    def _apply_stickers(self, joker: JokerInstance,
+                        in_pack: bool = False) -> None:
+        """Poll a shop joker's stickers onto it.
 
         The first poll happens whether or not any sticker is enabled, so it
-        is made on every stake -- see shop_pool.poll_stickers. A rental costs
-        a dollar however expensive the joker is, which is six dollars a
-        recording said the run still had.
+        is made on every stake -- see shop_pool.poll_stickers. What a rental
+        then costs is `slot_price`'s business: set_cost puts it at a dollar
+        after the discount, however expensive the joker is, which is six
+        dollars a recording said the run still had.
         """
         stickers = shop_pool.poll_stickers(self.rng, self.ante, in_pack,
                                            **self.sticker_rules)
-        joker.eternal = stickers["eternal"]
-        joker.perishable = stickers["perishable"]
+        # The centre gets a veto, and it is not a preference: set_eternal and
+        # set_perishable simply drop the sticker when the joker refuses it
+        # (card.lua:506, 513). Ride the Bus is `perishable_compat = false`,
+        # and handing it one anyway debuffed it five rounds into a run the
+        # game had left alone -- which is how the live differential found
+        # that these flags were not modelled at all. Each also refuses the
+        # other's sticker, hence the ordering below.
+        eternal_ok, perishable_ok = shop_pool.takes_sticker(joker.name)
+        joker.eternal = stickers["eternal"] and eternal_ok
+        joker.perishable = (stickers["perishable"] and perishable_ok
+                            and not joker.eternal)
         joker.rental = stickers["rental"]
         if joker.perishable:
             joker.perish_tally = PERISHABLE_ROUNDS
-        return 1 if joker.rental else price
 
     @property
     def blind_scaling(self) -> int:
@@ -1198,7 +1208,15 @@ class GameState:
         return mult
 
     def price(self, base: int) -> int:
-        return max(1, round(base * self.price_multiplier))
+        """What a voucher or a booster on the shelf costs.
+
+        The same `Card:set_cost` every other price goes through: a voucher and
+        a pack are Cards like any other. This rounded instead, which is not
+        the same thing -- a $10 voucher under Clearance Sale is
+        `floor((10 + 0.5) * 0.75)` = $7 in the game and came out $8 here, and
+        a live run stopped on the dollar.
+        """
+        return self.card_cost(base)
 
     @property
     def discount_percent(self) -> int:
@@ -1491,9 +1509,22 @@ class GameState:
                 card.debuffed = True
             return
         for card in self.full_deck:
-            if boss.debuff_suit is not None and card.suit is boss.debuff_suit:
+            # Blind:debuff_card asks `card:is_suit(suit, true)`
+            # (blind.lua:626), and that is not the card's printed suit: a Wild
+            # Card is every suit and is debuffed by any of the four, a Stone
+            # Card has no suit and is debuffed by none, and a Smeared Joker
+            # pairs hearts with diamonds and spades with clubs (card.lua:4076).
+            # Reading `card.suit` let a wild Five score under The Goad for
+            # five chips and a Greedy Joker's three mult -- 2291 against the
+            # game's 1924, on a hand that decided the blind.
+            if (boss.debuff_suit is not None
+                    and suit_matches_for(card, boss.debuff_suit, self)):
                 card.debuffed = True
-            if boss.debuff_face and card.rank.is_face:
+            # `card:is_face(true)` in the same function, and Pareidolia makes
+            # every card a face card (card.lua:967) -- so The Plant debuffs
+            # the whole deck while one is held.
+            if boss.debuff_face and (self.has_pareidolia()
+                                     or card.rank.is_face):
                 card.debuffed = True
             if boss.debuff_previously_played and card.played_this_ante:
                 card.debuffed = True
@@ -2043,14 +2074,16 @@ class GameState:
         # Debuffing a joker runs remove_from_deck(true), so the counter comes
         # off with it: active_jokers, not jokers. That is true of every one of
         # these run-level counters -- see test_declared_flags.
-        per_block = 1 + sum(j.spec.interest_bonus for j in self.active_jokers)
-        interest = (0 if config.get("no_interest")
-                    else per_block * min(self.interest_cap,
-                                         max(0, self.money) // 5))
+        # Everything but the interest. Interest is worked out further down,
+        # after the rent, because that is where the game works it out: the
+        # end-of-round joker pass and calculate_rental run first
+        # (state_events.lua:99-109) and update_round_eval builds the payout
+        # rows afterwards, reading G.GAME.dollars as it then stands. Two
+        # rentals took six dollars off a five dollar balance, so the game paid
+        # no interest and this paid a dollar of it.
         self.pending_payout = ((self.blind.reward if reward else 0)
                                + max(0, self.hands_left) * per_hand
-                               + max(0, self.discards_left) * per_discard
-                               + interest)
+                               + max(0, self.discards_left) * per_discard)
 
         # Every card returns to the deck as the round closes -- but in the
         # game's order, not in the order the deck was built. The hand goes to
@@ -2150,6 +2183,19 @@ class GameState:
                 if joker.perish_tally == 0:
                     joker.debuffed = True
                     self.log(f"{joker.name} perished")
+
+        # And now the interest, on what is left after the rent. The multiplier
+        # applies after the cap has bitten, so the cap does not limit the
+        # bonus -- measured on the engine at $100 against the $25 cap, where
+        # one To the Moon pays $10 and two pay $15 against a base of $5.
+        #
+        # Debuffing a joker runs remove_from_deck(true), so the counter comes
+        # off with it: active_jokers, not jokers -- and a perishable that just
+        # expired above is already out of that list, as it is in the game.
+        per_block = 1 + sum(j.spec.interest_bonus for j in self.active_jokers)
+        if not config.get("no_interest"):
+            self.pending_payout += per_block * min(self.interest_cap,
+                                                   max(0, self.money) // 5)
 
         # And now the run stands on the cash-out screen and waits.
         #
@@ -2253,6 +2299,13 @@ class GameState:
         kind, key = shop_pool.draw_shop_card(
             self.rng, self.ante, rates=self._shop_rates(),
             seen_jokers=self.seen_centers, played_hands=played,
+            # What Showman is *for*: get_current_pool skips a card the run
+            # already has unless one is held (common_events.lua:1987). The
+            # pack path passed this and the shop path did not, so a Showman
+            # widened a pack's pool and left the shop's alone -- which is
+            # most of the joker's value, since the shop is where a run buys
+            # the second Blueprint it is bought to allow.
+            showman=any(j.spec.allows_duplicates for j in self.active_jokers),
             owned_enhancements={"m_%s" % e for e in owned})
 
         # Illusion's first roll costs a draw on *every* slot, whatever the
@@ -2279,13 +2332,11 @@ class GameState:
                 self.rng, "edi%s%d" % (shop_pool.SHOP_APPEND, self.ante),
                 edition_rate=self.edition_rate)]
             joker = JokerInstance(spec, edition=edition)
-            price = self._apply_stickers(
-                joker, self.card_cost(spec.cost, edition))
-            return ShopSlot("joker", price, joker=joker)
+            self._apply_stickers(joker)
+            return ShopSlot("joker", spec.cost, joker=joker)
         if kind in ("Tarot", "Planet", "Spectral"):
             spec = cons.REGISTRY[shop_pool.NAME_BY_CONSUMABLE_KEY[key]]
-            return ShopSlot("consumable", self.card_cost(spec.cost),
-                            consumable=spec)
+            return ShopSlot("consumable", spec.cost, consumable=spec)
         # A playing card, which only appears once Magic Trick or Illusion has
         # raised the playing card rate. This used to hand back an arbitrary
         # Tarot as a placeholder, so a shop that offered a card offered the
@@ -2312,7 +2363,7 @@ class GameState:
             card.edition = (Edition.POLYCHROME if roll > 1 - 0.15
                             else Edition.HOLOGRAPHIC if roll > 0.5
                             else Edition.FOIL)
-        return ShopSlot("card", self.price(1), card=card)
+        return ShopSlot("card", 1, card=card)
 
     def _shop_rates(self) -> dict:
         """The run's card-type rates, which the deck and vouchers move.
@@ -2381,6 +2432,16 @@ class GameState:
         shop = Shop()
         shop.free_rerolls = sum(j.spec.free_rerolls
                                 for j in self.active_jokers)
+        # Set before it is filled, not after. `seen_centers` blanks a pool
+        # with what exists, and a card that has just been built exists:
+        # Card:set_ability writes `G.GAME.used_jokers[k] = true` the moment it
+        # is created (card.lua:352), so the first card of a shop blanks its
+        # own key for the second draw. Filling a shop the run could not yet
+        # see offered the same card twice -- `c_star, c_star` on a shelf where
+        # the game had `c_star, c_heirophant`. A *rerolled* shop never had the
+        # bug, since that path fills `self.shop` in place, which is what made
+        # it look like a draw-order problem rather than this.
+        self.shop = shop
         self._fill_shop(shop)
         shop.packs = [self._roll_pack() for _ in range(2)]
         # The ante's voucher, unless it has already been taken. All three
@@ -2423,7 +2484,6 @@ class GameState:
             self.tags.remove(Tag.D_SIX)
             shop.free_reroll_cost = True
             self.log("D6 Tag: rerolls start at nothing")
-        self.shop = shop
         self.phase = Phase.SHOP
         self._apply_shop_tags()
 
@@ -2499,8 +2559,10 @@ class GameState:
             spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
             edition = _EDITION_BY_NAME[
                 shop_pool.poll_edition(self.rng, "edi%s%d" % (append, self.ante))]
-            return ShopSlot("joker", 0, joker=JokerInstance(spec,
-                                                            edition=edition))
+            # The tag's joker is free, which the game says by couponing it
+            # rather than by pricing it at nothing.
+            return ShopSlot("joker", spec.cost, couponed=True,
+                            joker=JokerInstance(spec, edition=edition))
         return None
 
     def _apply_shop_tags(self) -> None:
@@ -2525,7 +2587,15 @@ class GameState:
                 and slot.consumable.kind is ConsumableKind.PLANET
                 and any(j.spec.free_planets for j in self.active_jokers)):
             return 0
-        return slot.price
+        # set_cost's own order: the discount, then Astronomer's free planets,
+        # then a rental's flat dollar, then a coupon. The edition is part of
+        # `extra_cost` and so is inside the discount, not after it.
+        if slot.joker is not None and slot.joker.rental:
+            return 1
+        edition = (slot.joker.edition if slot.joker is not None else
+                   slot.card.edition if slot.card is not None else
+                   Edition.NONE)
+        return self.card_cost(slot.base_cost, edition)
 
     def _redeem_voucher(self, voucher: Voucher) -> None:
         """What redeeming does beyond the fields read off self.vouchers.
@@ -2617,6 +2687,10 @@ class GameState:
             # costs: Telescope forces the first card of a Celestial pack to
             # the planet for the hand the run has played most, and Omen Globe
             # turns one in five Arcana cards into a Spectral.
+            # Hone and Glow Up raise the run's edition rate, and a Standard
+            # pack's cards are polled with it as well as with the pack's own
+            # doubling -- the game multiplies the two (card.lua:1761).
+            edition_rate=self.edition_rate,
             telescope=any(v.key == "v_telescope" for v in self.vouchers),
             omen_globe=any(v.key == "v_omen_globe" for v in self.vouchers),
             most_played_planet=self._most_played_planet())
@@ -2760,8 +2834,20 @@ class GameState:
         if self.phase is Phase.PLAYING:
             actions: list[Action] = self._play_actions()
             if self.discards_left > 0:
+                # Cerulean Bell keeps its card highlighted, so a *discard*
+                # cannot go without it either -- `is_legal` has always said
+                # so and this list did not, which is the two answers
+                # disagreeing rather than either being wrong on its own. A
+                # policy that reads the list and proposes from it had its
+                # discard refused 247 decisions into a run.
+                #
+                # No "unless nothing is left" escape here, unlike the plays:
+                # a hand that cannot be discarded can always be played, so
+                # dropping the restriction would invent a move rather than
+                # avoid a deadlock.
                 actions += [Action(ActionType.DISCARD, cards=s)
-                            for s in self._card_subsets(MAX_PLAYED)]
+                            for s in self._card_subsets(MAX_PLAYED)
+                            if self._restriction_ok(s)]
             actions += self._consumable_actions()
             actions += [Action(ActionType.SELL_JOKER, index=i)
                         for i, j in enumerate(self.jokers) if not j.eternal]

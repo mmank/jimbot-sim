@@ -114,3 +114,58 @@ def test_a_forced_card_is_replaced_once_it_is_gone():
                      cards=(game.hand.index(first),)))
     assert game.forced_card is not first
     assert game.forced_card in game.hand
+
+
+def test_a_suit_boss_reads_the_cards_the_game_reads():
+    """blind.lua:626 asks `card:is_suit(suit, true)`, not the printed suit.
+
+    A Wild Card is every suit, so any of the four suit bosses debuffs it; a
+    Stone Card has no suit and none of them touch it; a Smeared Joker pairs
+    hearts with diamonds and spades with clubs (card.lua:4076). Reading
+    `card.suit` let a wild Five score under The Goad -- five chips and a
+    Greedy Joker's three mult, 2291 against the game's 1924, on the hand that
+    decided the blind. Found by the live differential.
+    """
+    from jimbot_sim.cards import Card, Enhancement, Rank, Suit
+
+    def debuffs(boss, cards, jokers=()):
+        game = _under(boss, jokers)
+        game.full_deck[:] = cards
+        game._apply_debuffs()
+        return [c.debuffed for c in cards]
+
+    plain = Card(Rank.FIVE, Suit.SPADES)
+    wild = Card(Rank.FIVE, Suit.DIAMONDS, enhancement=Enhancement.WILD)
+    stone = Card(Rank.FIVE, Suit.SPADES, enhancement=Enhancement.STONE)
+    heart = Card(Rank.FIVE, Suit.HEARTS)
+
+    assert debuffs("The Goad", [plain, wild, stone, heart]) == [
+        True, True, False, False]
+    # Smeared makes spades and clubs one suit, so The Goad takes clubs too.
+    club = Card(Rank.FIVE, Suit.CLUBS)
+    assert debuffs("The Goad", [club], jokers=["Smeared Joker"]) == [True]
+    assert debuffs("The Goad", [club]) == [False]
+
+
+def test_cerulean_bell_forces_its_card_into_discards_as_well_as_plays():
+    """`is_legal` and `legal_actions` have to be the same answer.
+
+    The Bell keeps its card highlighted, so neither a play nor a discard can
+    go without it. `is_legal` refused such a discard and `legal_actions`
+    offered one, and a policy that proposes only what the list offers had its
+    move refused 247 decisions into a run.
+    """
+    from jimbot_sim.game import Action, ActionType
+
+    game = _under("Cerulean Bell")
+    game.discards_left = 3
+    assert game.forced_card is not None
+    forced = game.hand.index(game.forced_card)
+
+    for action in game.legal_actions():
+        if action.type in (ActionType.PLAY, ActionType.DISCARD):
+            assert forced in action.cards, action
+            assert game.is_legal(action), action
+
+    without = tuple(i for i in range(len(game.hand)) if i != forced)[:3]
+    assert not game.is_legal(Action(ActionType.DISCARD, cards=without))

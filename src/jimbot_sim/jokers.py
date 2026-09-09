@@ -238,18 +238,25 @@ _SMEARED_PAIRS = {Suit.HEARTS: Suit.DIAMONDS, Suit.DIAMONDS: Suit.HEARTS,
                   Suit.SPADES: Suit.CLUBS, Suit.CLUBS: Suit.SPADES}
 
 
-def suit_matches(card: Card, suit: Suit, ctx: ScoreContext) -> bool:
+def suit_matches_for(card: Card, suit: Suit, game) -> bool:
     """Does this card count as that suit, for this run?
 
     Smeared Joker makes Hearts and Diamonds one suit and Spades and Clubs
     another, which no property on the card can know about -- so every suit
-    test a joker makes has to come through here.
+    test a joker makes has to come through here. Takes the run rather than a
+    scoring context, because the tests a joker makes while *discarding* have
+    no context to hand.
     """
     if card.counts_as_suit(suit):
         return True
-    if ctx.game.has_smeared():
+    if game.has_smeared():
         return card.counts_as_suit(_SMEARED_PAIRS[suit])
     return False
+
+
+def suit_matches(card: Card, suit: Suit, ctx: ScoreContext) -> bool:
+    """The same question, asked from inside scoring."""
+    return suit_matches_for(card, suit, ctx.game)
 
 
 def is_face(card: Card, ctx: ScoreContext) -> bool:
@@ -506,10 +513,34 @@ register("Baron", Rarity.RARE, "Kings held in hand give X1.5 Mult", cost=8,
          held=lambda j, c, ctx: ctx.times_mult(1.5, j.name)
          if c.rank is Rank.KING and not c.is_stone else None)
 
+def counts_for_flush(card: Card, suit: Suit, game) -> bool:
+    """`is_suit(suit, nil, true)` -- the flush_calc branch (card.lua:4065).
+
+    The game asks its suit question two ways and they differ on a debuffed
+    card. The ordinary test refuses one outright; the flush_calc one reads
+    the printed suit anyway, and only a *wild* card loses its everything-suit
+    to a debuff. That is what a flush is judged on, and what Blackboard is
+    judged on: The Goad debuffs the Queen of Spades held in hand and
+    Blackboard still counts it black, which took a flush from 2320 to 6960 in
+    the game while the simulator left it at 2320.
+    """
+    if card.is_stone:
+        return False
+    if card.enhancement is Enhancement.WILD:
+        return not card.debuffed
+    if game.has_smeared():
+        # The game's own test: same colour group, which also covers the
+        # identical suit.
+        return ((card.suit in (Suit.HEARTS, Suit.DIAMONDS))
+                == (suit in (Suit.HEARTS, Suit.DIAMONDS)))
+    return card.suit is suit
+
+
 register("Blackboard", Rarity.UNCOMMON,
          "X3 Mult if all cards held in hand are Spades or Clubs", cost=6,
          independent=lambda j, ctx: ctx.times_mult(3.0, j.name)
-         if all(c.counts_as_suit(Suit.SPADES) or c.counts_as_suit(Suit.CLUBS)
+         if all(counts_for_flush(c, Suit.SPADES, ctx.game)
+                or counts_for_flush(c, Suit.CLUBS, ctx.game)
                 for c in ctx.held) else None)
 
 register("Card Sharp", Rarity.UNCOMMON,
@@ -920,9 +951,26 @@ register("Ceremonial Dagger", Rarity.UNCOMMON,
          "permanently add double its sell value to Mult", cost=6,
          on_blind_select=_ceremonial_dagger,
          independent=lambda j, ctx: ctx.add_mult(j.counter, j.name))
+def _castle(j: JokerInstance, cards, game: "GameState") -> None:
+    """+3 chips for each discarded card of the round's suit.
+
+    card.lua:2814, under `context.discard` and per discarded card, skipping a
+    debuffed one. Nothing incremented this counter, so a Castle scored +0
+    chips for a whole run however much was thrown at it -- the same shape as
+    Rocket, and found the same way: the policy played the engine with a
+    simulator shadowing it, and a Full House came out 6840 against 6624.
+    """
+    suit = game.castle_suit
+    if suit is None:
+        return
+    for card in cards:
+        if not card.debuffed and suit_matches_for(card, suit, game):
+            j.counter += 3.0
+
+
 register("Castle", Rarity.UNCOMMON,
          "Gains +3 Chips per discarded card of a suit that changes each round",
-         cost=6,
+         cost=6, discarded=_castle,
          independent=lambda j, ctx: ctx.add_chips(j.counter, j.name))
 def _obelisk_update(j: JokerInstance, ctx: ScoreContext) -> None:
     """Grow unless the hand just played is the run's most played.
@@ -1176,9 +1224,24 @@ register("Cloud 9", Rarity.UNCOMMON,
          "Earn $1 for each 9 in your full deck at end of round", cost=7,
          round_money=_round_money(
              lambda j, g: sum(1 for c in g.full_deck if c.rank is Rank.NINE)))
+def _rocket(j: JokerInstance, game: "GameState") -> None:
+    """+$2 a boss, and the boss that raises it is already paying the raise.
+
+    The growth is `calculate_joker({end_of_round})` (card.lua:2896, guarded on
+    `G.GAME.blind.boss`), which state_events.lua runs at line 101 -- and the
+    cash-out rows are built from calculate_dollar_bonus afterwards, at line
+    1176. So a Rocket held through its first boss pays three dollars that
+    round, not one. Nothing incremented this counter at all, so it paid a
+    dollar a round for whole runs; found by the hand-written policy playing
+    the engine with a simulator shadowing it, which is what live.py is for.
+    """
+    if game.beaten_was_boss:
+        j.counter += 2.0
+
+
 register("Rocket", Rarity.UNCOMMON,
          "Earn $1 at end of round, increasing by $2 per Boss Blind defeated",
-         cost=6, init_counter=1.0,
+         cost=6, init_counter=1.0, round_end=_rocket,
          round_money=_round_money(lambda j, g: j.counter))
 register("Satellite", Rarity.UNCOMMON,
          "Earn $1 at end of round per unique Planet card used this run",

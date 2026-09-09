@@ -1084,8 +1084,21 @@ function api.selection()
 end
 
 -- Play or discard whatever is currently selected.
+--- Screen order is play order, and here it can be stale. See settle_hand in
+--- bot_api.lua for the whole of it: play_cards_from_highlighted sorts the
+--- highlighted cards by `T.x` (state_events.lua:463) and `align_cards` is
+--- what makes x follow the list (cardarea.lua:463). Nothing renders here, so
+--- a hand can be sorted in the list and unmoved on screen -- which put a
+--- freshly drawn Ace first in the list and last on screen, and Hanging Chad
+--- retriggered a 5 instead of it. This is the path the training environment
+--- plays through as well as the bot.
+local function settle_hand()
+  if G.hand then G.hand:align_cards() end
+end
+
 function api.play_selected()
   local before = G.GAME.current_round.hands_played
+  settle_hand()
   G.FUNCS.play_cards_from_highlighted()
   api.pump_until(function()
     return G.GAME.current_round.hands_played > before and api.playable()
@@ -1095,6 +1108,7 @@ end
 
 function api.discard_selected()
   local before = G.GAME.current_round.discards_used
+  settle_hand()
   G.FUNCS.discard_cards_from_highlighted()
   api.pump_until(function()
     return G.GAME.current_round.discards_used > before and api.playable()

@@ -93,8 +93,13 @@ def test_a_negative_buffoon_joker_is_offered_into_a_full_row():
 def _shop_with(game, joker):
     game.phase = Phase.SHOP
     game._open_shop()
-    game.shop.slots = [ShopSlot(kind="joker", price=1, joker=joker)]
-    game.dollars = 50
+    game.shop.slots = [ShopSlot(kind="joker", base_cost=1, joker=joker)]
+    # `money`, not `dollars`: the engine's name for it, and setting the one
+    # the simulator does not have left these two testing room *and* an
+    # accidental four dollars. A Negative joker's edition is five of
+    # `extra_cost`, so the slot stopped being affordable the moment prices
+    # were worked out from the base rather than stored.
+    game.money = 50
     return game
 
 

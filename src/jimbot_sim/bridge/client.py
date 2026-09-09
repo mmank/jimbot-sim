@@ -299,7 +299,13 @@ class BalatroBridge:
         jokers = len(before.get("jokers") or [])
         consumables = len(before.get("consumables") or [])
         deck = before.get("deck_size", 0)
-        vouchers = before.get("vouchers", 0)
+        # How many are redeemed, not which: `vouchers` is a list of keys, and
+        # comparing the list itself with `>` raised on the first voucher any
+        # client ever bought -- an empty Lua table arrives as a dict, and a
+        # dict does not order against a list. Nothing had bought one before:
+        # the recordings' replays go through their own handlers and no policy
+        # driven over this client had reached a shop with money to spare.
+        vouchers = len(before.get("vouchers") or [])
 
         self.command("buy", area, index)
 
@@ -330,7 +336,7 @@ class BalatroBridge:
             return (len(state.get("jokers") or []) > jokers
                     or len(state.get("consumables") or []) > consumables
                     or state.get("deck_size", deck) > deck
-                    or state.get("vouchers", vouchers) > vouchers)
+                    or len(state.get("vouchers") or []) > vouchers)
 
         def bought(state):
             if state.get("in_pack") or state["state_name"] != "SHOP":

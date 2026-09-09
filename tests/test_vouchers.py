@@ -207,3 +207,89 @@ def test_every_voucher_either_carries_a_field_or_is_read_by_key():
         inert.append(voucher.name)
 
     assert inert == ["Blank"], "a voucher that does nothing at all: %s" % inert
+
+
+# ------------------------------------------------------------------
+# what a discount actually does to a price
+# ------------------------------------------------------------------
+
+def test_a_discount_floors_the_price_rather_than_rounding_it():
+    """Card:set_cost, card.lua:375:
+
+        cost = max(1, floor((base_cost + extra_cost + 0.5) * (100 - d)/100))
+
+    A ten dollar voucher under Clearance Sale is seven, not the seven and a
+    half that rounds to eight. Vouchers and packs went through a `price` that
+    rounded, so a live run against the real game stopped on the dollar.
+    """
+    game = _run("v_clearance_sale")
+    assert game.price(10) == 7
+    assert game.price(4) == 3
+    # A dollar is the floor, however deep the discount.
+    assert _run("v_clearance_sale", "v_liquidation").price(1) == 1
+
+
+def test_a_discount_redeemed_in_a_shop_reprices_what_is_still_on_the_shelf():
+    """set_cost runs over every card on screen, not once at stocking time.
+
+    Clearance Sale is bought *from* a shop, and the cards beside it are
+    cheaper the moment it lands. Pricing at stocking time meant the run paid
+    the old price for everything it bought afterwards.
+    """
+    game = GameState(seed="TESTSEED", deck="Red Deck")
+    game.phase = game.phase
+    game._open_shop()
+    before = [game.slot_price(s) for s in game.shop.slots]
+    voucher = VOUCHER_BY_KEY["v_clearance_sale"]
+    game.vouchers.append(voucher)
+    game._redeem_voucher(voucher)
+    after = [game.slot_price(s) for s in game.shop.slots]
+    assert after != before
+    assert all(a <= b for a, b in zip(after, before))
+    for slot, was, now in zip(game.shop.slots, before, after):
+        if not slot.couponed and not (slot.joker and slot.joker.rental):
+            assert now == max(1, int((slot.base_cost + _extra(slot) + 0.5)
+                                     * 0.75))
+
+
+def _extra(slot):
+    from jimbot_sim.jokers import EDITION_VALUE
+
+    if slot.joker is not None:
+        return EDITION_VALUE.get(slot.joker.edition, 0)
+    if slot.card is not None:
+        return EDITION_VALUE.get(slot.card.edition, 0)
+    return 0
+
+
+def test_interest_is_paid_on_what_is_left_after_the_rent():
+    """state_events.lua:99-109 charges rent inside the end-of-round pass, and
+    update_round_eval builds the payout rows afterwards -- so the interest
+    row reads a balance the rent has already come out of.
+
+    Two rentals on a five dollar balance is the case that showed it: the game
+    paid no interest and the simulator paid a dollar of it, which a live run
+    against the engine carried for the rest of the run.
+    """
+    from jimbot_sim.blinds import BlindKind, make_blind
+    from jimbot_sim.game import GameState
+    from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
+
+    def payout(rentals):
+        game = GameState(seed="TESTSEED", deck="Red Deck")
+        for _ in range(rentals):
+            joker = JokerInstance(JOKERS["Joker"])
+            joker.rental = True
+            game.gain_joker(joker)
+        game._start_round()
+        game.money = 5
+        game.hands_left = game.discards_left = 0
+        game.blind = make_blind(BlindKind.SMALL, 1)
+        game._beat_blind()
+        return game.pending_payout
+
+    # $5 with no rent: one block of five, so a dollar of interest on top of
+    # the small blind's three.
+    assert payout(0) == 3 + 1
+    # Two rentals take six off the five before the row is built.
+    assert payout(2) == 3

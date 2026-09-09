@@ -1535,6 +1535,29 @@ end
 -- Guard the empty case: evaluate_play indexes the scoring hand unconditionally,
 -- so playing nothing crashes the game (state_events.lua:574). A client should
 -- not be able to do that by mistake.
+--- Bring the hand's positions into line with its order before acting on it.
+---
+--- A played hand scores left to right on *screen*: play_cards_from_highlighted
+--- sorts the highlighted cards by `T.x` (state_events.lua:463), and everything
+--- order-sensitive follows from that -- Hanging Chad retriggers `G.play.cards[1]`,
+--- and so do Sock and Buskin, Seltzer and the rest.
+---
+--- Screen order and list order are the same thing once `align_cards` has run:
+--- it writes each card's x from its index and then re-sorts the list by x
+--- (cardarea.lua:463). Between a draw and the next alignment they are not. The
+--- state reports `G.hand.cards`, the client and the simulator both take that
+--- for the play order, and the engine took the stale x -- which on one seed
+--- put a freshly drawn Ace first in the list and last on screen, so the engine
+--- retriggered a 5 for 260 chips where the simulator retriggered the Ace for
+--- 308.
+---
+--- A player never sees this: clicking takes longer than the animation. A bot
+--- acts in the same frame, so it does what a player cannot, and this is the
+--- settled state a player would have been looking at.
+local function settle_hand()
+  if G.hand then G.hand:align_cards() end
+end
+
 function BotAPI.play()
   if #G.hand.highlighted == 0 then
     error("play with no cards selected", 0)
@@ -1542,6 +1565,7 @@ function BotAPI.play()
   if G.STATE ~= G.STATES.SELECTING_HAND then
     error("play outside the hand-selection phase", 0)
   end
+  settle_hand()
   G.FUNCS.play_cards_from_highlighted()
   return { played = true }
 end
@@ -1553,6 +1577,7 @@ function BotAPI.discard()
   if G.GAME.current_round.discards_left <= 0 then
     error("no discards left", 0)
   end
+  settle_hand()
   G.FUNCS.discard_cards_from_highlighted()
   return { discarded = true }
 end

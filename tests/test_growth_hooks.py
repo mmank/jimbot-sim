@@ -171,3 +171,71 @@ def test_perkeo_copies_nothing_from_an_empty_row():
     game.shop = None
     game._leave_shop()
     assert game.consumables == []
+
+
+def _round_end(game, kind):
+    """Beat the blind in force and press Cash Out, as a round really ends."""
+    from jimbot_sim.blinds import BlindKind, make_blind
+
+    game.blind = make_blind(kind, game.ante)
+    game._beat_blind()
+    game._cash_out()
+
+
+def _paid(game, name):
+    """What one joker has been paid at each cash-out, from the run's log."""
+    return [int(line.split("+$")[1]) for line in game.logs
+            if line.startswith(name + ": +$")]
+
+
+def test_rocket_grows_on_the_boss_it_is_paid_for():
+    """The boss that raises the payout is already paying the raised one.
+
+    card.lua:2896 raises `extra.dollars` under `calculate_joker({end_of_round})`
+    -- which state_events.lua runs at line 101 -- and the cash-out rows are
+    built from calculate_dollar_bonus afterwards, at line 1176. So the first
+    boss pays three dollars, not one, and the boss after it five.
+
+    Nothing moved this counter at all before: a Rocket paid a dollar a round
+    for the whole run. It was found by the hand-written policy playing the
+    headless engine with a simulator shadowing every action, which reported
+    the two two dollars apart from the first boss on.
+    """
+    from jimbot_sim.blinds import BlindKind
+
+    game = _run("Rocket")
+    for kind in (BlindKind.SMALL, BlindKind.BOSS, BlindKind.SMALL,
+                 BlindKind.BOSS):
+        _round_end(game, kind)
+    assert _paid(game, "Rocket") == [1, 3, 3, 5]
+
+
+def test_castle_gains_chips_for_the_rounds_suit_only():
+    """card.lua:2814: +3 per discarded card of `castle_card.suit`, per card.
+
+    Nothing moved this counter, so a Castle was +0 chips however much the run
+    discarded -- found by the hand-written policy playing the engine with the
+    simulator shadowing it, on a Full House that came out 6840 in the game
+    against 6624 here.
+    """
+    from jimbot_sim.cards import Suit
+
+    game = _run("Castle")
+    game.castle_suit = Suit.HEARTS
+    game.hand[:] = [Card(Rank.TWO, Suit.HEARTS), Card(Rank.NINE, Suit.HEARTS),
+                    Card(Rank.KING, Suit.CLUBS)]
+    game.step(Action(ActionType.DISCARD, cards=(0, 1, 2)))
+    assert _counter(game, "Castle") == 6.0          # the two hearts, not the club
+
+
+def test_castle_ignores_a_debuffed_card():
+    """`not context.other_card.debuff`, in the same line."""
+    from jimbot_sim.cards import Suit
+
+    game = _run("Castle")
+    game.castle_suit = Suit.HEARTS
+    hearts = [Card(Rank.TWO, Suit.HEARTS), Card(Rank.NINE, Suit.HEARTS)]
+    hearts[0].debuffed = True
+    game.hand[:] = hearts
+    game.step(Action(ActionType.DISCARD, cards=(0, 1)))
+    assert _counter(game, "Castle") == 3.0

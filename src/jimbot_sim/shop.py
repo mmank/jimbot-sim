@@ -139,7 +139,12 @@ class ShopSlot:
     """One purchasable item in the shop's main row."""
 
     kind: str  # "joker" | "consumable" | "card"
-    price: int
+    # The game's own `base_cost`, not what it sells for. A price is not fixed
+    # when the shop stocks: `Card:set_cost` runs over every card on screen
+    # whenever anything that touches a price changes, and a Clearance Sale
+    # redeemed from this very shop is exactly that. `GameState.slot_price`
+    # works the sale price out from this, every time it is asked.
+    base_cost: int
     # An edition tag or the Coupon Tag marks a card couponed, which is the
     # game's way of saying "this one is free" -- set_cost zeroes it.
     couponed: bool = False

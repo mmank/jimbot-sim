@@ -203,3 +203,32 @@ def test_telescope_still_prefers_the_hand_actually_played_most():
     game.hand_levels.plays[HandType.PAIR] = 5
     game.hand_levels.plays[HandType.TWO_PAIR] = 1
     assert game._most_played_planet() == "c_mercury"      # Pair
+
+
+def test_a_joker_only_takes_the_stickers_its_centre_allows():
+    """card.lua:506 and 513: set_eternal and set_perishable refuse.
+
+    `eternal_compat` is false for the jokers that destroy themselves -- Gros
+    Michel, Popcorn, Ice Cream -- and `perishable_compat` for the ones whose
+    value is a counter they would lose. Neither was modelled, so a Ride the
+    Bus came out of the shop perishable and was debuffed five rounds later in
+    a run where the game had left it alone. Found by the hand-written policy
+    playing the engine with the simulator shadowing it.
+    """
+    from jimbot_sim.game import GameState
+    from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
+    from jimbot_sim.shop_pool import takes_sticker
+
+    assert takes_sticker("Ride the Bus") == (True, False)
+    assert takes_sticker("Gros Michel")[0] is False
+
+    game = GameState(seed="TESTSEED", deck="Red Deck", stake=8)
+    for name in ("Ride the Bus", "Gros Michel", "Joker"):
+        eternal_ok, perishable_ok = takes_sticker(name)
+        for _ in range(40):
+            joker = JokerInstance(JOKERS[name])
+            game._apply_stickers(joker)
+            assert not (joker.eternal and not eternal_ok), name
+            assert not (joker.perishable and not perishable_ok), name
+            # The game's own mutual exclusion, both ways round.
+            assert not (joker.eternal and joker.perishable), name
