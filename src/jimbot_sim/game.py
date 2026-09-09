@@ -482,6 +482,32 @@ class GameState:
             self.note_cards_destroyed([card], [card] if shattered else [])
 
     def add_card(self, card: Card) -> None:
+        """A card joins the deck.
+
+        The uid is stamped *here*, not where the card was built, because it
+        is an age and age is when a card joined the run. A booster builds
+        all of its cards at once, so taking slot four and then slot one
+        gives the earlier pick the higher construction id and reverses the
+        two. Everything that matches created cards by age reads uid --
+        `sim_replay.match_hand_order` pairs the nth-oldest here with the
+        nth-oldest in a recording, and `consumables._editionless` orders the
+        wheel's candidates -- so a reversed pair sends the wrong card.
+
+        Recording 10, steps 143 to 145: a mega standard pack, slot four
+        taken first and slot one second, giving a polychrome Queen of
+        Diamonds uid 71 and a blue-sealed one uid 68 -- the earlier pick
+        holding the later id, and every age-match between them reversed.
+
+        It does *not* fix that recording, which stops at 160 for a different
+        reason: the two Queens are both in the deck and the simulator draws
+        the blue-sealed one where the game draws the polychrome, so the
+        divergence is in the shuffle and not in which card is which. This is
+        an inconsistency found on the way there and worth closing on its own
+        -- uid is read as an age in at least two places and was not one.
+        """
+        from .cards import next_sort_id
+
+        card.uid = next_sort_id()
         # CardArea:emplace puts a card at the *front* of a deck, which is its
         # bottom -- drawing takes from the back. A card added mid-round is
         # therefore the last one you will see, not the next.
@@ -495,7 +521,12 @@ class GameState:
         It joins the deck as well, so it comes round again in later rounds,
         and it counts as a card added: playing_card_joker_effects fires for
         every playing card the run builds, wherever it lands.
+
+        The uid is stamped here too, for the reason in `add_card`.
         """
+        from .cards import next_sort_id
+
+        card.uid = next_sort_id()
         self.full_deck.append(card)
         self.hand.append(card)
         self.note_card_created(card)
