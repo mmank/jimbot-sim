@@ -318,6 +318,19 @@ def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
     if not game.rng.chance("wheel_of_fortune",
                            1 * game.probability_scale(), 4):
         return
+    if game.using_from_pack:
+        # One more draw off the same stream, and only when the card is used
+        # straight out of a booster. The mechanism is not known -- something
+        # on that path polls the wheel's stream before the joker is picked --
+        # but the rule is what six wheels across four recordings say.
+        #
+        # Recording 9 spins two, both from packs (steps 116 and 322), and
+        # replays end to end with this and stops at 126 without it.
+        # Recordings 3, 5 and 8 spin four between them, all from a
+        # consumable slot or bought and used, and every one of them wants
+        # *no* extra draw -- each breaks at its own wheel if this is applied
+        # unconditionally.
+        game.rng.seeded("wheel_of_fortune").random(1)
     joker = game.rng.random_element(plain, "wheel_of_fortune")
     from .shop_pool import poll_edition
     name = poll_edition(game.rng, "wheel_of_fortune", no_negative=True,

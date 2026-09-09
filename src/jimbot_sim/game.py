@@ -222,6 +222,9 @@ class GameState:
     vouchers: list[Voucher] = field(default_factory=list)
     tags: list[Tag] = field(default_factory=list)
     ante_tags: list = field(default_factory=list)   # skip rewards [small, big]
+    # Whether the consumable being applied right now came straight out
+    # of a booster rather than a slot. See consumables._wheel_of_fortune.
+    using_from_pack: bool = False
     # The same two as the game's keys, kept because a tag this simulator has
     # no effect for is still the tag the run was offered.
     ante_tag_keys: list = field(default_factory=list)
@@ -733,12 +736,15 @@ class GameState:
         self.use_consumable(spec, [])
 
     def use_consumable(self, spec: ConsumableSpec | ConsumableInstance,
-                       targets: list[Card] | None = None) -> None:
+                       targets: list[Card] | None = None,
+                       from_pack: bool = False) -> None:
         """Apply a consumable and remember it if it was a Tarot or a Planet.
 
         Takes either the registry entry or a held card: everything read here
         is forwarded by ConsumableInstance, so a pack pick and a slot use go
-        down the same path.
+        down the same path -- except for `from_pack`, which some effects
+        need because the game does not treat the two alike. See
+        `consumables._wheel_of_fortune`.
 
         The remembering is what The Fool reads, and it was never written --
         the field existed and nothing ever set it, so The Fool copied nothing
@@ -747,7 +753,13 @@ class GameState:
         the game refuses to let you use it twice in a row.
         """
         if spec.apply is not None:
-            spec.apply(self, list(targets or []))
+            # An effect that needs to know reads it off the game; nothing
+            # else changes, so the two paths stay one path.
+            self.using_from_pack = from_pack
+            try:
+                spec.apply(self, list(targets or []))
+            finally:
+                self.using_from_pack = False
         self.log(f"Used {spec.name}")
         if spec.kind in (ConsumableKind.TAROT, ConsumableKind.PLANET):
             self.last_tarot_planet = shop_pool.KEY_BY_CONSUMABLE_NAME.get(
@@ -2782,7 +2794,7 @@ class GameState:
             # one place out.
             targets = [self.hand[i] for i in card_indices
                        if i < len(self.hand)]
-            self.use_consumable(choice, targets)
+            self.use_consumable(choice, targets, from_pack=True)
         self.pack_options.pop(index)
         self.pack_picks_left -= 1
         if self.pack_picks_left <= 0 or not self.pack_options:
