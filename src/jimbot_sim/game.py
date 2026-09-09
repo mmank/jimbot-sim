@@ -1699,7 +1699,20 @@ class GameState:
         played = [self.hand[i] for i in indices]
         held = [c for i, c in enumerate(self.hand) if i not in indices]
         real_jokers, real_rng = self.jokers, self.rng
-        enhancements = [(c, c.enhancement) for c in played]
+        # Everything a scoring hook can write to that is not the joker it
+        # runs on. The jokers are copied; these are put back. Space Joker
+        # levels the played hand one time in four, 8 Ball makes a Tarot for
+        # a scored eight, Hiker adds chips to every scored card for good,
+        # Vampire and Midas Touch change enhancements -- and a caller
+        # previewing every subset of a hand runs each of those two hundred
+        # times. Levels were not restored, so a policy that previewed took
+        # High Card to level 140 and won a run on hands the game never dealt.
+        cards = [(c, c.enhancement, c.extra_chips, c.seal, c.edition)
+                 for c in played + held]
+        levels = dict(self.hand_levels.levels)
+        plays = dict(self.hand_levels.plays)
+        consumables = list(self.consumables)
+        money = self.money
         self.jokers = [copy.copy(j) for j in real_jokers]
         # A throwaway generator, named off the run's own seed. This used to
         # xor the seed with a constant, which worked only while seeds were
@@ -1709,8 +1722,17 @@ class GameState:
         try:
             return score_hand(self, self.evaluate_selection(played), played, held).score
         finally:
-            for card, enhancement in enhancements:
+            for card, enhancement, extra, seal, edition in cards:
                 card.enhancement = enhancement
+                card.extra_chips = extra
+                card.seal = seal
+                card.edition = edition
+            self.hand_levels.levels.clear()
+            self.hand_levels.levels.update(levels)
+            self.hand_levels.plays.clear()
+            self.hand_levels.plays.update(plays)
+            self.consumables[:] = consumables
+            self.money = money
             self.jokers, self.rng = real_jokers, real_rng
 
     def _play(self, indices: tuple[int, ...]) -> None:
@@ -2789,6 +2811,16 @@ class GameState:
     def _pack_consumable_actions(self, index: int,
                                  spec: ConsumableSpec) -> list[Action]:
         if spec.targets == 0:
+            # A consumable in a pack gets its button from can_use_consumeable
+            # -- UI_definitions.lua, use_and_sell_buttons, the branch for
+            # `card.ability.consumeable` in G.pack_cards -- so a Judgement is
+            # not takeable into a full joker row any more than it is usable
+            # from a slot. can_select_card, the looser test, is only for the
+            # jokers and playing cards a pack offers. This offered it
+            # unconditionally, and a policy reading the legal set took
+            # Judgements the game would have greyed out.
+            if not self.can_use_consumable(spec):
+                return []
             return [Action(ActionType.PICK_PACK, index=index)]
         if self.phase is Phase.PACK and not self.hand:
             # Opened from the shop: bank it instead of applying it now.

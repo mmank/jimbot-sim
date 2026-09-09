@@ -126,3 +126,40 @@ def test_creation_is_still_stopped_by_a_full_row():
     before = len(game.jokers)
     game.add_random_joker("test")
     assert len(game.jokers) == before
+
+
+# ------------------------------------------------------------------
+# and a consumable that makes a joker
+# ------------------------------------------------------------------
+
+def _open_arcana_with(game, name):
+    """An Arcana pack holding one card, as the shop would open it."""
+    from jimbot_sim.consumables import REGISTRY as CONSUMABLES
+
+    game.phase = Phase.PACK
+    game.pack_options = [CONSUMABLES[name]]
+    game.pack_picks_left = 1
+    return game
+
+
+def test_a_judgement_is_not_offered_out_of_a_pack_into_a_full_row():
+    """A pack consumable's button is can_use_consumeable, not the looser
+    can_select_card -- UI_definitions.lua, use_and_sell_buttons, the branch
+    for a consumable in G.pack_cards. Judgement needs a free slot there
+    exactly as it does from the consumable row."""
+    game = _open_arcana_with(_game(), "Judgement")
+    assert not any(a.type is ActionType.PICK_PACK for a in game.legal_actions())
+    assert not game.is_legal(Action(ActionType.PICK_PACK, index=0))
+
+
+def test_a_judgement_is_offered_out_of_a_pack_into_a_gap():
+    game = _game()
+    game.jokers.pop()
+    game = _open_arcana_with(game, "Judgement")
+    assert game.is_legal(Action(ActionType.PICK_PACK, index=0))
+
+
+def test_a_planet_is_still_offered_out_of_a_pack_with_a_full_row():
+    """The row is full of jokers; a Planet needs none of them."""
+    game = _open_arcana_with(_game(), "Mercury")
+    assert game.is_legal(Action(ActionType.PICK_PACK, index=0))
