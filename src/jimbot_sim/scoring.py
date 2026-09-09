@@ -182,7 +182,18 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     ctx.add_chips(chips, result.hand.label)
     ctx.add_mult(mult, result.hand.label)
 
-    for _owner, spec, source in pairs:
+    for owner, spec, source in pairs:
+        # Only on its own account. A copier runs the copied joker's scoring
+        # hooks, and the game guards the *scaling* branches against that
+        # with `not context.blueprint` -- so a Blueprint standing left of an
+        # Ice Cream adds its chips and does not make it melt twice as fast.
+        #
+        # Marcin stopped a live run on it: seed 12346, decision 114, row
+        # Ride the Bus / Photograph / Blueprint / Ice Cream / Jolly. One
+        # hand took the game's Ice Cream from 100 to 95 and this from 100 to
+        # 90, and the two decks of chips drifted apart from there.
+        if owner is not source:
+            continue
         if spec.update is not None and spec.update_before_scoring:
             spec.update(source, ctx)
 
@@ -231,7 +242,9 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     # does under context.after. Running it first cost Ice Cream five chips on
     # every hand including its first, and would have done the same to Square
     # Joker and Runner the moment a hand met their condition.
-    for _owner, spec, source in pairs:
+    for owner, spec, source in pairs:
+        if owner is not source:
+            continue                     # see the note on the loop above
         if spec.update is not None and not spec.update_before_scoring:
             spec.update(source, ctx)
 
