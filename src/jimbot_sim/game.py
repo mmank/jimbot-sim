@@ -426,6 +426,7 @@ class GameState:
         # pack deals a hand from the deck as it stands. With no draw pile the
         # simulator dealt nothing at all, and the pack had no cards to target.
         self.draw_pile = list(self.full_deck)
+        self.draw_pile.sort(key=lambda card: card.uid)
         self.rng.shuffle(self.draw_pile, "shuffle")
         self._roll_boss()
         self._roll_voucher()
@@ -484,30 +485,22 @@ class GameState:
     def add_card(self, card: Card) -> None:
         """A card joins the deck.
 
-        The uid is stamped *here*, not where the card was built, because it
-        is an age and age is when a card joined the run. A booster builds
-        all of its cards at once, so taking slot four and then slot one
-        gives the earlier pick the higher construction id and reverses the
-        two. Everything that matches created cards by age reads uid --
-        `sim_replay.match_hand_order` pairs the nth-oldest here with the
-        nth-oldest in a recording, and `consumables._editionless` orders the
-        wheel's candidates -- so a reversed pair sends the wrong card.
+        Note what this does *not* do: it does not stamp `card.uid`. A card
+        gets its id where it is built, because that is where the game gets
+        one -- `Card:init` is the only place `G.sort_id` is incremented, and
+        it runs at construction:
 
-        Recording 10, steps 143 to 145: a mega standard pack, slot four
-        taken first and slot one second, giving a polychrome Queen of
-        Diamonds uid 71 and a blue-sealed one uid 68 -- the earlier pick
-        holding the later id, and every age-match between them reversed.
+            G.sort_id = (G.sort_id or 0) + 1
+            self.sort_id = G.sort_id
 
-        It does *not* fix that recording, which stops at 160 for a different
-        reason: the two Queens are both in the deck and the simulator draws
-        the blue-sealed one where the game draws the polychrome, so the
-        divergence is in the shuffle and not in which card is which. This is
-        an inconsistency found on the way there and worth closing on its own
-        -- uid is read as an age in at least two places and was not one.
+        A booster builds every one of its cards in a single loop the moment
+        it opens (card.lua:1740-1780), so slot one is older than slot four
+        however the player picks them. Stamping the id here made it an
+        acquisition order instead and reversed exactly that pair -- and
+        because `pseudoshuffle` sorts by id before it shuffles, a reversed
+        pair does not merely mislabel two cards, it deals a different deck.
+        Recording 10 stopped on that.
         """
-        from .cards import next_sort_id
-
-        card.uid = next_sort_id()
         # CardArea:emplace puts a card at the *front* of a deck, which is its
         # bottom -- drawing takes from the back. A card added mid-round is
         # therefore the last one you will see, not the next.
@@ -521,12 +514,7 @@ class GameState:
         It joins the deck as well, so it comes round again in later rounds,
         and it counts as a card added: playing_card_joker_effects fires for
         every playing card the run builds, wherever it lands.
-
-        The uid is stamped here too, for the reason in `add_card`.
         """
-        from .cards import next_sort_id
-
-        card.uid = next_sort_id()
         self.full_deck.append(card)
         self.hand.append(card)
         self.note_card_created(card)
@@ -1498,6 +1486,19 @@ class GameState:
         # round, and draws from the end of the result. The pool is named by
         # the ante, not the round, so the two blinds of an ante draw from the
         # same stream at different points in it.
+        #
+        # Sorted by card id first, because pseudoshuffle does it itself:
+        #
+        #     if list[1] and list[1].sort_id then
+        #       table.sort(list, function (a, b) ... end)
+        #     end
+        #
+        # so the shuffle's input is never the order the deck happens to be
+        # in -- it is always id order, and the ids decide the deal. A deck
+        # holding a card whose id is out of step with when it was appended
+        # therefore deals differently here than in the game, which is what
+        # recording 10 stopped on.
+        self.draw_pile.sort(key=lambda card: card.uid)
         self.rng.shuffle(self.draw_pile, f"nr{self.ante}")
         self.hand = []
         self.discard_pile = []
