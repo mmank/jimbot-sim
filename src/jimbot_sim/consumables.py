@@ -283,6 +283,34 @@ def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
     which edition. The simulator used three names of its own and picked the
     edition uniformly from three, where the game polls the ordinary edition
     bands widened twenty-five times so that something always lands.
+
+    **And it still picks the wrong joker, on recording 9.** Step 116 spins
+    the wheel over Space Joker, Ride the Bus, Egg and Reserved Parking, all
+    editionless, uid order matching row order. This lands on Space Joker,
+    which is sold nine steps later; the replay then stops at 126 on a dollar
+    of sell value and, if that is forced past, at 134 on the fifty chips a
+    foil joker would have scored. Forcing the edition onto the *second*
+    joker instead makes the whole recording replay with no divergence at
+    all, so the pick is one position out and nothing else is wrong.
+
+    Four explanations have been tried and all four are wrong:
+
+      draw the edition before the joker    fixes 9, breaks 3, 5 and 8, each
+                                           at its own first wheel
+      give the chance its own stream       breaks 3, 5 and 8 and does not
+                                           fix 9
+      index with `% len` not `- 1`         breaks everything by step 11;
+                                           the current mapping is Lua's
+      a different eligible list or order   the list is the whole row here,
+                                           in uid order, which is row order
+
+    What distinguishes recording 9 is where the card came from: its two
+    wheels are `area: pack_cards`, used straight out of a booster, where
+    3, 5 and 8 use theirs from the consumable slot or buy-and-use them from
+    the shop. So the suspicion is that taking a consumable from a pack
+    reaches the wheel by a different path in the game -- one draw earlier or
+    later on the stream -- rather than that the wheel itself is wrong.
+    Settling it wants the Lua.
     """
     plain = _editionless(game)
     if not plain:
