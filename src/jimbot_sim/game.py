@@ -99,6 +99,7 @@ class ActionType(Enum):
     DISCARD = "discard"
     USE_CONSUMABLE = "use_consumable"
     SELL_JOKER = "sell_joker"
+    SWAP_JOKER_LEFT = "swap_joker_left"
     SELL_CONSUMABLE = "sell_consumable"
     BUY = "buy"
     BUY_AND_USE = "buy_and_use"
@@ -2798,6 +2799,19 @@ class GameState:
             out.extend(itertools.combinations(idx, size))
         return out
 
+    def _swap_actions(self) -> list[Action]:
+        """Moving a joker one place to its left.
+
+        The engine has a drag and puts no phase gate on it, and the
+        environment's mask offers it wherever the row holds two. Here the row
+        *is* the list and the order decides which joker resolves first, so
+        this is the same edit -- and it is a real move rather than
+        decoration: Blueprint copies the joker to its right, and a bought
+        joker lands at the right-hand end with nothing there.
+        """
+        return [Action(ActionType.SWAP_JOKER_LEFT, index=i)
+                for i in range(1, len(self.jokers))]
+
     def _play_actions(self) -> list[Action]:
         """Playable subsets, honouring boss restrictions where possible.
 
@@ -2823,6 +2837,7 @@ class GameState:
                         for i in range(len(self.consumables))]
             actions += [Action(ActionType.SELL_JOKER, index=i)
                         for i, j in enumerate(self.jokers) if not j.eternal]
+            actions += self._swap_actions()
             return actions
 
         if self.phase is Phase.BLIND_SELECT:
@@ -2851,6 +2866,7 @@ class GameState:
             actions += self._consumable_actions()
             actions += [Action(ActionType.SELL_JOKER, index=i)
                         for i, j in enumerate(self.jokers) if not j.eternal]
+            actions += self._swap_actions()
             return actions
 
         if self.phase is Phase.SHOP:
@@ -2876,6 +2892,7 @@ class GameState:
             actions += self._consumable_actions()
             actions += [Action(ActionType.SELL_JOKER, index=i)
                         for i, j in enumerate(self.jokers) if not j.eternal]
+            actions += self._swap_actions()
             actions += [Action(ActionType.SELL_CONSUMABLE, index=i)
                         for i in range(len(self.consumables))]
             return actions
@@ -3021,6 +3038,11 @@ class GameState:
         """Exact membership test for `legal_actions()` without building the list."""
         t, index, cards = action.type, action.index, action.cards
 
+        # Before the phases, because the row can be rearranged in any of
+        # them -- `_swap_actions` is added to every list for the same reason.
+        if t is ActionType.SWAP_JOKER_LEFT:
+            return 1 <= index < len(self.jokers)
+
         if self.phase is Phase.ROUND_EVAL:
             # The game lets you use and sell what you are holding before you
             # take the money, and nothing else.
@@ -3152,6 +3174,10 @@ class GameState:
             spec = self.consumables.pop(action.index)
             targets = [self.hand[i] for i in action.cards]
             self.use_consumable(spec, targets)
+        elif t is ActionType.SWAP_JOKER_LEFT:
+            i = action.index
+            self.jokers[i - 1], self.jokers[i] = (self.jokers[i],
+                                                  self.jokers[i - 1])
         elif t is ActionType.SELL_JOKER:
             joker = self.jokers.pop(action.index)
             self._move_joker_counters(joker, arriving=False)
