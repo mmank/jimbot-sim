@@ -132,6 +132,23 @@ def match_hand_order(game, recorded_ids, deck_index):
     order, so a starting card's place in that deck is the id the game gives
     it. Cards made during a run have no such place and are left where they
     are.
+
+    **The age-matching below can only reorder what is already in hand, and
+    that is where recording 10 stops.** At step 159 the recorded hand holds
+    made cards 164 and 286; this holds two made cards of its own and pairs
+    them by age, which is right. What is wrong is further back: the game
+    drew a polychrome Queen of Diamonds and this drew a blue-sealed one.
+    Both exist here -- the deck carries three Queens of Diamonds, plain,
+    polychrome and blue-sealed -- and the polychrome is sitting in the draw
+    pile. Forcing it into the played hand takes the replay from 160 to 190,
+    so nothing about the scoring is wrong: one card was drawn in a different
+    order.
+
+    That is a shuffle divergence and it will not be found by looking at the
+    hand. It wants the draw pile compared, which the recordings do not
+    carry -- or the creation of those two cards traced back to the step that
+    made them, since a card made at a different moment lands at a different
+    depth.
     """
     if not recorded_ids:
         return
