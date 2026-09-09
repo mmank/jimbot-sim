@@ -392,9 +392,9 @@ register("Abstract Joker", Rarity.COMMON, "+3 Mult per Joker held", cost=4,
 register("Blue Joker", Rarity.COMMON, "+2 Chips per card left in deck", cost=5,
          independent=lambda j, ctx: ctx.add_chips(2 * len(ctx.game.draw_pile), j.name))
 register("Bull", Rarity.UNCOMMON, "+2 Chips per dollar held", cost=6,
-         independent=lambda j, ctx: ctx.add_chips(2 * max(0, ctx.game.money), j.name))
+         independent=lambda j, ctx: ctx.add_chips(2 * ctx.money, j.name))
 register("Bootstraps", Rarity.UNCOMMON, "+2 Mult per $5 held", cost=7,
-         independent=lambda j, ctx: ctx.add_mult(2 * (max(0, ctx.game.money) // 5), j.name))
+         independent=lambda j, ctx: ctx.add_mult(2 * (ctx.money // 5), j.name))
 
 
 def _ride_update(j: JokerInstance, ctx: ScoreContext) -> None:
@@ -1411,7 +1411,7 @@ register("Vagabond", Rarity.RARE,
          "Create a Tarot card if a hand is played with $4 or less", cost=8,
          after_hand=lambda j, ctx: ctx.game.add_consumables(
              ctx.game.random_consumables(ConsumableKind.TAROT, 1, "vag"))
-         if ctx.game.money <= 4 else None)
+         if ctx.money <= 4 else None)
 def _sixth_sense(j: JokerInstance, played: list, game: "GameState") -> None:
     if len(played) == 1 and played[0].rank is Rank.SIX:
         game.remove_card(played[0])

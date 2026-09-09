@@ -27,6 +27,24 @@ class ScoreContext:
     chips: float = 0.0
     mult: float = 0.0
     money_gained: int = 0
+
+    @property
+    def money(self) -> int:
+        """The dollars a joker scoring *now* would see.
+
+        `money_gained` is banked once, after the hand -- see
+        `GameState._score`, which calls `add_money(ctx.money_gained,
+        "cards")`. The game does not wait: `ease_dollars` runs as each card
+        pays, so a joker further right in the row reads the larger number.
+
+        Recording 10 stopped on the difference. A Flush of five Diamonds
+        with Rough Gem left of Bull: Rough Gem pays $1 a Diamond and Hack
+        retriggers the Five, so six dollars land during the hand. Bull is
+        "+2 Chips per dollar held" and read $27 instead of $33 -- 54 chips
+        against 66, and 5427 against the game's 5913 on a hand that decided
+        the blind.
+        """
+        return max(0, self.game.money + self.money_gained)
     log: list[str] = field(default_factory=list)
 
     # Every line carries the running totals as well as the change. Without
