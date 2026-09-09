@@ -402,8 +402,12 @@ def _ride_update(j: JokerInstance, ctx: ScoreContext) -> None:
     # against The Club a debuffed King leaves the counter climbing. Missing
     # this only shows up on a boss blind, which is why it survived until the
     # scenario matrix reached one.
-    if any(c.rank.is_face and not c.is_stone and not c.debuffed
-           for c in ctx.scoring):
+    #
+    # And `is_face`, not `rank.is_face`: Pareidolia makes every card a face
+    # card (card.lua:967), so a Ride the Bus held beside one can never grow
+    # at all. The game knows; this counted to eight while the engine sat at
+    # zero, which the policy found by playing the engine with a shadow.
+    if any(is_face(c, ctx) and not c.debuffed for c in ctx.scoring):
         j.counter = 0.0
     else:
         j.counter += 1

@@ -239,3 +239,26 @@ def test_castle_ignores_a_debuffed_card():
     game.hand[:] = hearts
     game.step(Action(ActionType.DISCARD, cards=(0, 1)))
     assert _counter(game, "Castle") == 3.0
+
+
+def test_pareidolia_stops_ride_the_bus_from_ever_growing():
+    """Every card is a face card (card.lua:967), so no hand is face-free.
+
+    The simulator asked `rank.is_face` and counted to eight while the engine
+    sat at zero -- found by the hand-written policy playing the engine with a
+    shadow beside it, and worth catching twice over: the policy had just
+    learnt to give up chips to protect that counter.
+    """
+    from jimbot_sim.cards import Card, Rank, Suit
+
+    game = _run("Ride the Bus")
+    game.hand[:] = [Card(Rank.TWO, Suit.CLUBS), Card(Rank.TWO, Suit.HEARTS),
+                    Card(Rank.NINE, Suit.SPADES)]
+    game.step(Action(ActionType.PLAY, cards=(0, 1, 2)))
+    assert _counter(game, "Ride the Bus") == 1.0, "no face cards, so it grows"
+
+    game = _run("Ride the Bus", "Pareidolia")
+    game.hand[:] = [Card(Rank.TWO, Suit.CLUBS), Card(Rank.TWO, Suit.HEARTS),
+                    Card(Rank.NINE, Suit.SPADES)]
+    game.step(Action(ActionType.PLAY, cards=(0, 1, 2)))
+    assert _counter(game, "Ride the Bus") == 0.0, "every card is a face card"
