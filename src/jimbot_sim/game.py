@@ -1823,12 +1823,22 @@ class GameState:
         if boss is not None and boss.debuff_a_joker and self.jokers:
             # Crimson Heart disables one joker each hand, chosen from the ones
             # not already disabled, and releases the one it held before.
+            #
+            # By creation order, not by where the joker sits. The game draws
+            # it with pseudorandom_element (blind.lua:594), which sorts the
+            # table by sort_id before indexing -- and a player drags jokers
+            # around all the time, so the row is not an order the game would
+            # ever draw from. This picked by row position, and recording 12
+            # is what that costs: Marcin *"repositioned the jokers at the
+            # time"*, the game debuffed his Baron and this debuffed the
+            # Turtle Bean four seats away. One hand scored 14147 there and
+            # 42441 here, and the +4 hand size went with it -- 12 cards
+            # against 8.
             eligible = [j for j in self.jokers if not j.debuffed] or self.jokers
             for joker in self.jokers:
                 joker.debuffed = False
             chosen = self.rng.random_element(
-                sorted(eligible, key=lambda j: self.jokers.index(j)),
-                "crimson_heart")
+                sorted(eligible, key=lambda j: j.uid), "crimson_heart")
             chosen.debuffed = True
 
         played = [self.hand[i] for i in indices]

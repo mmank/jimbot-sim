@@ -88,7 +88,7 @@ def main() -> None:
     payload = json.loads(args.recording.read_text(encoding="utf-8"))
     actions = replay.merge_buy_and_use(payload["actions"])
     game = GameState(seed=payload["seed"], deck=payload["deck"],
-                     stake=payload.get("stake") or 1)
+                     stake=payload.get("stake") or 1, endless=True)
     if payload.get("money") is not None:
         game.money = payload["money"]
     deck_index = {card.uid: i for i, card in enumerate(game.full_deck)}

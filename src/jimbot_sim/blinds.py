@@ -47,6 +47,19 @@ class BlindKind(Enum):
 
 BLIND_MULT = {BlindKind.SMALL: 1.0, BlindKind.BIG: 1.5, BlindKind.BOSS: 2.0}
 BLIND_REWARD = {BlindKind.SMALL: 3, BlindKind.BIG: 4, BlindKind.BOSS: 5}
+# Except the five finishers, which pay eight. Straight off P_BLINDS in
+# game.lua, where every one of the twenty-three ordinary bosses carries
+# `dollars = 5` and each of
+#
+#     bl_final_acorn  bl_final_bell  bl_final_heart
+#     bl_final_leaf   bl_final_vessel
+#
+# carries `dollars = 8`. Paying every boss five made an ante-8 win three
+# dollars short every time, and recording 12 is where that showed: the
+# Crimson Heart cash-out paid $15 there and $12 here. `showdown` in
+# BOSS_DATA is the same flag the game reads, so the two cannot drift apart
+# without the generator noticing.
+FINISHER_REWARD = 8
 
 
 @dataclass(frozen=True)
@@ -173,6 +186,13 @@ class Blind:
         return f"{self.kind.value.title()} Blind"
 
 
+def _reward(kind: BlindKind, boss: BossEffect | None) -> int:
+    """What beating this blind pays, which is not one number per kind."""
+    if kind is BlindKind.BOSS and boss is not None and boss.is_finisher:
+        return FINISHER_REWARD
+    return BLIND_REWARD[kind]
+
+
 def make_blind(kind: BlindKind, ante: int, boss: BossEffect | None = None,
                ante_scaling: float = 1.0, scaling: int = 1,
                no_reward: bool = False) -> Blind:
@@ -186,6 +206,6 @@ def make_blind(kind: BlindKind, ante: int, boss: BossEffect | None = None,
         kind=kind,
         ante=ante,
         target=int(ante_base_chips(ante, scaling) * mult * ante_scaling),
-        reward=0 if no_reward else BLIND_REWARD[kind],
+        reward=0 if no_reward else _reward(kind, boss),
         boss=boss,
     )

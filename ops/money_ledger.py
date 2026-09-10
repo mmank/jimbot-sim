@@ -169,7 +169,7 @@ def run_recording(path: str) -> tuple[Ledger, GameState, int, int]:
     payload = json.loads(open(path).read())
     actions = sim_replay.merge_buy_and_use(payload["actions"])
     game = GameState(seed=payload["seed"], deck=payload["deck"],
-                     stake=payload.get("stake") or 1)
+                     stake=payload.get("stake") or 1, endless=True)
     if payload.get("money") is not None:
         game.money = payload["money"]
     ledger = Ledger(game)

@@ -362,8 +362,13 @@ def main() -> None:
 
     payload = json.loads(open(args.recording).read())
     actions = merge_buy_and_use(payload["actions"])
+    # Endless, because a recording that carries on past ante eight *is*
+    # the evidence that the player pressed continue. Without it the
+    # simulator declares the run won, returns before `_open_shop`, and
+    # every later action is refused against a shop that is not there --
+    # which is where recording 12 stopped, one action from the end.
     game = GameState(seed=payload["seed"], deck=payload["deck"],
-                     stake=payload.get("stake") or 1)
+                     stake=payload.get("stake") or 1, endless=True)
     if payload.get("money") is not None:
         game.money = payload["money"]
 
