@@ -42,7 +42,7 @@ from .consumables import ConsumableInstance, ConsumableKind, ConsumableSpec
 from .hands import (HANDLIST, PLANET_FOR_HAND, SECRET_HANDS, HandLevels,
                     HandType, evaluate)
 from .jokers import (EDITION_VALUE, REGISTRY as JOKER_REGISTRY,
-                     JokerInstance, Rarity, suit_matches_for)
+                     JokerInstance, Rarity, is_face_for, suit_matches_for)
 
 # The game's rarity numbers, which its pools are keyed by.
 _RARITY_INDEX = {Rarity.COMMON: 1, Rarity.UNCOMMON: 2, Rarity.RARE: 3,
@@ -2005,11 +2005,11 @@ class GameState:
             if (boss.debuff_suit is not None
                     and suit_matches_for(card, boss.debuff_suit, self)):
                 card.debuffed = True
-            # `card:is_face(true)` in the same function, and Pareidolia makes
-            # every card a face card (card.lua:967) -- so The Plant debuffs
-            # the whole deck while one is held.
-            if boss.debuff_face and (self.has_pareidolia()
-                                     or card.rank.is_face):
+            # `card:is_face(true)` in the same function (blind.lua:630): not
+            # the printed rank, so a Stone King is spared, and Pareidolia
+            # makes every card a face card (card.lua:967) -- so The Plant
+            # debuffs the whole deck, Stone included, while one is held.
+            if boss.debuff_face and is_face_for(card, self, from_boss=True):
                 card.debuffed = True
             if boss.debuff_previously_played and card.played_this_ante:
                 card.debuffed = True

@@ -266,11 +266,30 @@ def suit_matches(card: Card, suit: Suit, ctx: ScoreContext) -> bool:
     return suit_matches_for(card, suit, ctx.game)
 
 
-def is_face(card: Card, ctx: ScoreContext) -> bool:
-    """Pareidolia makes every card a face card, stone cards excepted."""
-    if card.is_stone:
+def is_face_for(card: Card, game: "GameState", from_boss: bool = False) -> bool:
+    """Card:is_face(from_boss), card.lua:964-970:
+
+        if self.debuff and not from_boss then return end
+        local id = self:get_id()
+        if id == 11 or id == 12 or id == 13 or next(find_joker("Pareidolia"))
+
+    A debuffed card is no face card unless a boss is asking: The Plant passes
+    from_boss (blind.lua:630), the jokers never do. get_id answers a Stone
+    card with a random negative (card.lua:958-960), so a Stone King is no
+    face card -- but the Pareidolia test does not look at the id, so beside
+    Pareidolia every card is one, Stone included. find_joker leaves out a
+    debuffed Pareidolia (misc_functions.lua:903-907), as has_pareidolia does.
+    """
+    if card.debuffed and not from_boss:
         return False
-    return ctx.game.has_pareidolia() or card.rank.is_face
+    if game.has_pareidolia():
+        return True
+    return not card.is_stone and card.rank.is_face
+
+
+def is_face(card: Card, ctx: ScoreContext) -> bool:
+    """The same question, asked from inside scoring."""
+    return is_face_for(card, ctx.game)
 
 
 def _suit_scorer(suit: Suit, amount: int) -> ScoredHook:
@@ -414,7 +433,7 @@ def _ride_update(j: JokerInstance, ctx: ScoreContext) -> None:
     # card (card.lua:967), so a Ride the Bus held beside one can never grow
     # at all. The game knows; this counted to eight while the engine sat at
     # zero, which the policy found by playing the engine with a shadow.
-    if any(is_face(c, ctx) and not c.debuffed for c in ctx.scoring):
+    if any(is_face(c, ctx) for c in ctx.scoring):
         j.counter = 0.0
     else:
         j.counter += 1
@@ -503,10 +522,7 @@ def _faceless(j: JokerInstance, cards: list, game: "GameState") -> None:
     Pareidolia held every live card is -- Stone included, since that test
     does not look at the id.
     """
-    pareidolia = game.has_pareidolia()
-    faces = sum(1 for c in cards
-                if not c.debuffed
-                and (pareidolia or (not c.is_stone and c.rank.is_face)))
+    faces = sum(1 for c in cards if is_face_for(c, game))
     if faces >= 3:
         game.add_money(5, "Faceless Joker")
 
@@ -715,8 +731,10 @@ register("Triboulet", Rarity.LEGENDARY, "Played Kings and Queens each give X2 Mu
          if c.rank in (Rank.KING, Rank.QUEEN) and not c.is_stone else None)
 
 def _canio(j: JokerInstance, cards: list, game: "GameState") -> None:
-    j.counter += sum(1 for c in cards if c.rank in (Rank.JACK, Rank.QUEEN,
-                                                    Rank.KING))
+    """`if val:is_face() then face_cards = face_cards + 1 end` over the cards
+    removed (card.lua:2673-2679): not a debuffed King, not a Stone one, and
+    beside Pareidolia any card at all."""
+    j.counter += sum(1 for c in cards if is_face_for(c, game))
 
 
 register("Canio", Rarity.LEGENDARY, "X1 Mult, gains X1 Mult per face card destroyed",
@@ -793,7 +811,7 @@ def _suit_money(suit: Suit, amount: int) -> ScoredHook:
 def _first_face(ctx: ScoreContext) -> Card | None:
     """The first scoring face card, which Photograph multiplies."""
     for card in ctx.scoring:
-        if is_face(card, ctx) and not card.debuffed:
+        if is_face(card, ctx):
             return card
     return None
 
@@ -813,10 +831,14 @@ register("Photograph", Rarity.COMMON,
          scored=lambda j, c, ctx: ctx.times_mult(2.0, j.name)
          if c is _first_face(ctx) else None)
 
+# `context.other_card:get_id() == 12` (card.lua:3272-3273), and get_id
+# answers a Stone card with a random negative (card.lua:958-960): a Stone
+# Queen held pays nothing, as a Stone King does nothing for Baron.
 register("Shoot the Moon", Rarity.COMMON,
          "Each Queen held in hand gives +13 Mult", cost=5,
          held=lambda j, c, ctx: ctx.add_mult(13, j.name)
-         if c.rank is Rank.QUEEN and not c.debuffed else None)
+         if c.rank is Rank.QUEEN and not c.debuffed and not c.is_stone
+         else None)
 
 
 def _lowest_held(ctx: ScoreContext) -> Card | None:
