@@ -225,6 +225,12 @@ class GameState:
     # Whether the consumable being applied right now came straight out
     # of a booster rather than a slot. See consumables._wheel_of_fortune.
     using_from_pack: bool = False
+    # The key of the consumable being applied right now. G.FUNCS.use_card
+    # takes the card out of its area but does not remove it until it
+    # dissolves, after its effect (button_callbacks.lua:2209, 2258-2260), so
+    # its used_jokers entry stands for the whole effect: The Emperor cannot
+    # draw another Emperor. See seen_centers.
+    using_key: str = ""
     # The same two as the game's keys, kept because a tag this simulator has
     # no effect for is still the tag the run was offered.
     ante_tag_keys: list = field(default_factory=list)
@@ -818,10 +824,12 @@ class GameState:
             # An effect that needs to know reads it off the game; nothing
             # else changes, so the two paths stay one path.
             self.using_from_pack = from_pack
+            self.using_key = shop_pool.KEY_BY_CONSUMABLE_NAME.get(spec.name, "")
             try:
                 spec.apply(self, list(targets or []))
             finally:
                 self.using_from_pack = False
+                self.using_key = ""
         self.log(f"Used {spec.name}")
         if spec.kind in (ConsumableKind.TAROT, ConsumableKind.PLANET):
             self.last_tarot_planet = shop_pool.KEY_BY_CONSUMABLE_NAME.get(
@@ -1140,6 +1148,12 @@ class GameState:
         for option in self.pack_options:
             name = getattr(option, "name", None)
             keys.add(joker_key(name) or cons_key(name))
+        # The consumable in use is in no area but still exists until its
+        # effect has run -- its used_jokers entry is cleared by Card:remove
+        # (card.lua:4741-4749), which comes after. Without this The Emperor
+        # drew from a pool with itself back in it.
+        if self.using_key:
+            keys.add(self.using_key)
         keys.discard(None)
         return keys
 
@@ -1958,7 +1972,7 @@ class GameState:
                                      min(hook.discard_random_on_play,
                                          len(pool)))
             if taken:
-                self.discard_cards(list(taken))
+                self.discard_cards(list(taken), hook=True)
 
         # DNA and Sixth Sense act on the played cards before they score, and
         # only on the round's first hand.
@@ -2134,7 +2148,7 @@ class GameState:
         self.discards_used += 1
         self._draw_to_hand_size()
 
-    def discard_cards(self, cards: list[Card]) -> None:
+    def discard_cards(self, cards: list[Card], hook: bool = False) -> None:
         """The discard itself: seals, joker hooks, and the pile.
 
         Split out because a discard the player did not ask for goes through
@@ -2154,9 +2168,16 @@ class GameState:
         and everything below it is in `_discard`.
 
         `discards_used` is read rather than passed, exactly as the game
-        reads it, so a Hook discard on an untouched round counts as the
-        round's first for Burnt Joker -- because a Hook discard never
-        increments it.
+        reads it, and a Hook discard never increments it -- so a Hook
+        discard on an untouched round is still the round's first for Trading
+        Card, whose check sits in the `discard` context. But the flag is also
+        passed into the `pre_discard` context (state_events.lua:395), and
+        Burnt Joker reads it:
+
+            if self.ability.name == 'Burnt Joker' and
+               G.GAME.current_round.discards_used <= 0 and not context.hook
+
+        (card.lua:2749), so the cards The Hook takes level nothing.
         """
         first = self.discards_used == 0
         for joker in list(self.jokers):
@@ -2164,6 +2185,8 @@ class GameState:
                 joker.spec.discarded(joker, cards, self)
         if first:
             for joker in list(self.jokers):
+                if hook and joker.name == "Burnt Joker":
+                    continue
                 if joker.spec.on_first_discard is not None:
                     joker.spec.on_first_discard(joker, cards, self)
         for card in cards:

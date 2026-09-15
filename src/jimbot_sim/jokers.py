@@ -1391,9 +1391,16 @@ register("Riff-Raff", Rarity.COMMON,
 register("8 Ball", Rarity.COMMON,
          "1 in 4 chance for each played 8 to create a Tarot card when scored",
          cost=5,
+         # Room first, then the roll (card.lua:3106-3107): a full row spends
+         # no draw from '8ball'. Rolling anyway put the stream two draws
+         # ahead after a hand of three 8s whose first made a Tarot, and
+         # 90WTJQJP missed a High Priestess the game made later. A Tarot made
+         # here is added at once, so the length also plays the part of
+         # G.GAME.consumeable_buffer for the next 8 in the same hand.
          scored=lambda j, c, ctx: ctx.game.add_consumables(
              ctx.game.random_consumables(ConsumableKind.TAROT, 1, "8ba"))
-         if c.rank is Rank.EIGHT and not c.is_stone
+         if len(ctx.game.consumables) < ctx.game.consumable_slots
+         and c.rank is Rank.EIGHT and not c.is_stone
          and _chance(ctx, "8ball", 1, 4) else None)
 def _hallucination(j: JokerInstance, game: "GameState") -> None:
     """One in two to make a Tarot whenever a booster pack is opened.
