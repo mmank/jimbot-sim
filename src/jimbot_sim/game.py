@@ -3919,8 +3919,11 @@ class GameState:
                     return len(self.consumables) < self.consumable_slots
                 return True
             if t is ActionType.BUY_PACK:
+                # pack_price, as legal_actions and the charge read it: the
+                # list price refused a Celestial pack Astronomer had made
+                # free, or a couponed one, that legal_actions had offered.
                 return (0 <= index < len(shop.packs)
-                        and self.affords(self.price(shop.packs[index].cost)))
+                        and self.affords(self.pack_price(shop.packs[index])))
             if t is ActionType.BUY_VOUCHER:
                 offered = shop.vouchers_on_offer()
                 return (0 <= index < len(offered)
