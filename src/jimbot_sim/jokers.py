@@ -1333,9 +1333,40 @@ register("Mr. Bones", Rarity.UNCOMMON,
 register("Luchador", Rarity.UNCOMMON,
          "Sell this card to disable the current Boss Blind", cost=5,
          disables_boss_on_sell=True)
+def _invisible_sold(j: JokerInstance, game: "GameState") -> None:
+    """Sold after two rounds, a copy of a random other joker (card.lua:2371-2390).
+
+        if invis_rounds >= extra (2, game.lua:513) and not context.blueprint
+            jokers = G.jokers.cards other than self
+            if #jokers > 0 and #G.jokers.cards <= G.jokers.config.card_limit
+                chosen = pseudorandom_element(jokers, pseudoseed('invisible'))
+                card = copy_card(chosen, ..., chosen.edition.negative)
+                if card.ability.invis_rounds then card.ability.invis_rounds = 0
+
+    selling_self fires before the card dissolves (card.lua:1599), so the room
+    check counts this joker as still in the row, and a Negative one as still
+    giving its slot. The simulator runs this after the pop, so both go back
+    in. pseudorandom_element sorts by sort_id first; the row's order is not
+    the draw's. A debuffed joker answers no context (card.lua:2292).
+    """
+    if j.debuffed or j.counter < 2:
+        return
+    others = sorted(game.jokers, key=lambda o: o.uid)
+    if not others:
+        return
+    held = len(game.jokers) + 1
+    limit = game.joker_slots + (1 if j.edition is Edition.NEGATIVE else 0)
+    if held > limit:
+        return
+    chosen = game.rng.choice("invisible", others)
+    clone = game.copy_joker(chosen, j.name)
+    if clone.spec is j.spec:
+        clone.counter = 0
+
+
 register("Invisible Joker", Rarity.RARE,
          "After 2 rounds, sell this card to duplicate a random Joker", cost=8,
-         round_end=lambda j, g: _bump(j, 1))
+         round_end=lambda j, g: _bump(j, 1), on_sell=_invisible_sold)
 def _diet_cola(j: JokerInstance, game: "GameState") -> None:
     game.add_tag_by_key("tag_double")
 

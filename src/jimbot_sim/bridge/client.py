@@ -352,16 +352,32 @@ class BalatroBridge:
         Money arrives before the card does: ease_dollars lands while the card
         is still dissolving, so waiting on the balance alone reports a joker
         that is visibly still there.
+
+        And *that* card, not the row's length. An Invisible Joker held for two
+        rounds copies another joker into the row as it is sold (card.lua:1599,
+        2371-2390), so the row is as long afterwards as before and a wait for
+        it to shrink reported a finished sale as "the card was never used".
+        Jokers carry an id to watch; consumables do not, and nothing sold from
+        there makes another, so their count still serves.
         """
         # can_sell_card opens with the same guard as can_use_consumeable, so a
         # sell issued straight after a buy or a reroll is refused outright.
         self.wait_idle()
         key = "jokers" if area == "jokers" else "consumables"
         before = self.state()
-        money, held = before["dollars"], len(before.get(key) or [])
+        row = before.get(key) or []
+        money, held = before["dollars"], len(row)
+        sold = (row[index - 1].get("id")
+                if key == "jokers" and 0 < index <= held else None)
+
+        def gone(state):
+            now = state.get(key) or []
+            if sold is None:
+                return len(now) < held
+            return all(r.get("id") != sold for r in now)
+
         self.command("sell", area, index)
-        self._await_use(
-            lambda s: s["dollars"] != money and len(s.get(key) or []) < held)
+        self._await_use(lambda s: s["dollars"] != money and gone(s))
         return self.state()
 
     def buy_pack(self, area: str, index: int) -> dict:

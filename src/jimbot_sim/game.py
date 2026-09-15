@@ -1000,22 +1000,41 @@ class GameState:
                                   else max(0, self.discards_left - discards))
 
     def add_joker_copy(self, joker: JokerInstance, source: str = "") -> None:
-        """A copy of a joker already held, editions and all."""
+        """A copy of a joker already held, if the row has room for it."""
         if len(self.jokers) >= self.joker_slots:
             return
-        # copy_card builds a new Card (common_events.lua:2157), and Card:init
-        # gives it the next sort_id; a deepcopy would keep the original's.
+        self.copy_joker(joker, source)
+
+    def copy_joker(self, joker: JokerInstance,
+                   source: str = "") -> JokerInstance:
+        """copy_card, add_to_deck and emplace (common_events.lua:2156-2181).
+
+        Everything in the ability table comes across -- counters, stickers,
+        and hands_played_at_create too: set_ability stamps the new card's own
+        (card.lua:337) and the loop over other.ability writes the original's
+        over it, so a copied Loyalty Card keeps the original's cycle.
+
+        Except a Negative. Both callers pass strip_edition for one (Ankh at
+        card.lua:1445, Invisible Joker at 2384), which skips set_edition, so
+        the copy has no edition at all rather than a free slot of its own.
+
+        It is a new card all the same: Card:init gives it the next sort_id
+        (a deepcopy would keep the original's age), and set_ability runs
+        before the ability table is copied over, so a To Do List copy spends
+        its creation draw and then keeps the original's hand.
+        """
         from .cards import next_sort_id
 
-        duplicate = copy.deepcopy(joker)
-        duplicate.uid = next_sort_id()
-        # copy_card builds the new card through set_ability before it copies
-        # the ability table across (common_events.lua:2156-2166), so a To Do
-        # List copy spends a creation draw and then keeps the original's hand.
-        self._made_joker(duplicate)
-        duplicate.named_hand = joker.named_hand
-        self.gain_joker(duplicate)
+        clone = copy.deepcopy(joker)
+        clone.uid = next_sort_id()
+        self._made_joker(clone)
+        clone.named_hand = joker.named_hand
+        if joker.edition is Edition.NEGATIVE:
+            clone.edition = Edition.NONE
+        self.gain_joker(clone)
+        clone.hands_at_create = joker.hands_at_create
         self.log(f"{source}: copied {joker.name}")
+        return clone
 
     # ------------------------------------------------------------------
     # derived state
