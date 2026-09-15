@@ -488,9 +488,31 @@ register("Swashbuckler", Rarity.COMMON, "+Mult equal to sell value of other Joke
 register("Golden Joker", Rarity.COMMON, "Earn $4 at end of round", cost=6,
          round_money=lambda j, g: g.add_money(4, "Golden Joker"))
 
+def _faceless(j: JokerInstance, cards: list, game: "GameState") -> None:
+    """$5 when three of the discarded cards are face cards, as is_face says.
+
+    card.lua:2858-2861 counts `v:is_face()` over the whole discard, and
+    Card:is_face (card.lua:964-969) is not the printed rank:
+
+        if self.debuff and not from_boss then return end
+        local id = self:get_id()
+        if id == 11 or id == 12 or id == 13 or next(find_joker("Pareidolia"))
+
+    so a debuffed card is never a face card, a Stone King is not one either
+    (get_id is a random negative for Stone, card.lua:958-960), and with
+    Pareidolia held every live card is -- Stone included, since that test
+    does not look at the id.
+    """
+    pareidolia = game.has_pareidolia()
+    faces = sum(1 for c in cards
+                if not c.debuffed
+                and (pareidolia or (not c.is_stone and c.rank.is_face)))
+    if faces >= 3:
+        game.add_money(5, "Faceless Joker")
+
+
 register("Faceless Joker", Rarity.COMMON, "Earn $5 if 3+ face cards discarded", cost=4,
-         discarded=lambda j, cards, g: g.add_money(5, "Faceless Joker")
-         if sum(1 for c in cards if c.rank.is_face) >= 3 else None)
+         discarded=_faceless)
 
 
 def _gros_michel_end(j: JokerInstance, g: "GameState") -> None:
@@ -1016,9 +1038,14 @@ register("Obelisk", Rarity.RARE,
          update=_obelisk_update, update_before_scoring=True,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 def _hit_the_road(j: JokerInstance, cards: list, game: "GameState") -> None:
-    """X0.5 for every Jack discarded. A debuffed Jack does not count."""
+    """X0.5 for every Jack discarded. A debuffed Jack does not count.
+
+    Nor does a Stone one: card.lua:2835-2837 asks `get_id() == 11`, and get_id
+    answers a Stone card with a random negative (card.lua:958-960).
+    """
     j.counter += 0.5 * sum(1 for c in cards
-                           if c.rank is Rank.JACK and not c.debuffed)
+                           if c.rank is Rank.JACK and not c.debuffed
+                           and not c.is_stone)
 
 
 register("Hit the Road", Rarity.RARE,
@@ -1311,12 +1338,30 @@ register("Delayed Gratification", Rarity.COMMON,
          cost=4,
          round_money=_round_money(
              lambda j, g: 2 * g.discards_left if g.discards_used == 0 else 0))
+def _mail_in(j: JokerInstance, cards: list, game: "GameState") -> None:
+    """$5 for each discarded card of the round's rank -- a live, ranked one.
+
+    card.lua:2825-2827, per discarded card:
+
+        not context.other_card.debuff and
+        context.other_card:get_id() == G.GAME.current_round.mail_card.id
+
+    A debuffed card is skipped, and a Stone card never matches, because get_id
+    answers it with `-math.random(100, 1000000)` (card.lua:958-960). The smoke
+    test found both, $5 out each time: NXE7XRN1, UBDY5AUG and XGC81J77 threw
+    a card of the rank that The Pillar or The Club had debuffed, and WA1RMJNV
+    threw a Stone Ace in an Ace round.
+    """
+    if game.mail_rank is None:
+        return
+    game.add_money(5 * sum(1 for c in cards
+                           if not c.debuffed and not c.is_stone
+                           and c.rank is game.mail_rank), j.name)
+
+
 register("Mail-In Rebate", Rarity.COMMON,
          "Earn $5 for each discarded card of a rank that changes every round",
-         cost=4,
-         discarded=lambda j, cards, g: g.add_money(
-             5 * sum(1 for c in cards if c.rank is g.mail_rank), j.name)
-         if g.mail_rank is not None else None)
+         cost=4, discarded=_mail_in)
 register("To the Moon", Rarity.UNCOMMON,
          "Earn an extra $1 of interest for every $5 at end of round", cost=5,
          interest_bonus=1)

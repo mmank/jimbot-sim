@@ -2520,7 +2520,12 @@ class GameState:
                 if joker.spec.on_first_discard is not None:
                     joker.spec.on_first_discard(joker, cards, self)
         for card in cards:
-            if card.seal is Seal.PURPLE:
+            # Card:calculate_seal opens `if self.debuff then return nil end`
+            # (card.lua:2242-2243), ahead of the Purple Seal's discard branch
+            # (2253): a debuffed Purple Seal makes nothing. W3D6TLM1 threw one
+            # under Verdant Leaf and the shadow drew The Tower the game never
+            # made.
+            if card.seal is Seal.PURPLE and not card.debuffed:
                 self.add_consumables(
                     self.random_consumables(ConsumableKind.TAROT, 1, "8ba"))
             # A joker may have eaten the card on its way out -- Trading Card
