@@ -1592,6 +1592,31 @@ class GameState:
                                                      joker.edition)
         return max(1, cost // 2) + int(joker.extra_sell_value)
 
+    def consumable_sell_value(self, held: ConsumableSpec | ConsumableInstance
+                              ) -> int:
+        """What selling a held consumable pays -- Card:set_cost, as for a joker.
+
+            self.cost = max(1, floor((base_cost + extra_cost + 0.5)
+                                     * (100 - discount_percent) / 100))
+            -- a Planet while Astronomer is held (find_joker, not debuffed):
+            self.cost = 0                                     (card.lua:380)
+            self.sell_cost = max(1, floor(self.cost/2)) + ability.extra_value
+
+        extra_cost carries the edition (card.lua:372-373), so Perkeo's
+        Negative copy of a Tarot sells for $4, and extra_value is what Gift
+        Card adds every round (3000-3005). set_cost is rerun on every card
+        when the discount or Astronomer changes (1917-1923, 619, 676), so this
+        is worked out now rather than kept. It sold every consumable for
+        `max(1, cost // 2)`: no edition, no discount, and no Gift Card money.
+        """
+        held = self.hold_consumable(held)
+        if (held.spec.kind is ConsumableKind.PLANET
+                and any(j.spec.free_planets for j in self.active_jokers)):
+            cost = 0
+        else:
+            cost = self.card_cost(held.spec.cost, held.edition)
+        return max(1, cost // 2) + int(held.extra_sell_value)
+
     @property
     def is_over(self) -> bool:
         return self.phase in (Phase.GAME_OVER, Phase.WON)
@@ -2266,6 +2291,12 @@ class GameState:
             # values plays through this, so it has to say 0 too. Asked in
             # check mode, as cardarea.lua:168 asks it, so nothing is set.
             if self.hand_is_debuffed(result.hand, played):
+                # But the `after` pass is outside that block and asked of
+                # every hand (state_events.lua:1068-1075), so the copies come
+                # back as _play leaves the row: Ice Cream melted, Seltzer
+                # counted down. Returned untouched, a refused hand looked
+                # free to a policy pricing the row a play leaves.
+                self._refused_hand_after_pass(result, played, held)
                 return 0, self.jokers
             # Counted before it scores, as the play counts it (see _play) and
             # as the game does: evaluate_play increments `played` at
@@ -2294,6 +2325,22 @@ class GameState:
             if self.blind is not None:
                 self.blind.triggered = triggered
             self.jokers, self.rng = real_jokers, real_rng
+
+    def _refused_hand_after_pass(self, result, played: list[Card],
+                                 held: list[Card]) -> None:
+        """context.after for a hand the boss refused, over self.jokers.
+
+        score_hand runs the pass for a scored hand; a refused one never gets
+        there, and evaluate_play asks it anyway (state_events.lua:1068-1075).
+        One place, so _play and preview_play cannot drift apart on it.
+        """
+        from .effects import ScoreContext
+        from .scoring import after_hand_pass, calculating_specs
+
+        after_hand_pass(calculating_specs(self.jokers), ScoreContext(
+            hand=result.hand, scoring=result.scoring,
+            played=tuple(played), held=tuple(held), game=self,
+            contains=result.contains))
 
     def _play(self, indices: tuple[int, ...]) -> None:
         # Which cards the boss debuffs is decided again every time, not once
@@ -2495,13 +2542,7 @@ class GameState:
             # only inside score_hand left both untouched: seed VJPW2C6Z,
             # Anaglyph Deck, stake 8, decision 46 took the game's Ice Cream
             # from 40 to 35 on a refused Three of a Kind and kept this on 40.
-            from .effects import ScoreContext
-            from .scoring import after_hand_pass
-
-            after_hand_pass(calculating_specs(self.jokers), ScoreContext(
-                hand=result.hand, scoring=result.scoring,
-                played=tuple(played), held=tuple(held), game=self,
-                contains=result.contains))
+            self._refused_hand_after_pass(result, played, held)
         else:
             ctx = score_hand(self, result, played, held)
 
@@ -3991,8 +4032,12 @@ class GameState:
             if spec.on_sell is not None and answers:
                 spec.on_sell(source, self)
         elif t is ActionType.SELL_CONSUMABLE:
-            spec = self.consumables.pop(action.index)
-            self.add_money(max(1, spec.cost // 2), f"sold {spec.name}")
+            # Priced while it is still held: sell_card pays sell_cost
+            # (card.lua:1608) before the card leaves.
+            held = self.consumables[action.index]
+            price = self.consumable_sell_value(held)
+            self.consumables.pop(action.index)
+            self.add_money(price, f"sold {held.name}")
             self.note_card_sold()
         elif t is ActionType.BUY:
             self._buy(action.index)

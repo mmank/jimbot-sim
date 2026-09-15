@@ -58,9 +58,10 @@ class ConsumableInstance:
     """One consumable actually held, rather than the kind of thing it is.
 
     The registry entry is a centre -- what a Death is. This is a card: what
-    *this* Death is, which for a consumable means its edition and nothing
-    else. Perkeo is why the difference has to exist. Its copy is Negative,
-    and Card:add_to_deck raises G.consumeables' card limit for a negative
+    *this* Death is, which for a consumable means its edition and the sell
+    value it has picked up. Perkeo is why the difference has to exist. Its
+    copy is Negative, and Card:add_to_deck raises G.consumeables' card limit
+    for a negative
     consumable exactly as it raises the joker limit for a negative joker, so
     the copy costs no slot. Holding the row as shared registry singletons
     left nowhere to record that, and no way to tell which of two Fools was
@@ -72,6 +73,11 @@ class ConsumableInstance:
 
     spec: ConsumableSpec
     edition: Edition = Edition.NONE
+    # ability.extra_value, which Gift Card raises on every consumable held as
+    # well as every joker (card.lua:3000-3005) and Card:set_cost adds to the
+    # sell price (card.lua:382). A card's, not a centre's: two Fools held for
+    # different numbers of rounds sell for different money.
+    extra_sell_value: int = 0
 
     def __getattr__(self, name: str):
         # Only reached for names the instance itself does not define. The

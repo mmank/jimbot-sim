@@ -796,8 +796,11 @@ def _perkeo(j: JokerInstance, game: "GameState") -> None:
     if not game.consumables:
         return
     chosen = game.rng.random_element(list(game.consumables), "perkeo")
-    game.consumables.append(
-        game.hold_consumable(chosen.spec, Edition.NEGATIVE))
+    copy = game.hold_consumable(chosen.spec, Edition.NEGATIVE)
+    # copy_card copies the whole ability table, extra_value included
+    # (common_events.lua:2161-2167), so the copy keeps any Gift Card money.
+    copy.extra_sell_value = chosen.extra_sell_value
+    game.consumables.append(copy)
     game.log("Perkeo: a negative %s" % chosen.name)
 
 
@@ -1407,8 +1410,16 @@ register("Egg", Rarity.COMMON, "Gains $3 of sell value at end of round",
          round_end=lambda j, g: setattr(j, "extra_sell_value",
                                         j.extra_sell_value + 3))
 def _gift_card(j: JokerInstance, game: "GameState") -> None:
+    """A dollar on every joker and every consumable held (card.lua:2993-3005).
+
+    The consumables were left out, so one held through rounds beside a Gift
+    Card sold for its bare price.
+    """
     for other in game.jokers:
         other.extra_sell_value += 1
+    for i, held in enumerate(game.consumables):
+        held = game.consumables[i] = game.hold_consumable(held)
+        held.extra_sell_value += 1
 
 
 register("Gift Card", Rarity.UNCOMMON,
