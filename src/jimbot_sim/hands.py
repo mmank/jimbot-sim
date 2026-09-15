@@ -206,34 +206,45 @@ def _flush_cards(cards: list[Card], needed: int,
 
 
 def _straight_cards(cards: list[Card], needed: int, shortcut: bool) -> list[Card] | None:
-    """Longest run of distinct ranks; Ace plays high or low.
+    """get_straight (functions/misc_functions.lua:548), line for line.
 
-    A debuffed card is in it like any other. get_straight
-    (misc_functions.lua:548) asks a card only `get_id()`, which never looks
-    at the debuff (card.lua:957) and leaves out Stone cards alone. Dropping
-    debuffed cards here made 6-5-4-3-2 of Clubs under The Club a Flush
-    instead of a Straight Flush: seed N1OA90W1, Abandoned Deck, stake 1
-    scored 8100 against the game's 27000 and lost a boss it beat.
+    Two things the game does that a "longest run of distinct ranks" does not:
+
+    * every card of a rank in the run is part of the straight, not one per
+      rank. With Four Fingers 9 8 7 7 6 is a straight and *both* sevens score
+      (`for k, v in ipairs(IDS[...]) do t[#t+1] = v end`). Keeping one card
+      per rank left the second seven scoring nothing -- seed 64PUKM3K at
+      decision 78, 8272 here against the game's 8580, and U1AYP8BC at
+      decision 53, 3080 against 3164.
+    * a debuffed card counts. get_id does not look at debuff (card.lua:957),
+      so a debuffed card holds its place in a straight the way it holds its
+      suit in a flush; evaluate_play then skips it when it comes to score.
+
+    Stone cards are out: get_id gives them a negative id, outside 2..14.
     """
-    playable = [c for c in cards if not c.is_stone]
-    by_rank: dict[int, Card] = {}
-    for c in playable:
-        by_rank.setdefault(c.rank.value, c)
-    if Rank.ACE.value in by_rank:
-        by_rank.setdefault(1, by_rank[Rank.ACE.value])
+    ids: dict[int, list[Card]] = {}
+    for c in cards:
+        if not c.is_stone:
+            ids.setdefault(c.rank.value, []).append(c)
 
-    max_gap = 2 if shortcut else 1
-    best: list[Card] | None = None
-    for start in sorted(by_rank):
-        run = [by_rank[start]]
-        current = start
-        for nxt in sorted(v for v in by_rank if v > start):
-            if nxt - current <= max_gap:
-                run.append(by_rank[nxt])
-                current = nxt
-        if len(run) >= needed and (best is None or len(run) > len(best)):
-            best = run
-    return best
+    run: list[Card] = []
+    length, straight, skipped = 0, False, False
+    for j in range(1, 15):
+        rank = Rank.ACE.value if j == 1 else j
+        if rank in ids:
+            length += 1
+            skipped = False
+            run.extend(ids[rank])
+        elif shortcut and not skipped and j != 14:
+            skipped = True
+        else:
+            length, skipped = 0, False
+            if straight:
+                break
+            run = []
+        if length >= needed:
+            straight = True
+    return run if straight else None
 
 
 def evaluate(
@@ -344,14 +355,19 @@ def evaluate(
     if five:
         return result(HandType.FIVE_OF_A_KIND, five)
     if straight and flush:
-        both = [c for c in straight if c in flush]
-        if len(both) >= needed:
-            # Every card in either part scores, not only the overlap. With
-            # Four Fingers a four-card flush can sit inside a five-card
-            # straight, and the game scores all five: A 3 5 7 9 with the 5 off
-            # suit is a Straight Flush worth (100 + 35) x 8, not (100 + 30).
-            union = straight + [c for c in flush if c not in straight]
-            return result(HandType.STRAIGHT_FLUSH, union)
+        # Every card in either part scores, not only the overlap. With Four
+        # Fingers a four-card flush can sit inside a five-card straight, and
+        # the game scores all five: A 3 5 7 9 with the 5 off suit is a
+        # Straight Flush worth (100 + 35) x 8, not (100 + 30).
+        #
+        # Nor does the game ask the two parts to overlap at all
+        # (misc_functions.lua:428): `if next(parts._flush) and
+        # next(parts._straight)`. 2S 3S 4S 5H 9S is a four-card straight and a
+        # four-card flush, and so a Straight Flush. Requiring four shared
+        # cards made it a Flush here -- while `held` above already said it
+        # contained a Straight Flush.
+        union = flush + [c for c in straight if c not in flush]
+        return result(HandType.STRAIGHT_FLUSH, union)
     if four:
         return result(HandType.FOUR_OF_A_KIND, four)
     if full_house:
