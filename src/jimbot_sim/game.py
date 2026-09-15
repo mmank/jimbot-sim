@@ -2293,7 +2293,17 @@ class GameState:
         # copies are permanent, so the decks drifted further apart with every
         # such hand, and the extra cards were steel -- which is how a scoring
         # divergence turned out to be a deck-size one.
-        if self.hands_played_this_round == set():
+        #
+        # Neither runs on a hand the boss refuses. DNA is `context.before`
+        # (card.lua:3501) and Sixth Sense `context.destroying_card`
+        # (card.lua:2604), and evaluate_play asks both inside
+        # `if not G.GAME.blind:debuff_hand(...)` (state_events.lua:614, 630,
+        # 957) -- so one card into The Psychic is refused and copied nothing.
+        # The question is the same here as below: nothing between the two
+        # (The Hook, The Arm, The Tooth, The Ox) changes what debuff_hand
+        # reads.
+        debuffed = self.hand_is_debuffed(result.hand, played)
+        if not debuffed and self.hands_played_this_round == set():
             from .scoring import calculating_specs
 
             for _owner, spec, source in calculating_specs(list(self.jokers)):
@@ -2355,8 +2365,8 @@ class GameState:
         # A boss can zero the hand outright. The game skips the whole scoring
         # block when debuff_hand answers yes -- `mult = mod_mult(0);
         # hand_chips = mod_chips(0)` -- so no joker and no card triggers at
-        # all, and the hand is simply spent.
-        debuffed = self.hand_is_debuffed(result.hand, played)
+        # all, and the hand is simply spent. (`debuffed` is asked above,
+        # before DNA and Sixth Sense.)
         # The Mouth's write, made only by the real call and only when the
         # hand got through: a zeroed hand returns before
         # `if not check then self.only_hand = handname end`.
@@ -2391,6 +2401,20 @@ class GameState:
             for _owner, spec, source in calculating_specs(self.jokers):
                 if spec.on_debuffed_hand is not None:
                     spec.on_debuffed_hand(source, self)
+            # And then `after`, which sits outside the `if` and so is asked
+            # of every hand played (state_events.lua:1068-1075). Ice Cream
+            # and Seltzer answer it (card.lua:3571, 3601), so a hand The Mouth
+            # zeroes still melts one and counts down the other. Running it
+            # only inside score_hand left both untouched: seed VJPW2C6Z,
+            # Anaglyph Deck, stake 8, decision 46 took the game's Ice Cream
+            # from 40 to 35 on a refused Three of a Kind and kept this on 40.
+            from .effects import ScoreContext
+            from .scoring import after_hand_pass
+
+            after_hand_pass(calculating_specs(self.jokers), ScoreContext(
+                hand=result.hand, scoring=result.scoring,
+                played=tuple(played), held=tuple(held), game=self,
+                contains=result.contains))
         else:
             ctx = score_hand(self, result, played, held)
 
@@ -2421,7 +2445,11 @@ class GameState:
         for card in played:
             card.played_this_ante = True
 
-        for card in shattered_glass(self, result.scoring):
+        # The glass roll is in the destroying pass, inside the block a refused
+        # hand skips (state_events.lua:614, 950-996), so a Glass card played
+        # into The Psychic neither breaks nor moves the 'glass' stream.
+        shattered = [] if debuffed else shattered_glass(self, result.scoring)
+        for card in shattered:
             # Scoring sets the flag inline, before the jokers are told, so
             # this is one of the two places Glass Joker is paid.
             self.remove_card(card, shattered=True)

@@ -535,8 +535,21 @@ register("Gros Michel", Rarity.COMMON, "+15 Mult, 1 in 6 chance to be destroyed"
          independent=lambda j, ctx: ctx.add_mult(15, j.name),
          round_end=_gros_michel_end)
 
+def _cavendish_end(j: JokerInstance, g: "GameState") -> None:
+    """1 in 1000 at the end of a round, on its own stream, and no flag.
+
+    The same end_of_round branch as Gros Michel (card.lua:3019-3020), with
+    `'cavendish'` for the key and odds of 1000 (game.lua:432); only Gros
+    Michel records its extinction (card.lua:3037). Cavendish had no hook, so
+    it could never go and never moved the 'cavendish' stream.
+    """
+    if g.rng.chance("cavendish", 1 * g.probability_scale(), 1000):
+        g.destroy_joker(j, "Cavendish went extinct")
+
+
 register("Cavendish", Rarity.COMMON, "X3 Mult", cost=4,
-         independent=lambda j, ctx: ctx.times_mult(3.0, j.name))
+         independent=lambda j, ctx: ctx.times_mult(3.0, j.name),
+         round_end=_cavendish_end)
 
 # --------------------------------------------------------------------------
 # uncommon / rare scaling and conditional jokers
@@ -1048,10 +1061,28 @@ def _hit_the_road(j: JokerInstance, cards: list, game: "GameState") -> None:
                            and not c.is_stone)
 
 
+def _hit_the_road_end(j: JokerInstance, game: "GameState") -> None:
+    """Back to X1 when the round ends -- "this round" is the whole rule.
+
+    card.lua:3011-3017, under end_of_round, on any blind:
+
+        if self.ability.name == 'Hit the Road' and self.ability.x_mult > 1 then
+            self.ability.x_mult = 1
+
+    Nothing reset it, so every Jack discarded stayed in the X for the rest of
+    the run. Seed VIBC905W, Anaglyph Deck, stake 3, decision 45 on the
+    headless engine: the hand that won the round left the game's on X1 and
+    this on X1.5.
+    """
+    if j.counter > 1:
+        j.counter = 1.0
+
+
 register("Hit the Road", Rarity.RARE,
          "Gains X0.5 Mult for every Jack discarded this round", cost=8,
          init_counter=1.0, discarded=_hit_the_road,
-         independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
+         independent=lambda j, ctx: ctx.times_mult(j.counter, j.name),
+         round_end=_hit_the_road_end)
 
 
 # --------------------------------------------------------------------------

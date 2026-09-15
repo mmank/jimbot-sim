@@ -165,6 +165,32 @@ def _held_card_once(card: Card, ctx: ScoreContext) -> None:
         ctx.times_mult(1.5, "steel card")
 
 
+def after_hand_pass(pairs: list[tuple[JokerInstance, JokerSpec, JokerInstance]],
+                    ctx: ScoreContext) -> None:
+    """context.after: the joker pass every played hand gets, scored or not.
+
+    Scaling jokers grow *after* the hand they are part of, which the game
+    does under context.after. Running it first cost Ice Cream five chips on
+    every hand including its first, and would have done the same to Square
+    Joker and Runner the moment a hand met their condition.
+
+    evaluate_play asks it outside `if not G.GAME.blind:debuff_hand(...)`
+    (state_events.lua:614, 1068-1075), so a hand the boss refuses is asked
+    too -- GameState._play calls this for one, since score_hand is never
+    reached. Ice Cream (card.lua:3571) and Seltzer (card.lua:3601) are the
+    two jokers that answer; every other growth on a played hand is
+    `context.before` (card.lua:3411-3569) and is skipped with the block.
+
+    Only on its own account, for the reason given in score_hand: both
+    branches are `not context.blueprint`.
+    """
+    for owner, spec, source in pairs:
+        if owner is not source:
+            continue
+        if spec.update is not None and not spec.update_before_scoring:
+            spec.update(source, ctx)
+
+
 def score_hand(game: "GameState", result: HandResult, played: list[Card],
                held: list[Card]) -> ScoreContext:
     """Run the full pipeline and return the context (caller reads `.score`)."""
@@ -263,15 +289,7 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
             if PLANET_FOR_HAND.get(result.hand) == spec.name:
                 ctx.times_mult(1.5, "Observatory")
 
-    # Scaling jokers grow *after* the hand they are part of, which the game
-    # does under context.after. Running it first cost Ice Cream five chips on
-    # every hand including its first, and would have done the same to Square
-    # Joker and Runner the moment a hand met their condition.
-    for owner, spec, source in pairs:
-        if owner is not source:
-            continue                     # see the note on the loop above
-        if spec.update is not None and not spec.update_before_scoring:
-            spec.update(source, ctx)
+    after_hand_pass(pairs, ctx)
 
     # The Plasma Deck's final scoring step: chips and mult are averaged, both
     # floored, so a hand scores the square of half their sum. It happens after
