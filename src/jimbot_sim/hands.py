@@ -206,8 +206,16 @@ def _flush_cards(cards: list[Card], needed: int,
 
 
 def _straight_cards(cards: list[Card], needed: int, shortcut: bool) -> list[Card] | None:
-    """Longest run of distinct ranks; Ace plays high or low."""
-    playable = [c for c in cards if not c.is_stone and not c.debuffed]
+    """Longest run of distinct ranks; Ace plays high or low.
+
+    A debuffed card is in it like any other. get_straight
+    (misc_functions.lua:548) asks a card only `get_id()`, which never looks
+    at the debuff (card.lua:957) and leaves out Stone cards alone. Dropping
+    debuffed cards here made 6-5-4-3-2 of Clubs under The Club a Flush
+    instead of a Straight Flush: seed N1OA90W1, Abandoned Deck, stake 1
+    scored 8100 against the game's 27000 and lost a boss it beat.
+    """
+    playable = [c for c in cards if not c.is_stone]
     by_rank: dict[int, Card] = {}
     for c in playable:
         by_rank.setdefault(c.rank.value, c)

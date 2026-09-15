@@ -315,6 +315,9 @@ class GameState:
     hands_left: int = 0
     discards_left: int = 0
     hands_played_this_round: set[HandType] = field(default_factory=set)
+    # Blind.only_hand: The Mouth's hand for the round, which is the type of
+    # the first hand it let through and nothing else. See hand_is_debuffed.
+    mouth_only_hand: HandType | None = None
 
 
     phase: Phase = Phase.BLIND_SELECT
@@ -1490,6 +1493,9 @@ class GameState:
         self.chips_scored = 0
         self.discards_used = 0
         self.hands_played_this_round = set()
+        # set_blind: `if self.name == 'The Mouth' and not reset then
+        # self.only_hand = false end` (blind.lua:173).
+        self.mouth_only_hand = None
         # The counters first, then the jokers that react to the blind being
         # taken -- the game's order, and it matters: Burglar's whole drawback
         # is ease_discard(-current_round.discards_left), which needs a number
@@ -1861,8 +1867,15 @@ class GameState:
         # TypeError.
         self.rng = RunRng("%s_preview" % self.seed)
         try:
-            score = score_hand(self, self.evaluate_selection(played),
-                               played, held).score
+            result = self.evaluate_selection(played)
+            # A hand the boss zeroes -- The Psychic, The Eye, The Mouth --
+            # scores nothing and runs no scoring joker: evaluate_play skips
+            # the whole block (state_events.lua:614, 997-999). The policy
+            # values plays through this, so it has to say 0 too. Asked in
+            # check mode, as cardarea.lua:168 asks it, so nothing is set.
+            if self.hand_is_debuffed(result.hand, played):
+                return 0, self.jokers
+            score = score_hand(self, result, played, held).score
             # The copies, read before `finally` puts the real row back.
             return score, self.jokers
         finally:
@@ -2025,7 +2038,14 @@ class GameState:
         # block when debuff_hand answers yes -- `mult = mod_mult(0);
         # hand_chips = mod_chips(0)` -- so no joker and no card triggers at
         # all, and the hand is simply spent.
-        if self.hand_is_debuffed(result.hand, played):
+        debuffed = self.hand_is_debuffed(result.hand, played)
+        # The Mouth's write, made only by the real call and only when the
+        # hand got through: a zeroed hand returns before
+        # `if not check then self.only_hand = handname end`.
+        if (not debuffed and boss is not None and boss.lock_first_hand_type
+                and self.mouth_only_hand is None):
+            self.mouth_only_hand = result.hand
+        if debuffed:
             self.log("%s debuffed by %s: scores nothing"
                      % (result.hand.label, boss.name if boss else "the blind"))
             ctx = None
@@ -3195,6 +3215,16 @@ class GameState:
         The Psychic wants five cards, The Eye a hand type not yet played this
         round, The Mouth the same type as the round's first. Failing any of
         them is allowed; it just scores nothing.
+
+        This is the `check` form of the question and writes nothing; `_play`
+        makes the one write the real call makes. The Mouth is not "a type
+        played this round" -- a zeroed hand counts as played, and treating it
+        as allowed let a second Three of a Kind score 5544 under a Pair's
+        Mouth on seed Q4BAHUP3. It is `only_hand` (blind.lua:542-548):
+
+            if self.only_hand and self.only_hand ~= handname then
+                return true end
+            if not check then self.only_hand = handname end
         """
         boss = self.boss
         if boss is None or (self.blind is not None and self.blind.disabled):
@@ -3203,8 +3233,8 @@ class GameState:
             return True
         if boss.no_repeat_hand and hand in self.hands_played_this_round:
             return True
-        if (boss.lock_first_hand_type and self.hands_played_this_round
-                and hand not in self.hands_played_this_round):
+        if (boss.lock_first_hand_type and self.mouth_only_hand is not None
+                and hand is not self.mouth_only_hand):
             return True
         return False
 
