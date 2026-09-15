@@ -144,16 +144,20 @@ def test_a_random_joker_draw_goes_by_age_not_by_row_position():
     assert [j.name for j in _editionless(game)] == ["Joker", "Misprint"]
 
 
-def test_the_row_stamps_age_not_the_shop():
-    """A shop builds a joker for every shelf slot and most are never bought,
-    so a JokerInstance on its own has no age yet -- it gets one when it joins
-    the row. Stamping at construction ordered the jokers by which shelf they
-    sat on, which is not the order the game's counter gives them."""
+def test_a_joker_is_aged_where_it_is_built_not_where_it_joins_the_row():
+    """Card:init stamps sort_id (card.lua:24-25), and buying moves the shelf's
+    own card into the row (button_callbacks.lua:2417-2435), so the age is the
+    shelf's. This test used to claim the opposite -- that the row stamps it --
+    and the recordings' joker_ids refute that: 6 step 11 buys Misprint (53)
+    with Devious (58) held, 8 step 144 buys Astronomer (235) after Hanging
+    Chad (236). See test_madness_eats_by_age."""
     game = GameState(seed="TESTSEED", deck="Red Deck")
-    shelved = JokerInstance(JOKER_REGISTRY["Joker"])
-    assert shelved.uid == 0, "an unbought joker should not have an age"
-    game.gain_joker(shelved)
-    assert shelved.uid > 0
+    older = JokerInstance(JOKER_REGISTRY["Joker"])
+    younger = JokerInstance(JOKER_REGISTRY["Misprint"])
+    assert older.uid < younger.uid
+    game.gain_joker(younger)
+    game.gain_joker(older)
+    assert older.uid < younger.uid, "joining the row restamped the age"
 
 
 def test_a_copy_is_younger_than_its_original():

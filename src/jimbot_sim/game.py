@@ -948,14 +948,10 @@ class GameState:
         Loyalty Card fired on the wrong hand for the whole game.
         """
         joker.hands_at_create = self.hands_played
-        # Age, for the draws that sort by it -- The Wheel of Fortune,
-        # Ectoplasm and Hex all pick a joker out of an ordered pool. Stamped
-        # here rather than when the JokerInstance is built, because a shop
-        # builds one for every shelf slot and most are never bought: what the
-        # draws are ordering is the row, and the row is joined here.
-        from .cards import next_sort_id
-
-        joker.uid = next_sort_id()
+        # No age is stamped here: the joker has had one since it was built
+        # (JokerInstance.uid). Restamping on arrival made the age a purchase
+        # order, so Madness, the Wheel of Fortune, Ectoplasm and Hex drew the
+        # wrong joker whenever a shop was bought out of slot order.
         self.jokers.append(joker)
         # Chaos the Clown hands over its free reroll the moment it joins the
         # row -- Card:add_to_deck does it -- so buying one in a shop you are
@@ -1002,7 +998,13 @@ class GameState:
         """A copy of a joker already held, editions and all."""
         if len(self.jokers) >= self.joker_slots:
             return
-        self.gain_joker(copy.deepcopy(joker))
+        # copy_card builds a new Card (common_events.lua:2157), and Card:init
+        # gives it the next sort_id; a deepcopy would keep the original's.
+        from .cards import next_sort_id
+
+        duplicate = copy.deepcopy(joker)
+        duplicate.uid = next_sort_id()
+        self.gain_joker(duplicate)
         self.log(f"{source}: copied {joker.name}")
 
     # ------------------------------------------------------------------

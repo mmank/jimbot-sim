@@ -7,11 +7,11 @@ call here -- the engine never needs to change.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TYPE_CHECKING, Callable
 
-from .cards import Card, Edition, Enhancement, Rank, Seal, Suit
+from .cards import Card, Edition, Enhancement, Rank, Seal, Suit, next_sort_id
 # consumables does not import jokers, so this direction is safe; shop
 # imports both.
 from .consumables import ConsumableKind
@@ -147,10 +147,14 @@ EDITION_VALUE = {Edition.NONE: 0, Edition.FOIL: 2, Edition.HOLOGRAPHIC: 3,
 class JokerInstance:
     spec: JokerSpec
     # Age, for the random draws that sort by it -- see cards.next_sort_id.
-    # Stamped by GameState.gain_joker when the joker joins the row, not here:
-    # a shop builds every joker on its shelf and most are never bought, and
-    # what the draws order is the row.
-    uid: int = 0
+    # Stamped here, when the joker is built, because that is where Card:init
+    # stamps sort_id (card.lua:24-25). A shop builds its shelf in slot order
+    # (game.lua:3111-3113) and buying moves that same card into the row
+    # (button_callbacks.lua:2417-2435), so a joker bought second out of an
+    # earlier slot is the older one: recording 6 buys Misprint (53) with
+    # Devious (58) held, recording 8 Astronomer (235) after Hanging Chad (236).
+    # A shelf joker never bought just spends an id, as it does in the game.
+    uid: int = field(default_factory=next_sort_id)
     edition: Edition = Edition.NONE
     counter: float = 0.0
     eternal: bool = False
@@ -1153,11 +1157,18 @@ def _madness(j: JokerInstance, game: "GameState") -> None:
     for the one that matters. The joker it takes is drawn from the ones that
     are neither itself nor eternal. Nothing was growing it and nothing was
     eating, so it sat at X1 while its own drawback never arrived.
+
+    The draw is pseudorandom_element(destructable_jokers,
+    pseudoseed('madness')) (card.lua:2509), which sorts the list by sort_id
+    before indexing (misc_functions.lua:260-261) -- by age, not by where the
+    jokers sit. Row order ate Popcorn where the game ate Mystic Summit, on
+    smoke run N1OA90W1 (test_madness_eats_by_age).
     """
     if game.blind is not None and game.blind.kind is BlindKind.BOSS:
         return
     j.counter += 0.5
-    prey = [o for o in game.jokers if o is not j and not o.eternal]
+    prey = sorted((o for o in game.jokers if o is not j and not o.eternal),
+                  key=lambda o: o.uid)
     if prey:
         game.destroy_joker(game.rng.random_element(prey, "madness"), j.name)
 

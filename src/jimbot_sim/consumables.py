@@ -284,33 +284,15 @@ def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
     edition uniformly from three, where the game polls the ordinary edition
     bands widened twenty-five times so that something always lands.
 
-    **And it still picks the wrong joker, on recording 9.** Step 116 spins
-    the wheel over Space Joker, Ride the Bus, Egg and Reserved Parking, all
-    editionless, uid order matching row order. This lands on Space Joker,
-    which is sold nine steps later; the replay then stops at 126 on a dollar
-    of sell value and, if that is forced past, at 134 on the fifty chips a
-    foil joker would have scored. Forcing the edition onto the *second*
-    joker instead makes the whole recording replay with no divergence at
-    all, so the pick is one position out and nothing else is wrong.
-
-    Four explanations have been tried and all four are wrong:
-
-      draw the edition before the joker    fixes 9, breaks 3, 5 and 8, each
-                                           at its own first wheel
-      give the chance its own stream       breaks 3, 5 and 8 and does not
-                                           fix 9
-      index with `% len` not `- 1`         breaks everything by step 11;
-                                           the current mapping is Lua's
-      a different eligible list or order   the list is the whole row here,
-                                           in uid order, which is row order
-
-    What distinguishes recording 9 is where the card came from: its two
-    wheels are `area: pack_cards`, used straight out of a booster, where
-    3, 5 and 8 use theirs from the consumable slot or buy-and-use them from
-    the shop. So the suspicion is that taking a consumable from a pack
-    reaches the wheel by a different path in the game -- one draw earlier or
-    later on the stream -- rather than that the wheel itself is wrong.
-    Settling it wants the Lua.
+    Recording 9's wheel at step 116 used to land one joker out, and was
+    papered over with an extra draw whenever the card came out of a pack.
+    The stream was never the problem; the pool's order was. Its jokers are
+    Space Joker, Ride the Bus, Egg and Reserved Parking, and the game's ids
+    for them are 57, 52, 70 and 107: Ride the Bus is the older, though it was
+    bought second. The simulator aged a joker when it joined the row, so it
+    sorted Space Joker first. Aged where it is built (JokerInstance.uid), the
+    plain draw lands on Ride the Bus, and every wheel in recordings 3, 5, 8
+    and 9 agrees with no special case for packs.
     """
     plain = _editionless(game)
     if not plain:
@@ -318,19 +300,6 @@ def _wheel_of_fortune(game: "GameState", cards: list[Card]) -> None:
     if not game.rng.chance("wheel_of_fortune",
                            1 * game.probability_scale(), 4):
         return
-    if game.using_from_pack:
-        # One more draw off the same stream, and only when the card is used
-        # straight out of a booster. The mechanism is not known -- something
-        # on that path polls the wheel's stream before the joker is picked --
-        # but the rule is what six wheels across four recordings say.
-        #
-        # Recording 9 spins two, both from packs (steps 116 and 322), and
-        # replays end to end with this and stops at 126 without it.
-        # Recordings 3, 5 and 8 spin four between them, all from a
-        # consumable slot or bought and used, and every one of them wants
-        # *no* extra draw -- each breaks at its own wheel if this is applied
-        # unconditionally.
-        game.rng.seeded("wheel_of_fortune").random(1)
     joker = game.rng.random_element(plain, "wheel_of_fortune")
     from .shop_pool import poll_edition
     name = poll_edition(game.rng, "wheel_of_fortune", no_negative=True,
