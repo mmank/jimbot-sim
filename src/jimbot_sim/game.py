@@ -2923,9 +2923,6 @@ class GameState:
         """
         self.pack = spec
         self.pack_picks_left = spec.picks
-        for joker in list(self.jokers):
-            if joker.spec.on_pack_open is not None:
-                joker.spec.on_pack_open(joker, self)
         played = [h.label for h, n in self.hand_levels.plays.items() if n > 0]
         owned = {"m_%s" % c.enhancement.value for c in self.full_deck}
         contents = shop_pool.pack_contents(
@@ -2950,6 +2947,19 @@ class GameState:
         self.pack_options = []
         for entry in contents:
             self.pack_options.append(self._pack_card(entry))
+
+        # The open_booster jokers come after the pack is filled, because that
+        # is when what they make is built. Card:open queues the fill as an
+        # unblockable event (card.lua:1725) and Hallucination's Tarot as a
+        # blockable one (card.lua:2339), and Card:explode has already put
+        # unblockable *blocking* events ahead of both that last
+        # 1.5*explode_time (card.lua:2002, 2071). The fill goes at
+        # 1.3*sqrt(GAMESPEED), the Tarot at 1.95*sqrt(GAMESPEED), so the
+        # pack's Tarots are blanked from Hallucination's pool rather than its
+        # Tarot from the pack's.
+        for joker in list(self.jokers):
+            if joker.spec.on_pack_open is not None:
+                joker.spec.on_pack_open(joker, self)
         self.phase = Phase.PACK
 
         # An Arcana or a Spectral pack deals a hand. Its cards need targets --

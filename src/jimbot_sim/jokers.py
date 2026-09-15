@@ -1435,6 +1435,9 @@ def _hallucination(j: JokerInstance, game: "GameState") -> None:
 
     The odds are drawn against "halu" plus the ante, and the room check comes
     first -- a full row of consumables costs no roll at all.
+
+    The Tarot is built after the pack's own cards (see GameState._open_pack),
+    so it is drawn from a pool with the pack's Tarots already blanked.
     """
     if len(game.consumables) >= game.consumable_slots:
         return
