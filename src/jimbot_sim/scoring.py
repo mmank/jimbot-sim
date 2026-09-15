@@ -306,6 +306,14 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
             for owner, spec, source in pairs:
                 if spec.scored is not None:
                     spec.scored(source, card, ctx)
+                # The growth the same branch guards with `not
+                # context.blueprint`: Wee Joker's +8 per scoring 2
+                # (card.lua:3083-3085). A copy adds the chips in joker_main
+                # and does not grow them; asking `scored` for copies grew a
+                # Wee Joker beside a Blueprint to 48 on three 2s where the
+                # engine's reached 24.
+                if spec.scored_growth is not None and owner is source:
+                    spec.scored_growth(source, card, ctx)
                 # Lucky Cat, in the same pass and on its own account only:
                 # `not context.blueprint` (card.lua:3076). Once per trigger
                 # however many of the card's rolls hit, since the flag is

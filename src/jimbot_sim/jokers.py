@@ -61,6 +61,9 @@ class JokerSpec:
     # A scoring Lucky card whose +Mult or $ roll hit on this trigger, asked
     # right after `scored` and never on a copy's behalf. Lucky Cat.
     lucky_trigger: ScoredHook | None = None
+    # Growth in the per-card branch under `not context.blueprint`, asked
+    # right after `scored` and never on a copy's behalf. Wee Joker.
+    scored_growth: ScoredHook | None = None
     held: HeldHook | None = None
     independent: IndepHook | None = None
     # context.other_joker: asked about each joker in the row, straight after
@@ -1088,7 +1091,9 @@ register("Lucky Cat", Rarity.UNCOMMON,
 
 register("Wee Joker", Rarity.RARE, "Gains +8 Chips when each played 2 scores",
          cost=8,
-         scored=lambda j, c, ctx: _bump(j, 8) if c.rank is Rank.TWO
+         # `not context.blueprint` (card.lua:3083-3085): grown on its own
+         # account only, and a copy adds the chips without growing them.
+         scored_growth=lambda j, c, ctx: _bump(j, 8) if c.rank is Rank.TWO
          and not c.is_stone else None,
          independent=lambda j, ctx: ctx.add_chips(j.counter, j.name))
 register("Spare Trousers", Rarity.UNCOMMON,
@@ -1277,7 +1282,12 @@ def _space_joker(j: JokerInstance, ctx: ScoreContext) -> None:
 
 register("Space Joker", Rarity.UNCOMMON,
          "1 in 4 chance to upgrade the level of the played poker hand", cost=5,
-         update=_space_joker, update_before_scoring=True)
+         # No `not context.blueprint` (card.lua:3420), and evaluate_play levels
+         # the hand for whichever answer returns level_up, a copy's included
+         # (state_events.lua:630-635) -- so `before`, which copies, and not an
+         # own-account `update`. A Blueprint beside a certain Space Joker took
+         # the engine's Pair from level 1 to 3 and the simulator's to 2.
+         before=_space_joker)
 
 
 # -- jokers that name a card or hand the round chose ------------------------
