@@ -217,6 +217,9 @@ local COUNTER_FIELD = {
   j_rocket             = { "extra.dollars" },
   j_turtle_bean        = { "extra.h_size" },
   j_yorick             = { "extra.xmult", "extra.discards" },
+  -- Rounds held, card.lua:2935. Without it the game side read 0 against the
+  -- simulator's count from the first round on.
+  j_invisible          = { "invis_rounds" },
   j_popcorn            = { "mult" },
   j_trousers           = { "mult" },
   j_ride_the_bus       = { "mult" },

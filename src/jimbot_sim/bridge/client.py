@@ -376,11 +376,23 @@ class BalatroBridge:
                        and any(i["area"] == area and i["index"] == index
                                for i in (s.get("shop") or []))),
             timeout=30.0)
-        money = self.state()["dollars"]
+        before = self.state()
+        money = before["dollars"]
+        cost = int(next(i for i in before["shop"]
+                        if i["area"] == area and i["index"] == index)["cost"])
         self.command("buy", area, index)
+
+        # A free pack pays nothing, so there is no money to watch -- the same
+        # case buy() already handles. Astronomer zeroes a Celestial booster
+        # (card.lua:380) and re-costs the one already on the shelf the moment
+        # it arrives (card.lua:616-621); requiring the balance to move sat in
+        # PLANET_PACK for the whole timeout. Seed H7NS6Y2Y, Checkered, stake 1.
+        def paid(state):
+            return cost <= 0 or state["dollars"] != money
+
         # Wait for the pack to open *and* stock itself, not merely for the
         # state to flip.
-        self.wait_for(lambda s: (s.get("in_pack") and s["dollars"] != money
+        self.wait_for(lambda s: (s.get("in_pack") and paid(s)
                                  and s.get("pack")), timeout=30.0)
         return self.state()
 

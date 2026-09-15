@@ -753,6 +753,21 @@ class GameState:
         return (spec.name == "Ankh"
                 and len(self.jokers) >= self.joker_slots)
 
+    def _usable_now(self, spec: ConsumableSpec, targets: tuple = ()) -> bool:
+        """Whether pressing use actually uses the card: the button, then check_use.
+
+        G.FUNCS.use_card (button_callbacks.lua:2163-2169) calls check_use
+        before anything else and, when it refuses, restores the button and
+        returns -- the card stays in its slot or in the pack, and no pack
+        choice is spent. So a use from a slot or a pick from a pack that
+        check_use refuses is not a move at all: offering it had the policy take
+        an Ankh into a full row and the engine do nothing (seeds 3FBLDRVK,
+        9977JY5C). Buy-and-use is different, because it has already paid and
+        removed the card -- that path keeps the loose gate and loses the card.
+        """
+        return (self.can_use_consumable(spec, targets)
+                and not self.refuses_use(spec))
+
     def buy_and_use(self, index: int) -> None:
         """The shop's buy-and-use button, quirk included.
 
@@ -3110,7 +3125,7 @@ class GameState:
             # jokers and playing cards a pack offers. This offered it
             # unconditionally, and a policy reading the legal set took
             # Judgements the game would have greyed out.
-            if not self.can_use_consumable(spec):
+            if not self._usable_now(spec):
                 return []
             return [Action(ActionType.PICK_PACK, index=index)]
         if self.phase is Phase.PACK and not self.hand:
@@ -3127,7 +3142,7 @@ class GameState:
         actions: list[Action] = []
         for i, spec in enumerate(self.consumables):
             if spec.targets == 0:
-                if self.can_use_consumable(spec):
+                if self._usable_now(spec):
                     actions.append(Action(ActionType.USE_CONSUMABLE, index=i))
                 continue
             if not self.hand:
@@ -3135,7 +3150,7 @@ class GameState:
             for subset in self._card_subsets(spec.max_targets or spec.targets):
                 if not spec.accepts(len(subset)):
                     continue
-                if self.can_use_consumable(
+                if self._usable_now(
                         spec, tuple(self.hand[j] for j in subset)):
                     actions.append(Action(ActionType.USE_CONSUMABLE, index=i,
                                           cards=subset))
@@ -3219,7 +3234,7 @@ class GameState:
                 return False
         elif not self._valid_indices(cards, spec.max_targets or spec.targets):
             return False
-        return self.can_use_consumable(
+        return self._usable_now(
             spec, tuple(self.hand[i] for i in cards))
 
     def is_legal(self, action: Action) -> bool:
