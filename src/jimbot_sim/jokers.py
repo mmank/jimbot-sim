@@ -627,9 +627,50 @@ register("Card Sharp", Rarity.UNCOMMON,
          independent=lambda j, ctx: ctx.times_mult(3.0, j.name)
          if ctx.hand in ctx.game.hands_played_this_round else None)
 
+_FLOWER_POT_ORDER = (Suit.HEARTS, Suit.DIAMONDS, Suit.SPADES, Suit.CLUBS)
+
+
+def _flower_pot(j: JokerInstance, ctx: ScoreContext) -> None:
+    """X3 once the scoring cards fill all four suit slots, one slot a card.
+
+    Not "is every suit represented" (card.lua:3807-3833). Each card takes
+    the first empty slot, Hearts, Diamonds, Spades, Clubs, that it answers
+    `is_suit` for -- an elseif chain -- the plain cards first and the Wild
+    cards after them, with whatever is left:
+
+      * so a Wild card fills one slot, not four;
+      * the plain cards ask `is_suit(suit, true)`, which beside a Smeared
+        Joker answers Hearts for a Diamond and Spades for a Club
+        (card.lua:4084), and reads a debuffed card's printed suit -- the
+        flush question for a card that is not Wild (`counts_for_flush`);
+      * the Wild cards ask `is_suit(suit)`, which a debuffed card answers
+        with nothing (card.lua:4077).
+
+    0RVVD29X, Ghost Deck, stake 1, decision 99: Smeared Joker and a Flush of
+    a Wild Queen of Diamonds, two Clubs and two Spades. The Clubs fill Spades
+    and Clubs, the Spades find nothing left, the Wild fills Hearts: no X3,
+    150 x 394 = 59100 in the game against 177300 here.
+    """
+    filled: set[Suit] = set()
+    plain = [c for c in ctx.scoring if c.enhancement is not Enhancement.WILD]
+    wild = [c for c in ctx.scoring
+            if c.enhancement is Enhancement.WILD and not c.debuffed]
+    for card in plain:
+        for suit in _FLOWER_POT_ORDER:
+            if suit not in filled and counts_for_flush(card, suit, ctx.game):
+                filled.add(suit)
+                break
+    for _card in wild:
+        for suit in _FLOWER_POT_ORDER:
+            if suit not in filled:
+                filled.add(suit)
+                break
+    if len(filled) == len(_FLOWER_POT_ORDER):
+        ctx.times_mult(3.0, j.name)
+
+
 register("Flower Pot", Rarity.UNCOMMON, "X3 Mult if scoring hand has all 4 suits", cost=6,
-         independent=lambda j, ctx: ctx.times_mult(3.0, j.name)
-         if all(any(c.counts_as_suit(s) for c in ctx.scoring) for s in Suit) else None)
+         independent=_flower_pot)
 
 register("Stuntman", Rarity.RARE, "+250 Chips, -2 hand size", cost=7, hand_size=-2,
          independent=lambda j, ctx: ctx.add_chips(250, j.name))
