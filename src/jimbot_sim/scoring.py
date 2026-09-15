@@ -274,11 +274,29 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
                 if spec.held is not None:
                     spec.held(source, card, ctx)
 
-    for owner, spec, source in pairs:
-        _edition_before(owner.edition, ctx, owner.name)
-        if spec.independent is not None:
-            spec.independent(source, ctx)
-        _edition_after(owner.edition, ctx, owner.name)
+    # One joker at a time, and the whole row answers about each one before the
+    # next (state_events.lua:877-944): its foil and holo, its own joker_main,
+    # then every joker asked under context.other_joker, then its polychrome.
+    # Baseball Card lives in that third step (card.lua:3396-3408), so its X1.5
+    # lands straight after each Uncommon joker and not at its own position.
+    # The game walks every joker in the row there, debuffed or not; a debuffed
+    # one has no edition and no effect of its own (card.lua:1016-1017,
+    # 2291-2292) but is still a joker for the others to answer about.
+    # 8KUQ2KZU stopped on it at decision 19: Mime, Popcorn, Baseball Card,
+    # Troubadour scored 77 x 54 here against the game's 77 x 39.
+    answering = {id(owner): (spec, source) for owner, spec, source in pairs}
+    about_others = [(spec, source) for _owner, spec, source in pairs
+                    if spec.other_joker is not None]
+    for joker in game.jokers:
+        own = answering.get(id(joker))
+        if own is not None:
+            _edition_before(joker.edition, ctx, joker.name)
+            if own[0].independent is not None:
+                own[0].independent(own[1], ctx)
+        for spec, source in about_others:
+            spec.other_joker(source, joker, ctx)
+        if own is not None:
+            _edition_after(joker.edition, ctx, joker.name)
 
     # Observatory: a Planet card sitting in a consumable slot gives X1.5 Mult
     # for its own hand type. It is the one voucher whose effect is a scoring

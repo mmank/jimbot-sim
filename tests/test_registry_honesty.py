@@ -28,7 +28,8 @@ from jimbot_sim.jokers import REGISTRY
 # Every hook a joker can carry. Kept in step with JokerSpec deliberately: a
 # hook missing from this list makes the jokers that use it look behaviourless,
 # which is how thirteen implemented jokers were briefly still counted hollow.
-HOOKS = ("update", "scored", "held", "independent", "round_end", "discarded",
+HOOKS = ("update", "scored", "held", "independent", "other_joker",
+         "round_end", "discarded",
          "retrigger_scored", "retrigger_held", "copier",
          "on_blind_select", "on_round_start", "on_sell", "on_reroll", "on_pack_skip", "on_pack_open",
          "on_cards_destroyed", "on_glass_shattered", "on_shop_end",

@@ -60,6 +60,10 @@ class JokerSpec:
     scored: ScoredHook | None = None
     held: HeldHook | None = None
     independent: IndepHook | None = None
+    # context.other_joker: asked about each joker in the row, straight after
+    # that joker's own effect and before its polychrome (state_events.lua:
+    # 918-930). Called as (joker, other joker, ctx). Baseball Card.
+    other_joker: object = None
     round_end: RoundHook | None = None
     discarded: DiscardHook | None = None
     retrigger_scored: RetriggerHook | None = None
@@ -644,10 +648,16 @@ def _vampire(j: JokerInstance, ctx: ScoreContext) -> None:
     Stone counts as enhanced here. The game's test is `center ~= c_base`, and
     a stone card is not c_base, so a Vampire eats one and hands the card its
     rank and suit back.
+
+    A debuffed card is left alone and earns nothing: the test is
+    `center ~= c_base and not v.debuff and not v.vampired` (card.lua:3468),
+    and a debuffed card can score in a Flush or a Pair. NQ86453Q stopped on
+    it at decision 114 -- a debuffed enhanced Queen in a Flush took the
+    Vampire to X1.3 here and left it at X1.2 in the game.
     """
     gained = 0
     for c in ctx.scoring:
-        if c.enhancement is not Enhancement.NONE:
+        if c.enhancement is not Enhancement.NONE and not c.debuffed:
             ctx.game.set_enhancement(c, Enhancement.NONE)
             gained += 1
     j.counter += 0.1 * gained
@@ -683,10 +693,14 @@ register("Hologram", Rarity.UNCOMMON, "X0.25 Mult per playing card added to your
          cost=7, init_counter=1.0,
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 
+# Asked about each joker in turn, not once for the row: the X1.5 for an
+# Uncommon joker lands right after that joker's own effect (card.lua:3396-3408,
+# state_events.lua:918-930). The other joker's debuff is not checked there, so
+# a debuffed Uncommon joker still counts; see scoring.score_hand.
 register("Baseball Card", Rarity.RARE, "Uncommon Jokers each give X1.5 Mult", cost=8,
-         independent=lambda j, ctx: ctx.times_mult(
-             1.5 ** sum(1 for o in ctx.game.jokers
-                        if o.spec.rarity is Rarity.UNCOMMON), j.name))
+         other_joker=lambda j, other, ctx: ctx.times_mult(
+             1.5, "%s on %s" % (j.name, other.name))
+         if other.spec.rarity is Rarity.UNCOMMON and other is not j else None)
 
 # --------------------------------------------------------------------------
 _HACK_RANKS = {Rank.TWO, Rank.THREE, Rank.FOUR, Rank.FIVE}
@@ -1206,9 +1220,13 @@ def _midas_mask(j: JokerInstance, ctx: ScoreContext) -> None:
     Midas Mask never gets to be glass, so its X2 is simply gone. Converting
     per card as it scored let the first trigger keep the old enhancement,
     which is a whole X2 on the hand.
+
+    Not a debuffed one: the game asks `v:is_face()` (card.lua:3446), and
+    Card:is_face answers nothing for a debuffed card unless a boss is asking
+    (card.lua:964-965), so The Plant's face cards stay what they were.
     """
     for card in ctx.scoring:
-        if is_face(card, ctx):
+        if is_face(card, ctx) and not card.debuffed:
             ctx.game.set_enhancement(card, Enhancement.GOLD)
 
 

@@ -2305,6 +2305,18 @@ class GameState:
         played = [self.hand[i] for i in indices]
         result = self.evaluate_selection(played)
 
+        # Played this ante from the moment they are played, before anything
+        # scores: play_cards_from_highlighted sets the flag as it moves each
+        # card to the play area (state_events.lua:478-483), and evaluate_play
+        # comes after. So a Vampire or a Midas Mask changing the enhancement
+        # under context.before rebuilds the ability table and wipes the flag
+        # again (card.lua:223-366, 3443-3480), and a DNA copy made there takes
+        # it across (common_events.lua:2161-2167). Setting it after scoring
+        # left the card a Vampire ate marked, and The Pillar debuffed it:
+        # NQ86453Q at decision 78, 7823 here against the game's 8069.
+        for card in played:
+            card.played_this_ante = True
+
         # The Hook takes its two cards *before* the hand scores. It lives in
         # `Blind:press_play`, and the game runs that between moving the
         # played cards out of the hand and scoring anything:
@@ -2510,8 +2522,6 @@ class GameState:
                 self.add_money(ctx.money_gained, "cards")
 
         self.hands_played_this_round.add(result.hand)
-        for card in played:
-            card.played_this_ante = True
 
         # The glass roll is in the destroying pass, inside the block a refused
         # hand skips (state_events.lua:614, 950-996), so a Glass card played
