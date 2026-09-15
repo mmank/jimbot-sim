@@ -160,9 +160,25 @@ def _score_card_once(card: Card, ctx: ScoreContext) -> None:
         ctx.money_gained += 3
 
 
-def _held_card_once(card: Card, ctx: ScoreContext) -> None:
+def _held_card_once(card: Card, ctx: ScoreContext,
+                    pairs: list[tuple[JokerInstance, JokerSpec, JokerInstance]]
+                    ) -> bool:
+    """One pass over a card held in hand; whether anything answered for it.
+
+    The card's own effect (a Steel card's x_mult, common_events.lua:630-633)
+    and then each joker's, in row order. Every one of them moves the score or
+    the money -- Steel, Baron, Shoot the Moon, Raised Fist, a Reserved
+    Parking roll that pays -- so a pass that moved neither had no effect,
+    which is what the game asks before it repeats a held card. A Parking roll
+    that misses has still drawn from the stream, and still counts as nothing.
+    """
+    before = (len(ctx.log), ctx.money_gained)
     if card.enhancement is Enhancement.STEEL:
         ctx.times_mult(1.5, "steel card")
+    for _owner, spec, source in pairs:
+        if spec.held is not None:
+            spec.held(source, card, ctx)
+    return (len(ctx.log), ctx.money_gained) != before
 
 
 def after_hand_pass(pairs: list[tuple[JokerInstance, JokerSpec, JokerInstance]],
@@ -282,18 +298,27 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
                 if spec.scored is not None:
                     spec.scored(source, card, ctx)
 
+    # A held card is repeated only when its first pass did something. The
+    # game asks for repetitions once, after that pass, and gates the red seal
+    # on `next(effects[1]) or #effects > 1` (state_events.lua:812-817) while
+    # Mime asks the same of context.card_effects (card.lua:2879-2880); played
+    # cards have no such gate (669-683). So a face card whose Reserved Parking
+    # roll misses is not rolled again under Mime, and the draw stays on the
+    # stream for the next one. Retriggering every held card rolled it twice:
+    # OH4OWIIZ, Ghost Deck, stake 8, Mime and Reserved Parking, took one draw
+    # too many at decision 12 and paid $2 at decision 21 where the game's
+    # Jack drew the leftover and missed -- game $1, simulator $3.
     for card in held:
         if card.debuffed:
             continue
-        triggers = 1 + (1 if card.seal is Seal.RED else 0)
+        if not _held_card_once(card, ctx, pairs):
+            continue
+        repeats = 1 if card.seal is Seal.RED else 0
         for _owner, spec, source in pairs:
             if spec.retrigger_held is not None:
-                triggers += spec.retrigger_held(source, card, ctx)
-        for _ in range(triggers):
-            _held_card_once(card, ctx)
-            for _owner, spec, source in pairs:
-                if spec.held is not None:
-                    spec.held(source, card, ctx)
+                repeats += spec.retrigger_held(source, card, ctx)
+        for _ in range(repeats):
+            _held_card_once(card, ctx, pairs)
 
     # One joker at a time, and the whole row answers about each one before the
     # next (state_events.lua:877-944): its foil and holo, its own joker_main,
