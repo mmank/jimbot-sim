@@ -59,10 +59,15 @@ def test_amber_acorn_shuffles_the_joker_row():
 
 
 def test_crimson_heart_switches_one_joker_off_each_hand():
+    # One from the moment the hand is dealt (Blind:drawn_to_hand,
+    # blind.lua:588-602), and a different one after each hand played. See
+    # test_crimson_heart_picks_on_the_draw.
     game = _under("Crimson Heart", jokers=["Joker", "Greedy Joker"])
-    assert not any(j.debuffed for j in game.jokers)
+    first = [j.name for j in game.jokers if j.debuffed]
+    assert len(first) == 1
     game.step(Action(ActionType.PLAY, cards=(0,)))
-    assert sum(1 for j in game.jokers if j.debuffed) == 1
+    second = [j.name for j in game.jokers if j.debuffed]
+    assert len(second) == 1 and second != first
 
 
 def test_verdant_leaf_debuffs_the_deck_until_a_joker_is_sold():

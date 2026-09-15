@@ -952,16 +952,20 @@ def _ceremonial_dagger(j: JokerInstance, game: "GameState") -> None:
     ever did the eating, so it sat on zero for whole runs while the row kept
     a joker the game had taken away.
     """
-    if j not in game.jokers:
-        return
-    index = game.jokers.index(j)
-    if index + 1 >= len(game.jokers):
+    index = next((i for i, o in enumerate(game.jokers) if o is j), None)
+    if index is None or index + 1 >= len(game.jokers):
         return
     victim = game.jokers[index + 1]
-    if victim.eternal:
+    # The joker to the right as the row stands mid-pass, a victim of Madness
+    # included: that one is getting sliced, and the Dagger eats nothing rather
+    # than reaching past it (card.lua:2566). Its own victim's slot comes back
+    # at once, through the buffer (card.lua:2569); Madness gives none back.
+    if victim.eternal or game.is_getting_sliced(victim):
         return
+    game.joker_buffer -= 1
     j.counter += game.sell_value(victim) * 2
-    game.destroy_joker(victim, "Ceremonial Dagger")
+    game.slice_joker(victim, "Ceremonial Dagger")
+    game.after_setting_blind(lambda: setattr(game, "joker_buffer", 0))
 
 
 register("Ceremonial Dagger", Rarity.UNCOMMON,
@@ -1185,10 +1189,13 @@ def _madness(j: JokerInstance, game: "GameState") -> None:
     if game.blind is not None and game.blind.kind is BlindKind.BOSS:
         return
     j.counter += 0.5
-    prey = sorted((o for o in game.jokers if o is not j and not o.eternal),
+    # Not a joker already getting sliced (card.lua:2507). The one taken is
+    # only marked, and keeps its place and its slot until the pass is over.
+    prey = sorted((o for o in game.jokers if o is not j and not o.eternal
+                   and not game.is_getting_sliced(o)),
                   key=lambda o: o.uid)
     if prey:
-        game.destroy_joker(game.rng.random_element(prey, "madness"), j.name)
+        game.slice_joker(game.rng.random_element(prey, "madness"), j.name)
 
 
 register("Madness", Rarity.UNCOMMON,
@@ -1456,10 +1463,27 @@ def _riff_raff(j: JokerInstance, game: "GameState") -> None:
     min(2, card_limit - (#jokers + joker_buffer)), taken when the blind is
     selected. A Negative first joker raises the limit as it arrives, but one
     free slot has already been turned into one joker.
+
+    Counted against the row as it stands mid-pass: a joker getting sliced
+    still takes its slot, and joker_buffer carries what a Dagger handed back
+    and what an earlier Riff-raff, or a Blueprint's copy, already promised.
+    The jokers themselves arrive in an event, after the pass (card.lua:2532).
     """
-    room = game.joker_slots - len(game.jokers)
-    for _ in range(max(0, min(2, room))):
-        game.add_random_joker("Riff-Raff", Rarity.COMMON, append="rif")
+    room = game.joker_slots - (len(game.jokers) + game.joker_buffer)
+    if room <= 0:
+        return
+    count = min(2, room)
+    game.joker_buffer += count
+
+    def make() -> None:
+        # Emplaced without asking (card.lua:2536): the count was the check,
+        # and a Dagger's victim may still be sitting in the row.
+        for _ in range(count):
+            game.add_random_joker("Riff-Raff", Rarity.COMMON, append="rif",
+                                  room_checked=True)
+        game.joker_buffer = 0
+
+    game.after_setting_blind(make)
 
 
 register("Riff-Raff", Rarity.COMMON,

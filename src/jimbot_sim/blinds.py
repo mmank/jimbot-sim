@@ -183,6 +183,11 @@ class Blind:
     # set_blind (blind.lua:93); every play clears it, and GameState._play and
     # score_hand set it again the way the game does.
     triggered: bool = False
+    # Set by set_blind (blind.lua:94) -- which here is _start_round, not the
+    # moment a blind is put on offer -- and by press_play when Crimson Heart
+    # has a joker to take (blind.lua:488-493); cleared by drawn_to_hand
+    # (blind.lua:602). Only Crimson Heart reads it: GameState._drawn_to_hand.
+    prepped: bool = False
 
     @property
     def name(self) -> str:

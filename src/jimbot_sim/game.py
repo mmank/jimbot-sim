@@ -237,6 +237,17 @@ class GameState:
     # size a Hex or a Judgement raises is not dealt into. See
     # _hand_size_changed.
     playing_tarot: bool = False
+    # The setting_blind pass while it runs (see _setting_blind): the events
+    # its jokers queue for after it, the jokers Madness and Ceremonial Dagger
+    # have marked getting_sliced, and G.GAME.joker_buffer. The event list is
+    # None outside the pass, when there is nothing to wait for.
+    blind_select_events: list | None = None
+    getting_sliced: list = field(default_factory=list)
+    joker_buffer: int = 0
+    # The jokers that get a money row on the cash-out screen, settled when
+    # the round is evaluated -- before the beaten blind lets go of the joker
+    # Crimson Heart held. None outside a cash-out. See _beat_blind.
+    dollar_rows: list | None = None
     # The same two as the game's keys, kept because a tag this simulator has
     # no effect for is still the tag the run was offered.
     ante_tag_keys: list = field(default_factory=list)
@@ -489,6 +500,33 @@ class GameState:
             self._move_joker_counters(joker, arriving=False)
             self.log(f"{joker.name} destroyed{f' ({reason})' if reason else ''}")
 
+    def slice_joker(self, victim: JokerInstance, reason: str) -> None:
+        """Madness or Ceremonial Dagger taking a joker as the blind is set.
+
+        The game only marks it -- `getting_sliced = true` (card.lua:2512,
+        2568) -- and dissolves it in an event, so it keeps its place and its
+        slot, doing nothing, until the setting_blind pass is over. See
+        _setting_blind. Outside the pass there is nothing to wait for.
+        """
+        if self.blind_select_events is None:
+            self.destroy_joker(victim, reason)
+            return
+        self.getting_sliced.append((victim, reason))
+
+    def is_getting_sliced(self, joker: JokerInstance) -> bool:
+        return any(victim is joker for victim, _ in self.getting_sliced)
+
+    def after_setting_blind(self, event) -> None:
+        """Run what a setting_blind effect leaves to an event, once the pass ends.
+
+        Riff-raff's jokers (card.lua:2532-2543): no joker later in the row
+        sees them. Outside the pass, at once.
+        """
+        if self.blind_select_events is None:
+            event()
+        else:
+            self.blind_select_events.append(event)
+
     def remove_card(self, card: Card, shattered: bool = False) -> None:
         """Take a card out of the run, and tell what feeds on that.
 
@@ -669,7 +707,8 @@ class GameState:
                 self.consumables.append(self.hold_consumable(spec, edition))
 
     def add_random_joker(self, source: str = "", rarity: Rarity | None = None,
-                         legendary: bool = False, append: str = "") -> None:
+                         legendary: bool = False, append: str = "",
+                         room_checked: bool = False) -> None:
         """A joker from the game's own pool, not from a list of every joker.
 
         `append` is the key_append the thing creating it uses -- "jud" for
@@ -688,7 +727,10 @@ class GameState:
         get_current_pool drops it from the *pool* key, create_card does not
         drop it from the edition key.
         """
-        if len(self.jokers) >= self.joker_slots:
+        # `room_checked` is for a creator that counted the room itself and
+        # emplaces whatever the row holds by then: Riff-raff, whose count was
+        # fixed mid-pass while a Dagger's victim still sat in its slot.
+        if not room_checked and len(self.jokers) >= self.joker_slots:
             return
         key = shop_pool.draw_joker(
             self.rng, self.ante, seen_jokers=self.seen_centers,
@@ -994,6 +1036,12 @@ class GameState:
         recorded against two simulated, one action after a Merry Andy was
         bought.
         """
+        # Both halves open on added_to_deck (card.lua:566, 646), and a debuff
+        # has already run remove_from_deck(true): selling a joker Crimson Heart
+        # holds gives nothing back a second time. set_joker_debuff clears the
+        # flag before it puts a joker back.
+        if joker.debuffed:
+            return
         rerolls = joker.spec.free_rerolls
         if rerolls and self.shop is not None:
             self.shop.free_rerolls = (
@@ -1050,6 +1098,30 @@ class GameState:
         if self.hand_size <= 1:
             return
         self._draw_cards(delta)
+
+    def set_joker_debuff(self, joker: JokerInstance, debuff: bool) -> None:
+        """Card:set_debuff on a joker (card.lua:526-538).
+
+        A perished joker stays debuffed whatever is asked. Otherwise a change
+        takes the joker out of the deck or puts it back -- remove_from_deck(true)
+        or add_to_deck(true) -- so its hand size, discards and rerolls go and
+        come with it, and a hand size given back is dealt into
+        (_hand_size_changed). Crimson Heart's pick and the release when the
+        blind is disabled or beaten both come through here.
+        """
+        if joker.perishable and joker.perish_tally <= 0:
+            joker.debuffed = True
+            return
+        if joker.debuffed == debuff:
+            return
+        if debuff:
+            # Out while the flag is still clear: _move_joker_counters leaves
+            # a joker that is already debuffed alone.
+            self._move_joker_counters(joker, arriving=False)
+            joker.debuffed = True
+        else:
+            joker.debuffed = False
+            self._move_joker_counters(joker, arriving=True)
 
     def add_joker_copy(self, joker: JokerInstance, source: str = "") -> None:
         """A copy of a joker already held, if the row has room for it."""
@@ -1147,6 +1219,12 @@ class GameState:
             # a limit of seven became ten, where topping up gave nine.
             self._hand_size_changed(-boss.hand_size_delta)
             self._draw_cards(-boss.hand_size_delta)
+
+        # And every joker is asked debuff_card again (blind.lua:410-412),
+        # which a disabled Crimson Heart no longer answers (blind.lua:647-651):
+        # the joker it held comes back, and deals its card if it is a Juggler.
+        for joker in list(self.jokers):
+            self.set_joker_debuff(joker, False)
 
         self.log(f"{source}: {boss.name} is disabled")
 
@@ -1631,12 +1709,14 @@ class GameState:
             self.temp_hand_size += 3
             self.log("Juggle Tag: +3 hand size for this round")
 
+        # set_blind leaves the blind prepped (blind.lua:94), which is what lets
+        # Crimson Heart take a joker on the opening deal.
+        self.blind.prepped = True
+
         # Selecting the blind is its own moment, before any card is dealt:
         # Marble Joker's Stone card is in the deck for the first draw, and
         # Riff-Raff's Jokers are there for the first hand.
-        for joker in list(self.jokers):
-            if joker.spec.on_blind_select is not None:
-                joker.spec.on_blind_select(joker, self)
+        self._setting_blind()
 
         boss = self.boss
         if boss is not None and boss.shuffles_jokers and len(self.jokers) > 1:
@@ -1700,6 +1780,101 @@ class GameState:
 
         self.phase = Phase.PLAYING
         self.log(f"--- Ante {self.ante} {self.blind.name}: need {self.blind.target} ---")
+        # G.STATE = SELECTING_HAND, and then drawn_to_hand (game.lua:3237-3238).
+        self._drawn_to_hand()
+
+    # Madness, Ceremonial Dagger and Chicot open their setting_blind branch
+    # with `not context.blueprint` (card.lua:2492, 2503, 2561). Burglar,
+    # Riff-raff, Cartomancer and Marble Joker are copied.
+    _NOT_COPIED_ON_BLIND_SELECT = frozenset(
+        {"Madness", "Ceremonial Dagger", "Chicot"})
+
+    def _setting_blind(self) -> None:
+        """calculate_joker({setting_blind}) down the row (state_events.lua:335-337).
+
+        Nothing leaves the row or joins it while the pass runs. Madness and
+        Ceremonial Dagger only mark their victim getting_sliced (card.lua:2512,
+        2568) and dissolve it in an event, and Riff-raff makes its jokers in
+        one (card.lua:2532-2543). So a joker getting sliced keeps its place
+        and its slot for the rest of the pass and does nothing -- the whole
+        branch is `context.setting_blind and not self.getting_sliced`
+        (card.lua:2491) -- a Dagger will not eat a neighbour already taken,
+        and nothing sees Riff-raff's new jokers. When the pass is done the
+        queued events run, and then the sliced jokers go: the dissolve's
+        remove() is queued from inside the slicing event (card.lua:2170-2175),
+        behind everything the pass queued.
+
+        Removing the victim on the spot and walking a copy of the row let a
+        Burglar that Madness ate still give its hands, a Riff-raff it ate still
+        fill the slot, and a Dagger behind it eat the joker past the one taken.
+
+        Through effective_specs, because a Blueprint or a Brainstorm runs the
+        copied joker's calculate_joker (card.lua:2304-2330): skipped when that
+        joker is getting sliced, and by the Burglar-style guards
+        `(context.blueprint_card or self).getting_sliced` when the copier is.
+        No copy ran at all before, so a Blueprint on a Burglar gave three
+        hands where the game gives six. And a debuffed joker runs nothing
+        (`not self.debuff`, card.lua:2303), copier or copied.
+        """
+        from .scoring import effective_specs
+
+        row = list(self.jokers)
+        self.blind_select_events, self.getting_sliced = [], []
+        self.joker_buffer = 0
+        for joker, (spec, source) in zip(row, effective_specs(row)):
+            hook = spec.on_blind_select
+            if hook is None or joker.debuffed or source.debuffed:
+                continue
+            if (source is not joker
+                    and spec.name in self._NOT_COPIED_ON_BLIND_SELECT):
+                continue
+            if self.is_getting_sliced(joker) or self.is_getting_sliced(source):
+                continue
+            hook(source, self)
+        events, self.blind_select_events = self.blind_select_events, None
+        for event in events:
+            event()
+        sliced, self.getting_sliced = self.getting_sliced, []
+        for victim, reason in sliced:
+            self.destroy_joker(victim, reason)
+        self.joker_buffer = 0
+
+    def _drawn_to_hand(self) -> None:
+        """Blind:drawn_to_hand, after every deal into the round (game.lua:3238).
+
+        Crimson Heart's half; Cerulean Bell's is in _draw_to_hand_size. The
+        blind is prepped by set_blind (blind.lua:94) and again by press_play
+        whenever a hand is played with a joker held (blind.lua:488-493), and
+        drawn_to_hand takes the prep away whatever happens (blind.lua:602).
+        So the opening deal takes a joker, the draw after each played hand
+        moves it on, a discard's draw moves nothing, and the hand that wins
+        the round draws nothing at all. This used to pick in _play, just
+        before scoring: the same draws, each one a deal late. N1OA90W1 stopped
+        on it at decision 188, Stencil debuffed in the game the moment the
+        blind was selected and nothing here.
+
+        The pick (blind.lua:588-600): the jokers not already debuffed are the
+        candidates -- all of them when there is only one -- every joker is let
+        go, and one candidate is taken with pseudorandom_element, which sorts
+        by sort_id first. By creation order, then, not by seat: recording 12
+        had its jokers dragged about, and picking by seat debuffed a Turtle
+        Bean four places from the Baron the game took, 42441 against 14147.
+        """
+        blind = self.blind
+        if blind is None or self.phase is not Phase.PLAYING:
+            return
+        boss = self.boss
+        if (boss is not None and boss.debuff_a_joker and blind.prepped
+                and self.jokers):
+            eligible = [j for j in self.jokers
+                        if not j.debuffed or len(self.jokers) < 2]
+            for joker in list(self.jokers):
+                self.set_joker_debuff(joker, False)
+            if eligible:
+                chosen = self.rng.random_element(
+                    sorted(eligible, key=lambda j: j.uid), "crimson_heart")
+                self.set_joker_debuff(chosen, True)
+        blind.prepped = False
 
     def _nominate_forced_card(self) -> None:
         """Cerulean Bell picks a card the player must always include.
@@ -2024,25 +2199,11 @@ class GameState:
         self._apply_debuffs()
         boss = self.boss
         if boss is not None and boss.debuff_a_joker and self.jokers:
-            # Crimson Heart disables one joker each hand, chosen from the ones
-            # not already disabled, and releases the one it held before.
-            #
-            # By creation order, not by where the joker sits. The game draws
-            # it with pseudorandom_element (blind.lua:594), which sorts the
-            # table by sort_id before indexing -- and a player drags jokers
-            # around all the time, so the row is not an order the game would
-            # ever draw from. This picked by row position, and recording 12
-            # is what that costs: Marcin *"repositioned the jokers at the
-            # time"*, the game debuffed his Baron and this debuffed the
-            # Turtle Bean four seats away. One hand scored 14147 there and
-            # 42441 here, and the +4 hand size went with it -- 12 cards
-            # against 8.
-            eligible = [j for j in self.jokers if not j.debuffed] or self.jokers
-            for joker in self.jokers:
-                joker.debuffed = False
-            chosen = self.rng.random_element(
-                sorted(eligible, key=lambda j: j.uid), "crimson_heart")
-            chosen.debuffed = True
+            # Crimson Heart's press_play only preps the blind
+            # (blind.lua:488-493). The joker it takes is picked on the draw
+            # that follows the hand, in _drawn_to_hand, so this hand scores
+            # against the one the last deal took.
+            self.blind.prepped = True
 
         played = [self.hand[i] for i in indices]
         result = self.evaluate_selection(played)
@@ -2245,6 +2406,7 @@ class GameState:
             self._lose_round()
         else:
             self._draw_to_hand_size()
+            self._drawn_to_hand()
 
     def _snapshot_most_played(self) -> None:
         """Fix the hand The Ox will punish, as a boss round closes.
@@ -2282,6 +2444,7 @@ class GameState:
         self.discard_cards(cards)
         self.discards_used += 1
         self._draw_to_hand_size()
+        self._drawn_to_hand()
 
     def discard_cards(self, cards: list[Card], hook: bool = False) -> None:
         """The discard itself: seals, joker hooks, and the pile.
@@ -2546,6 +2709,24 @@ class GameState:
             self.pending_payout += per_block * min(self.interest_cap,
                                                    max(0, self.money) // 5)
 
+        # Which jokers get a money row is settled now, while Crimson Heart
+        # still holds its joker: evaluate_round works out every row at once
+        # (state_events.lua:1175-1178), and defeat() -- and the release
+        # below -- only runs from an event it queued first (1148-1155,
+        # blind.lua:330-337). A joker the boss held pays no row that round.
+        self.dollar_rows = [j for j in self.active_jokers
+                            if j.spec.round_money is not None]
+
+        # Blind:defeat leaves the empty blind behind: set_blind(nil)
+        # (blind.lua:336) asks debuff_card of every joker (blind.lua:211-213)
+        # and an empty blind holds none (blind.lua:651), so a joker Crimson
+        # Heart held is back by the cash-out screen. It is an event, and
+        # evaluate_round has already reckoned the interest by then
+        # (state_events.lua:1152 against the rows after it) -- so after the
+        # interest here as well.
+        for joker in list(self.jokers):
+            self.set_joker_debuff(joker, False)
+
         # And now the run stands on the cash-out screen and waits.
         #
         # This used to cash out by itself, on the grounds that the screen
@@ -2592,9 +2773,12 @@ class GameState:
         # ran out this round was debuffed in end_round (state_events.lua:109)
         # before evaluate_round built the rows (1176), so its last round pays
         # nothing -- a perished Golden Joker went on paying four dollars.
-        for joker in list(self.active_jokers):
-            if joker.spec.round_money is not None:
-                joker.spec.round_money(joker, self)
+        rows = (self.dollar_rows if self.dollar_rows is not None else
+                [j for j in self.active_jokers
+                 if j.spec.round_money is not None])
+        self.dollar_rows = None
+        for joker in rows:
+            joker.spec.round_money(joker, self)
 
         # Cashing out is also where the round's counters go back: the engine
         # already reads a full complement of hands and discards, and no chips
