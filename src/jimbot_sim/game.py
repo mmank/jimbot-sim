@@ -1777,11 +1777,23 @@ class GameState:
                         shortcut=self._shortcut())
 
     def preview_score(self, indices: tuple[int, ...]) -> int:
-        """Score a candidate play without advancing the run.
+        """Score a candidate play without advancing the run. See preview_play."""
+        return self.preview_play(indices)[0]
+
+    def preview_play(self, indices: tuple[int, ...]) -> tuple[int, list]:
+        """Score a candidate play without advancing the run, and hand back
+        the joker row as scoring left it.
 
         Joker counters and card enhancements that scoring would mutate are
         snapshotted and restored, and a throwaway RNG stands in so previewing
         does not consume the run's random stream.
+
+        The row that comes back is the copies scoring ran on -- a Square
+        Joker four chips up after a four-card hand, a Runner fifteen up after
+        a Straight -- while the run's own row is put back untouched. Which is
+        what farming a scaling joker needs to know and what a score alone
+        cannot say: the hand is worth what it scores, the play is worth that
+        plus every later hand the grown joker adds to.
         """
         played = [self.hand[i] for i in indices]
         held = [c for i, c in enumerate(self.hand) if i not in indices]
@@ -1807,7 +1819,10 @@ class GameState:
         # TypeError.
         self.rng = RunRng("%s_preview" % self.seed)
         try:
-            return score_hand(self, self.evaluate_selection(played), played, held).score
+            score = score_hand(self, self.evaluate_selection(played),
+                               played, held).score
+            # The copies, read before `finally` puts the real row back.
+            return score, self.jokers
         finally:
             for card, enhancement, extra, seal, edition in cards:
                 card.enhancement = enhancement
