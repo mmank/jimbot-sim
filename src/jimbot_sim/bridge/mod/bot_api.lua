@@ -937,6 +937,12 @@ function BotAPI.state()
       -- hands measure from, which is not the start of the run.
       hands_held = (G.GAME.hands_played or 0)
         - (card.ability.hands_played_at_create or 0),
+      -- To Do List's hand, by name, and nil for every other joker. It is
+      -- reported rather than left to the simulator because it cannot be
+      -- predicted: the pool is built with pairs(G.GAME.hands) (card.lua:313,
+      -- 2977), and LuaJIT seeds its string hash per process, so the same draw
+      -- names a different hand in a different process.
+      to_do_hand = card.ability.to_do_poker_hand,
     }
   end
 
