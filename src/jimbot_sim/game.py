@@ -2563,8 +2563,12 @@ class GameState:
                 if (joker.spec.prevents_death and not joker.debuffed
                         and self.chips_scored / self.blind.target >= 0.25):
                     self.log(f"{joker.name} saved the run")
-                    self.destroy_joker(joker)
+                    # He goes after the round is closed, not before: the game
+                    # only queues start_dissolve (card.lua:3049-3057), so he
+                    # is still in the end_round pass and a rental Mr. Bones
+                    # pays that round's rent (state_events.lua:103-108).
                     self._beat_blind(reward=False)
+                    self.destroy_joker(joker)
                     return
         self.phase = Phase.GAME_OVER
         self.log(f"Lost on ante {self.ante} {self.blind.name}")
@@ -2715,6 +2719,15 @@ class GameState:
         # all of it the instant the round closes and before the cash-out
         # screen appears. A Popcorn that has run out is gone by the time the
         # player sees the score.
+        #
+        # The row as it stood when that pass began is kept for the rent. The
+        # game walks G.jokers.cards once and charges each joker's rent right
+        # after its own end_of_round answer (state_events.lua:99-110), and a
+        # joker that leaves on that answer -- Gros Michel going extinct,
+        # Popcorn or Turtle Bean eaten -- only queues its removal
+        # (card.lua:3021-3036, 2947-2962, 2905-2920). So it is still in the
+        # row when calculate_rental runs on it, and a rental pays its last $3.
+        in_row = list(self.jokers)
         for joker in self.calculating_jokers():
             if joker.spec.round_end is not None:
                 joker.spec.round_end(joker, self)
@@ -2724,7 +2737,11 @@ class GameState:
         # evaluate_round, so the rent is already gone by the time the
         # cash-out screen appears. A rental takes three dollars a round and a
         # perishable counts one round closer to being switched off.
-        for joker in self.jokers:
+        #
+        # Over the row the pass began with, not what is left of it: two
+        # stake-8 runs, DS2IGPRB and N97LC9AB, stopped $4 and $3 rich on a
+        # rental Gros Michel that went extinct without paying.
+        for joker in in_row:
             if joker.rental:
                 self.add_money(-RENTAL_RATE, f"{joker.name} rental")
             if joker.perishable and joker.perish_tally > 0:
