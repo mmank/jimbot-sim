@@ -438,6 +438,11 @@ class GameState:
         self._roll_ante_tags()
         self._reset_round_cards()
         self._reroll_todo_hands()
+        # The counters, not the cards: start_run puts round_resets on the HUD
+        # (game.lua:2381-2382) before anything is dealt. A recording's first
+        # snapshot reads hands_left 4 and discards_left 3 with an empty hand;
+        # waiting until the round starts reported nought of each.
+        self.hands_left, self.discards_left = self._round_allowance(False)
         self._next_blind()
 
     # ------------------------------------------------------------------
@@ -1433,12 +1438,14 @@ class GameState:
             ante_scaling=self.deck_config.get("ante_scaling", 1),
             scaling=self.blind_scaling,
             no_reward=(kind is BlindKind.SMALL and self.stake >= 2))
-        # The counters, not the cards. A recording's first snapshot reads
-        # hands_left 4 and discards_left 3 with hand_size 0 and an empty hand
-        # -- nothing is dealt until the blind is taken, but the allowance is
-        # already on the HUD. Waiting until the round starts left the
-        # simulator reporting nought of each against a screen showing both.
-        self.hands_left, self.discards_left = self._round_allowance(False)
+        # No counters here. The game writes current_round.hands_left and
+        # discards_left only at start_run (game.lua:2381), cash_out
+        # (button_callbacks.lua:2929) and new_round (state_events.lua:296),
+        # and moves them otherwise by ease_hands_played / ease_discard.
+        # Leaving the shop and skipping a blind do neither, so the screen
+        # shows what cash-out left. Recomputing the allowance here applied a
+        # Troubadour bought in the shop a blind early -- 3 hands against the
+        # game's 4 (card.lua:625 moves round_resets.hands alone).
         self.phase = Phase.BLIND_SELECT
         self._apply_blind_select_tags()
 
