@@ -526,8 +526,11 @@ def pack_contents(rng: RunRng, kind: str, cards: int, ante: int,
             key = draw_joker(rng, ante, owned_enhancements, made,
                              showman, pool_flags=pool_flags, append=append)
             # A pack joker takes the same sticker polls a shop joker does,
-            # under the pack's own pool names.
-            marks = poll_stickers(rng, ante, in_pack=True, **(stickers or {}))
+            # under the pack's own pool names, and its centre refuses what
+            # it will not take (card.lua:506-518).
+            marks = poll_stickers(rng, ante, in_pack=True,
+                                  name=NAME_BY_JOKER_KEY.get(key),
+                                  **(stickers or {}))
             # poll_edition reads the global G.GAME.edition_rate, so Hone and
             # Glow Up widen a pack joker's bands as they do a shop joker's
             # (common_events.lua:2071-2076, 2149).
@@ -613,7 +616,7 @@ def takes_sticker(name: str) -> tuple[bool, bool]:
 
 def poll_stickers(rng: RunRng, ante: int, in_pack: bool = False,
                   eternals: bool = False, perishables: bool = False,
-                  rentals: bool = False) -> dict:
+                  rentals: bool = False, name: str | None = None) -> dict:
     """Eternal, perishable and rental, as create_card polls them.
 
     Every joker made for a shop or a Buffoon pack takes this poll, and the
@@ -626,14 +629,23 @@ def poll_stickers(rng: RunRng, ante: int, in_pack: bool = False,
 
     The names change inside a pack: "packetper" and "packssjr" rather than
     "etperpoll" and "ssjr".
+
+    `name` is the joker the stickers are for, and its centre gets the veto
+    set_eternal and set_perishable give it (card.lua:506-518) -- in the shop
+    and in a pack alike, since both go through create_card
+    (common_events.lua:2137-2146). The veto lived in GameState._apply_stickers,
+    which a pack joker never passes through, so 0K02UUCE's Spare Trousers
+    came out of a Buffoon pack perishable and was debuffed five rounds later
+    in a run where the game had left it plain.
     """
+    eternal_ok, perishable_ok = takes_sticker(name) if name else (True, True)
     out = {"eternal": False, "perishable": False, "rental": False}
     poll = rng.pseudorandom("%s%d" % ("packetper" if in_pack else "etperpoll",
                                       ante))
     if eternals and poll > 0.7:
-        out["eternal"] = True
+        out["eternal"] = eternal_ok
     elif perishables and 0.4 < poll <= 0.7:
-        out["perishable"] = True
+        out["perishable"] = perishable_ok
     if rentals and rng.pseudorandom(
             "%s%d" % ("packssjr" if in_pack else "ssjr", ante)) > 0.7:
         out["rental"] = True

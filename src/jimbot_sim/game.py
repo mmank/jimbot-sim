@@ -1481,19 +1481,18 @@ class GameState:
         after the discount, however expensive the joker is, which is six
         dollars a recording said the run still had.
         """
-        stickers = shop_pool.poll_stickers(self.rng, self.ante, in_pack,
-                                           **self.sticker_rules)
         # The centre gets a veto, and it is not a preference: set_eternal and
         # set_perishable simply drop the sticker when the joker refuses it
         # (card.lua:506, 513). Ride the Bus is `perishable_compat = false`,
         # and handing it one anyway debuffed it five rounds into a run the
         # game had left alone -- which is how the live differential found
-        # that these flags were not modelled at all. Each also refuses the
-        # other's sticker, hence the ordering below.
-        eternal_ok, perishable_ok = shop_pool.takes_sticker(joker.name)
-        joker.eternal = stickers["eternal"] and eternal_ok
-        joker.perishable = (stickers["perishable"] and perishable_ok
-                            and not joker.eternal)
+        # that these flags were not modelled at all. poll_stickers applies
+        # it, so a Buffoon pack's jokers get it too.
+        stickers = shop_pool.poll_stickers(self.rng, self.ante, in_pack,
+                                           name=joker.name,
+                                           **self.sticker_rules)
+        joker.eternal = stickers["eternal"]
+        joker.perishable = stickers["perishable"]
         joker.rental = stickers["rental"]
         if joker.perishable:
             joker.perish_tally = PERISHABLE_ROUNDS
@@ -3343,11 +3342,17 @@ class GameState:
             edition = _EDITION_BY_NAME[shop_pool.poll_edition(
                 self.rng, "edi%s%d" % (append, self.ante),
                 edition_rate=self.edition_rate)]
+            joker = self._made_joker(JokerInstance(spec, edition=edition))
+            # The tag makes its joker with create_card into the area
+            # create_card_for_shop was handed (tag.lua:356, 370;
+            # UI_definitions.lua:756), which is always G.shop_jokers -- so it
+            # takes the shop's own sticker polls, "etperpoll" and "ssjr"
+            # (common_events.lua:2137-2146), and spends the first draw even
+            # on a stake that puts nothing on it.
+            self._apply_stickers(joker)
             # The tag's joker is free, which the game says by couponing it
             # rather than by pricing it at nothing.
-            return ShopSlot("joker", spec.cost, couponed=True,
-                            joker=self._made_joker(
-                                JokerInstance(spec, edition=edition)))
+            return ShopSlot("joker", spec.cost, couponed=True, joker=joker)
         return None
 
     def _apply_shop_tags(self) -> None:
