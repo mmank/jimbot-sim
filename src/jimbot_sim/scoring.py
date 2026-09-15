@@ -75,8 +75,12 @@ def effective_specs(jokers: list[JokerInstance]
         idx = i
         while spec.copier is not None:
             target = idx + 1 if spec.copier == "right" else 0
-            if target >= len(jokers) or target in seen:
-                # Copies nothing: its own spec has no effect hooks.
+            if (target >= len(jokers) or target in seen
+                    or jokers[target].debuffed):
+                # Copies nothing: its own spec has no effect hooks. A debuffed
+                # joker is nothing to copy -- other_joker:calculate_joker is nil
+                # for it (card.lua:2292) -- and the copier does not reach past
+                # it, which is why this wants the whole row, debuffed included.
                 spec, source = joker.spec, joker
                 break
             seen.add(target)
@@ -84,6 +88,21 @@ def effective_specs(jokers: list[JokerInstance]
             spec, source = jokers[target].spec, jokers[target]
         out.append((spec, source))
     return out
+
+
+def calculating_specs(jokers: list[JokerInstance]
+                      ) -> list[tuple[JokerInstance, JokerSpec, JokerInstance]]:
+    """(owner, spec, source) for each joker in the row that answers at all.
+
+    `jokers` is the whole row. A debuffed joker answers no calculate_joker
+    context (card.lua:2291-2292) and is left out, and a copier beside one
+    copies nothing (effective_specs). Resolving the copies over the working
+    jokers alone moved a Blueprint on to the joker past a debuffed neighbour,
+    and a Brainstorm on to the second joker when the first was debuffed.
+    """
+    return [(owner, spec, source)
+            for owner, (spec, source) in zip(jokers, effective_specs(jokers))
+            if not owner.debuffed]
 
 
 def _edition_before(edition: Edition, ctx: ScoreContext, source: str) -> None:
@@ -159,12 +178,10 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     )
     # A debuffed joker scores nothing at all -- a perishable that has run out
     # its rounds sits in the row contributing neither chips nor mult.
-    active = game.active_jokers
     # (owner, spec, source): the joker in the row, the ability it runs, and
     # the joker whose state that ability reads. They differ only for a
     # Blueprint or a Brainstorm, and only the owner's edition applies.
-    pairs = [(owner, spec, source)
-             for owner, (spec, source) in zip(active, effective_specs(active))]
+    pairs = calculating_specs(game.jokers)
 
     chips, mult = game.hand_levels.values(result.hand)
     boss = game.boss
@@ -311,7 +328,7 @@ def held_triggers(game: "GameState", card: Card) -> int:
     if card.debuffed:
         return 0
     triggers = 1 + (1 if card.seal is Seal.RED else 0)
-    for spec, source in effective_specs(game.active_jokers):
+    for _owner, spec, source in calculating_specs(game.jokers):
         if spec.retrigger_held is not None:
             triggers += spec.retrigger_held(source, card, None)
     return triggers

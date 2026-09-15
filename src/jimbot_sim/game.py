@@ -624,7 +624,7 @@ class GameState:
         """
         if not cards:
             return
-        for joker in list(self.jokers):
+        for joker in self.calculating_jokers():
             if joker.spec.on_cards_destroyed is not None:
                 joker.spec.on_cards_destroyed(joker, list(cards), self)
             if shattered and joker.spec.on_glass_shattered is not None:
@@ -639,7 +639,7 @@ class GameState:
         a run made. The deck size stayed right, which is what made it hard to
         see: Hologram counts *additions*, not cards.
         """
-        for joker in self.jokers:
+        for joker in self.calculating_jokers():
             if joker.name == "Hologram":
                 joker.counter += 0.25
 
@@ -898,7 +898,7 @@ class GameState:
             # one per distinct Planet. It was declared and never written, so
             # Satellite paid nothing for a whole run.
             self.unique_planets.add(spec.name)
-            for joker in self.jokers:
+            for joker in self.calculating_jokers():
                 if joker.name == "Constellation":
                     joker.counter += 0.1
 
@@ -988,7 +988,7 @@ class GameState:
         its starting value for whole runs.
         """
         self.cards_sold += 1
-        for joker in self.jokers:
+        for joker in self.calculating_jokers():
             if joker.name == "Campfire":
                 joker.counter += 0.25
 
@@ -1170,7 +1170,9 @@ class GameState:
             return None
         if self.blind.disabled:
             return None
-        if any(j.name == "Chicot" for j in self.jokers):
+        # Chicot disables the boss from setting_blind (card.lua:2492) and
+        # add_to_deck (card.lua:596), neither of which a debuffed one runs.
+        if any(j.name == "Chicot" for j in self.active_jokers):
             return None
         return self.blind.boss
 
@@ -1282,6 +1284,26 @@ class GameState:
         hand size, so the run dealt seven cards where the game dealt nine.
         """
         return [j for j in self.jokers if not j.debuffed]
+
+    def calculating_jokers(self):
+        """The row as calculate_joker walks it: a debuffed joker is skipped.
+
+        Card:calculate_joker opens `if self.debuff then return nil end`
+        (card.lua:2291-2292), so a debuffed joker answers no context at all --
+        not a discard, not the end of the round, not a reroll, a sale, a pack
+        opened or skipped, a card added or destroyed, a consumable used. Every
+        joker hook outside the scoring of a hand is called through here;
+        scoring goes through scoring.calculating_specs, which also stops a
+        copier at a debuffed joker. RRT5KY7W stopped on the discard at decision
+        188: a Ramen Crimson Heart held went on losing X0.01 a card, X1.8 here
+        against the game's X1.85.
+
+        Over a copy of the row, as these loops always were, with the debuff
+        read as each joker is reached.
+        """
+        for joker in list(self.jokers):
+            if not joker.debuffed:
+                yield joker
 
     @property
     def seen_centers(self) -> set:
@@ -1541,7 +1563,9 @@ class GameState:
         HandType happened to be None: nothing.
         """
         visible = self.visible_hands
-        for joker in self.jokers:
+        # An end_of_round branch (card.lua:2975): a debuffed To Do List
+        # keeps its hand and takes no 'to_do' draw.
+        for joker in self.calculating_jokers():
             if not joker.spec.rerolls_a_hand:
                 continue
             pool = [h for h in visible if h is not joker.named_hand]
@@ -1774,7 +1798,7 @@ class GameState:
         # that is already full and the round starts one card over the limit.
         # Running them first put the card in a hand that was then thrown away
         # and dealt again.
-        for joker in list(self.jokers):
+        for joker in self.calculating_jokers():
             if joker.spec.on_round_start is not None:
                 joker.spec.on_round_start(joker, self)
 
@@ -2089,26 +2113,34 @@ class GameState:
     # playing
     # ------------------------------------------------------------------
 
+    # The game asks for these with find_joker(name), which leaves out a
+    # debuffed joker (misc_functions.lua:903-907): Four Fingers
+    # (misc_functions.lua:524, 550), Shortcut (567), Splash
+    # (state_events.lua:583), Pareidolia (card.lua:967), Smeared Joker
+    # (card.lua:4072, 4084). Oops! All 6s doubles the probabilities in
+    # add_to_deck and halves them in remove_from_deck (card.lua:608, 665),
+    # which set_debuff runs (card.lua:526-538).
     def _four_fingers(self) -> bool:
-        return any(j.name == "Four Fingers" for j in self.jokers)
+        return any(j.name == "Four Fingers" for j in self.active_jokers)
 
     def _splash(self) -> bool:
-        return any(j.name == "Splash" for j in self.jokers)
+        return any(j.name == "Splash" for j in self.active_jokers)
 
     def has_pareidolia(self) -> bool:
         """Every card counts as a face card."""
-        return any(j.name == "Pareidolia" for j in self.jokers)
+        return any(j.name == "Pareidolia" for j in self.active_jokers)
 
     def has_smeared(self) -> bool:
         """Hearts count as Diamonds and Spades as Clubs, both ways."""
-        return any(j.name == "Smeared Joker" for j in self.jokers)
+        return any(j.name == "Smeared Joker" for j in self.active_jokers)
 
     def probability_scale(self) -> int:
         """Oops! All 6s doubles every listed probability, and stacks."""
-        return 2 ** sum(1 for j in self.jokers if j.name == "Oops! All 6s")
+        return 2 ** sum(1 for j in self.active_jokers
+                        if j.name == "Oops! All 6s")
 
     def _shortcut(self) -> bool:
-        return any(j.name == "Shortcut" for j in self.jokers)
+        return any(j.name == "Shortcut" for j in self.active_jokers)
 
     def evaluate_selection(self, cards: list[Card]):
         return evaluate(cards, splash=self._splash(),
@@ -2262,9 +2294,9 @@ class GameState:
         # such hand, and the extra cards were steel -- which is how a scoring
         # divergence turned out to be a deck-size one.
         if self.hands_played_this_round == set():
-            from .scoring import effective_specs
+            from .scoring import calculating_specs
 
-            for spec, source in effective_specs(list(self.jokers)):
+            for _owner, spec, source in calculating_specs(list(self.jokers)):
                 if spec.before_hand is not None:
                     spec.before_hand(source, played, self)
 
@@ -2354,9 +2386,9 @@ class GameState:
             # Nothing scores, but every joker is still asked, under
             # context.debuffed_hand (state_events.lua:1015-1027) -- through a
             # Blueprint too, which passes any context on (card.lua:2305-2317).
-            from .scoring import effective_specs
+            from .scoring import calculating_specs
 
-            for spec, source in effective_specs(self.active_jokers):
+            for _owner, spec, source in calculating_specs(self.jokers):
                 if spec.on_debuffed_hand is not None:
                     spec.on_debuffed_hand(source, self)
         else:
@@ -2372,7 +2404,7 @@ class GameState:
         # Jokers that make a card off the back of a hand -- Superposition,
         # Séance, Vagabond -- run once the hand has resolved, so they can ask
         # what it turned out to be.
-        for joker in list(self.jokers):
+        for joker in self.calculating_jokers():
             if joker.spec.after_hand is not None and ctx is not None:
                 joker.spec.after_hand(joker, ctx)
         gained = ctx.score if ctx is not None else 0
@@ -2478,11 +2510,11 @@ class GameState:
         (card.lua:2749), so the cards The Hook takes level nothing.
         """
         first = self.discards_used == 0
-        for joker in list(self.jokers):
+        for joker in self.calculating_jokers():
             if joker.spec.discarded is not None:
                 joker.spec.discarded(joker, cards, self)
         if first:
-            for joker in list(self.jokers):
+            for joker in self.calculating_jokers():
                 if hook and joker.name == "Burnt Joker":
                     continue
                 if joker.spec.on_first_discard is not None:
@@ -2644,7 +2676,7 @@ class GameState:
         self.beaten_blind = self.blind
         # Beating a boss puts Campfire back to X1.
         if self.blind.kind is BlindKind.BOSS:
-            for joker in self.jokers:
+            for joker in self.calculating_jokers():
                 if joker.name == "Campfire":
                     joker.counter = 1.0
 
@@ -2678,7 +2710,7 @@ class GameState:
         # all of it the instant the round closes and before the cash-out
         # screen appears. A Popcorn that has run out is gone by the time the
         # player sees the score.
-        for joker in list(self.jokers):
+        for joker in self.calculating_jokers():
             if joker.spec.round_end is not None:
                 joker.spec.round_end(joker, self)
 
@@ -3206,7 +3238,7 @@ class GameState:
         self.discards_left += voucher.extra_discards
 
     def _leave_shop(self) -> None:
-        for joker in list(self.jokers):
+        for joker in self.calculating_jokers():
             if joker.spec.on_shop_end is not None:
                 joker.spec.on_shop_end(joker, self)
         # The blind index and the ante moved on at cash-out; leaving the shop
@@ -3281,7 +3313,7 @@ class GameState:
         # 1.3*sqrt(GAMESPEED), the Tarot at 1.95*sqrt(GAMESPEED), so the
         # pack's Tarots are blanked from Hallucination's pool rather than its
         # Tarot from the pack's.
-        for joker in list(self.jokers):
+        for joker in self.calculating_jokers():
             if joker.spec.on_pack_open is not None:
                 joker.spec.on_pack_open(joker, self)
         self.phase = Phase.PACK
@@ -3790,7 +3822,8 @@ class GameState:
                 # Verdant Leaf lifts the moment any joker is sold, not just
                 # Luchador -- that is the whole shape of the blind.
                 self.disable_blind("a joker was sold")
-            if joker.spec.on_sell is not None:
+            # selling_self (card.lua:1599) is shut to a debuffed joker too.
+            if joker.spec.on_sell is not None and not joker.debuffed:
                 joker.spec.on_sell(joker, self)
         elif t is ActionType.SELL_CONSUMABLE:
             spec = self.consumables.pop(action.index)
@@ -3826,7 +3859,7 @@ class GameState:
             # The jokers that count rerolls are told before the new cards are
             # made, which is the game's order -- calculate_joker fires on the
             # button, not on the shop that comes back.
-            for joker in list(self.jokers):
+            for joker in self.calculating_jokers():
                 if joker.spec.on_reroll is not None:
                     joker.spec.on_reroll(joker, self)
             self._fill_shop(self.shop)
@@ -3839,7 +3872,7 @@ class GameState:
         elif t is ActionType.PICK_PACK:
             self._pick_pack(action.index, action.cards)
         elif t is ActionType.SKIP_PACK:
-            for joker in list(self.jokers):
+            for joker in self.calculating_jokers():
                 if joker.spec.on_pack_skip is not None:
                     joker.spec.on_pack_skip(joker, self)
             self._close_pack()
