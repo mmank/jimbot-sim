@@ -276,6 +276,31 @@ def suit_matches(card: Card, suit: Suit, ctx: ScoreContext) -> bool:
     return suit_matches_for(card, suit, ctx.game)
 
 
+def is_suit_for(card: Card, suit: Suit, game,
+                bypass_debuff: bool = False) -> bool:
+    """Card:is_suit(suit, bypass_debuff), the ordinary branch (card.lua:4076-4087):
+
+        if self.debuff and not bypass_debuff then return end
+        if self.ability.effect == 'Stone Card' then return false end
+        if self.ability.name == "Wild Card" then return true end
+        if next(find_joker('Smeared Joker')) and <same colour> then return true end
+        return self.base.suit == suit
+
+    Without bypass_debuff this is `suit_matches_for`. Flower Pot is the one
+    joker that passes it (card.lua:3816-3819), so a debuffed card still
+    counts its suit there.
+    """
+    if card.debuffed and not bypass_debuff:
+        return False
+    if card.is_stone:
+        return False
+    if card.enhancement is Enhancement.WILD:
+        return True
+    if game.has_smeared() and card.suit is _SMEARED_PAIRS[suit]:
+        return True
+    return card.suit is suit
+
+
 def is_face_for(card: Card, game: "GameState", from_boss: bool = False) -> bool:
     """Card:is_face(from_boss), card.lua:964-970:
 
@@ -631,41 +656,36 @@ _FLOWER_POT_ORDER = (Suit.HEARTS, Suit.DIAMONDS, Suit.SPADES, Suit.CLUBS)
 
 
 def _flower_pot(j: JokerInstance, ctx: ScoreContext) -> None:
-    """X3 once the scoring cards fill all four suit slots, one slot a card.
+    """X3 when the scoring hand fills all four suits (card.lua:3808-3834).
 
-    Not "is every suit represented" (card.lua:3807-3833). Each card takes
-    the first empty slot, Hearts, Diamonds, Spades, Clubs, that it answers
-    `is_suit` for -- an elseif chain -- the plain cards first and the Wild
-    cards after them, with whatever is left:
+    Two passes over scoring_hand, each card filling at most ONE suit: the
+    first suit, Hearts-Diamonds-Spades-Clubs, that it is and that is still
+    empty. Cards that are not Wild go first and are asked with bypass_debuff
+    (`is_suit(s, true)`), so a debuffed Diamond still fills Diamonds; Wild
+    cards go second and are asked without it, so a debuffed Wild fills
+    nothing and a live one fills one empty suit, not all four. Smeared Joker
+    lets a second Heart fill Diamonds.
 
-      * so a Wild card fills one slot, not four;
-      * the plain cards ask `is_suit(suit, true)`, which beside a Smeared
-        Joker answers Hearts for a Diamond and Spades for a Club
-        (card.lua:4084), and reads a debuffed card's printed suit -- the
-        flush question for a card that is not Wild (`counts_for_flush`);
-      * the Wild cards ask `is_suit(suit)`, which a debuffed card answers
-        with nothing (card.lua:4077).
+    Asking `any card counts as s` for each suit let one Wild Seven fill the
+    two suits a Three of a Kind of 7H 7S 7C(wild) lacked: 459 against the
+    engine's 153.
 
     0RVVD29X, Ghost Deck, stake 1, decision 99: Smeared Joker and a Flush of
     a Wild Queen of Diamonds, two Clubs and two Spades. The Clubs fill Spades
     and Clubs, the Spades find nothing left, the Wild fills Hearts: no X3,
     150 x 394 = 59100 in the game against 177300 here.
     """
-    filled: set[Suit] = set()
-    plain = [c for c in ctx.scoring if c.enhancement is not Enhancement.WILD]
-    wild = [c for c in ctx.scoring
-            if c.enhancement is Enhancement.WILD and not c.debuffed]
-    for card in plain:
-        for suit in _FLOWER_POT_ORDER:
-            if suit not in filled and counts_for_flush(card, suit, ctx.game):
-                filled.add(suit)
-                break
-    for _card in wild:
-        for suit in _FLOWER_POT_ORDER:
-            if suit not in filled:
-                filled.add(suit)
-                break
-    if len(filled) == len(_FLOWER_POT_ORDER):
+    found = set()
+    passes = ([c for c in ctx.scoring if c.enhancement is not Enhancement.WILD],
+              [c for c in ctx.scoring if c.enhancement is Enhancement.WILD])
+    for bypass, cards in zip((True, False), passes):
+        for card in cards:
+            for suit in _FLOWER_POT_ORDER:
+                if suit not in found and is_suit_for(card, suit, ctx.game,
+                                                     bypass_debuff=bypass):
+                    found.add(suit)
+                    break
+    if len(found) == 4:
         ctx.times_mult(3.0, j.name)
 
 
@@ -948,19 +968,35 @@ register("Acrobat", Rarity.UNCOMMON, "X3 Mult on the final hand of the round",
          if ctx.game.hands_left == 0 else None)
 
 
-def _seeing_double(j: JokerInstance, ctx: ScoreContext) -> None:
-    """X2 when a scoring Club sits alongside a scoring card of another suit.
+_SEEING_DOUBLE_WILD_ORDER = (Suit.CLUBS, Suit.DIAMONDS, Suit.SPADES,
+                             Suit.HEARTS)
 
-    A single Wild card cannot satisfy both halves: the game wants two cards.
+
+def _seeing_double(j: JokerInstance, ctx: ScoreContext) -> None:
+    """X2 when the scoring hand has a Club and another suit (card.lua:3845-3866).
+
+    Cards that are not Wild count toward every suit `is_suit(s)` says they
+    are -- so under Smeared Joker a Spade is a Club too, and a Pair of Spades
+    qualifies on its own (112 on the engine, 56 here before). Wild cards then
+    fill one empty suit each, Clubs first, so a single Wild cannot be both
+    halves. None of it bypasses a debuff.
     """
-    live = [c for c in ctx.scoring if not c.debuffed and not c.is_stone]
-    for club in (c for c in live if c.counts_as_suit(Suit.CLUBS)):
-        for other in live:
-            if other is club:
-                continue
-            if any(other.counts_as_suit(s) for s in Suit if s is not Suit.CLUBS):
-                ctx.times_mult(2.0, j.name)
-                return
+    game = ctx.game
+    counts = dict.fromkeys(Suit, 0)
+    for card in ctx.scoring:
+        if card.enhancement is not Enhancement.WILD:
+            for suit in Suit:
+                if is_suit_for(card, suit, game):
+                    counts[suit] += 1
+    for card in ctx.scoring:
+        if card.enhancement is Enhancement.WILD:
+            for suit in _SEEING_DOUBLE_WILD_ORDER:
+                if counts[suit] == 0 and is_suit_for(card, suit, game):
+                    counts[suit] += 1
+                    break
+    if counts[Suit.CLUBS] and (counts[Suit.HEARTS] or counts[Suit.DIAMONDS]
+                               or counts[Suit.SPADES]):
+        ctx.times_mult(2.0, j.name)
 
 
 register("Seeing Double", Rarity.UNCOMMON,

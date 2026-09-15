@@ -146,10 +146,15 @@ def _to_suit(suit: Suit) -> ApplyHook:
     Card:set_base carries suit_nominal_original across the change, and that
     remembered suit orders the hand -- so a Heart turned into a Spade sits
     behind a natural Spade of the same rank.
+
+    Card:change_suit ends `G.GAME.blind:debuff_card(self)` (card.lua:561), so
+    under The Window a card turned into a Diamond is debuffed at once and one
+    turned out of Diamonds is released at once.
     """
     def apply(game: "GameState", cards: list[Card]) -> None:
         for card in cards:
             card.set_suit(suit)
+            game.debuff_card(card)
     return apply
 
 
@@ -177,6 +182,9 @@ def _strength(game: "GameState", cards: list[Card]) -> None:
     order = list(Rank)
     for card in cards:
         card.rank = order[(order.index(card.rank) + 1) % len(order)]
+        # set_base re-asks the boss (card.lua:143): The Plant takes a Ten
+        # made a Jack, and gives back a King made an Ace.
+        game.debuff_card(card)
 
 
 def _hanged_man(game: "GameState", cards: list[Card]) -> None:
@@ -234,6 +242,10 @@ def _death(game: "GameState", cards: list[Card]) -> None:
     # h_dollars and so on -- which come across with the enhancement itself.
     left.extra_chips = right.extra_chips
     left.played_this_ante = right.played_this_ante
+    # And the debuff, verbatim, after set_ability and set_base have each
+    # re-asked the boss: `new_card.debuff = other.debuff`
+    # (common_events.lua:2178).
+    left.debuffed = right.debuffed
 
 
 def _hermit(game: "GameState", cards: list[Card]) -> None:
@@ -552,6 +564,7 @@ def _ouija(game: "GameState", cards: list[Card]) -> None:
     rank = game.rng.choice("ouija", list(Rank))
     for card in game.hand:
         card.rank = rank
+        game.debuff_card(card)          # set_base, card.lua:1256 -> 143
     game.base_hand_size -= 1
     game.log("Ouija: the hand is all %ss" % rank.name.title())
 
@@ -561,6 +574,7 @@ def _sigil(game: "GameState", cards: list[Card]) -> None:
     suit = game.rng.choice("sigil", list(Suit))
     for card in game.hand:
         card.set_suit(suit)
+        game.debuff_card(card)          # set_base, card.lua:1242 -> 143
     game.log("Sigil: the hand is all %s" % suit.name.title())
 
 

@@ -596,9 +596,16 @@ class GameState:
         not: those write self.base, self.edition and self.seal and never
         touch ability at all. It is a real difference and an easy one to have
         backwards.
+
+        And it ends by asking the boss about the card again -- `if not
+        initial then G.GAME.blind:debuff_card(self) end` (card.lua:365) --
+        so The Lovers under The Window debuffs the Wild card it has just
+        made, on the spot rather than at the next hand. 5LPYZ3QU discarded
+        one straight away into a Clubs Castle: +6 in the game, +9 here.
         """
         card.enhancement = enhancement
         card.played_this_ante = False
+        self.debuff_card(card)
 
     def note_cards_destroyed(self, cards: list, shattered: list = ()) -> None:
         """Tell the jokers that feed on cards leaving the deck.
@@ -2007,37 +2014,48 @@ class GameState:
             sorted(self.hand, key=lambda c: c.uid), "cerulean_bell")
 
     def _apply_debuffs(self) -> None:
-        boss = self.boss
         for card in self.full_deck:
-            card.debuffed = False
+            self.debuff_card(card)
+
+    def debuff_card(self, card: Card) -> None:
+        """Blind:debuff_card for one playing card (blind.lua:624-653).
+
+        The whole deck is asked when the blind is set (blind.lua:207-210) --
+        which is `_apply_debuffs` -- but the game also asks it of a single
+        card whenever that card changes: Card:set_ability (card.lua:365),
+        Card:set_base (card.lua:143) and Card:change_suit (card.lua:561).
+        A card that no rule claims falls through to set_debuff(false)
+        (blind.lua:653), so a change can release a card as well as catch it.
+        """
+        card.debuffed = False
+        boss = self.boss
         if boss is None:
             return
         if boss.debuff_until_sale:
             # Verdant Leaf debuffs every card -- not the jokers -- until a
             # joker is sold, which disables the blind.
-            for card in self.full_deck:
-                card.debuffed = True
+            card.debuffed = True
             return
-        for card in self.full_deck:
-            # Blind:debuff_card asks `card:is_suit(suit, true)`
-            # (blind.lua:626), and that is not the card's printed suit: a Wild
-            # Card is every suit and is debuffed by any of the four, a Stone
-            # Card has no suit and is debuffed by none, and a Smeared Joker
-            # pairs hearts with diamonds and spades with clubs (card.lua:4076).
-            # Reading `card.suit` let a wild Five score under The Goad for
-            # five chips and a Greedy Joker's three mult -- 2291 against the
-            # game's 1924, on a hand that decided the blind.
-            if (boss.debuff_suit is not None
-                    and suit_matches_for(card, boss.debuff_suit, self)):
-                card.debuffed = True
-            # `card:is_face(true)` in the same function (blind.lua:630): not
-            # the printed rank, so a Stone King is spared, and Pareidolia
-            # makes every card a face card (card.lua:967) -- so The Plant
-            # debuffs the whole deck, Stone included, while one is held.
-            if boss.debuff_face and is_face_for(card, self, from_boss=True):
-                card.debuffed = True
-            if boss.debuff_previously_played and card.played_this_ante:
-                card.debuffed = True
+        # Blind:debuff_card asks `card:is_suit(suit, true)`
+        # (blind.lua:626), and that is not the card's printed suit: a Wild
+        # Card is every suit and is debuffed by any of the four, a Stone
+        # Card has no suit and is debuffed by none, and a Smeared Joker
+        # pairs hearts with diamonds and spades with clubs (card.lua:4076).
+        # Reading `card.suit` let a wild Five score under The Goad for
+        # five chips and a Greedy Joker's three mult -- 2291 against the
+        # game's 1924, on a hand that decided the blind. The flag was
+        # cleared above, which is the `bypass_debuff` of that call.
+        if (boss.debuff_suit is not None
+                and suit_matches_for(card, boss.debuff_suit, self)):
+            card.debuffed = True
+        # `card:is_face(true)` in the same function (blind.lua:630): not
+        # the printed rank, so a Stone King is spared, and Pareidolia
+        # makes every card a face card (card.lua:967) -- so The Plant
+        # debuffs the whole deck, Stone included, while one is held.
+        if boss.debuff_face and is_face_for(card, self, from_boss=True):
+            card.debuffed = True
+        if boss.debuff_previously_played and card.played_this_ante:
+            card.debuffed = True
 
     def _roll_boss(self) -> None:
         """Draw the boss for this ante and hold on to it.
@@ -2268,7 +2286,10 @@ class GameState:
         # previewing every subset of a hand runs each of those two hundred
         # times. Levels were not restored, so a policy that previewed took
         # High Card to level 140 and won a run on hands the game never dealt.
-        cards = [(c, c.enhancement, c.extra_chips, c.seal, c.edition)
+        # The debuff goes back too: Vampire and Midas Mask change an
+        # enhancement through set_enhancement, which asks the boss again.
+        cards = [(c, c.enhancement, c.extra_chips, c.seal, c.edition,
+                  c.debuffed)
                  for c in played + held]
         levels = dict(self.hand_levels.levels)
         plays = dict(self.hand_levels.plays)
@@ -2311,11 +2332,12 @@ class GameState:
             # The copies, read before `finally` puts the real row back.
             return score, self.jokers
         finally:
-            for card, enhancement, extra, seal, edition in cards:
+            for card, enhancement, extra, seal, edition, debuffed in cards:
                 card.enhancement = enhancement
                 card.extra_chips = extra
                 card.seal = seal
                 card.edition = edition
+                card.debuffed = debuffed
             self.hand_levels.levels.clear()
             self.hand_levels.levels.update(levels)
             self.hand_levels.plays.clear()
