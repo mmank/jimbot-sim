@@ -624,11 +624,11 @@ class GameState:
         """
         if not cards:
             return
-        for joker in self.calculating_jokers():
-            if joker.spec.on_cards_destroyed is not None:
-                joker.spec.on_cards_destroyed(joker, list(cards), self)
-            if shattered and joker.spec.on_glass_shattered is not None:
-                joker.spec.on_glass_shattered(joker, list(shattered), self)
+        for joker, answer in self.calculating_hooks("on_cards_destroyed"):
+            answer(joker, list(cards), self)
+        if shattered:
+            for joker, answer in self.calculating_hooks("on_glass_shattered"):
+                answer(joker, list(shattered), self)
 
     def note_card_created(self, card: Card) -> None:
         """Tell the jokers that count cards added that one has been.
@@ -1291,12 +1291,14 @@ class GameState:
         Card:calculate_joker opens `if self.debuff then return nil end`
         (card.lua:2291-2292), so a debuffed joker answers no context at all --
         not a discard, not the end of the round, not a reroll, a sale, a pack
-        opened or skipped, a card added or destroyed, a consumable used. Every
-        joker hook outside the scoring of a hand is called through here;
-        scoring goes through scoring.calculating_specs, which also stops a
-        copier at a debuffed joker. RRT5KY7W stopped on the discard at decision
-        188: a Ramen Crimson Heart held went on losing X0.01 a card, X1.8 here
-        against the game's X1.85.
+        opened or skipped, a card added or destroyed, a consumable used. The
+        joker hooks outside the scoring of a hand go through calculating_hooks,
+        which walks the row the same way and resolves copies too; what is left
+        here are the loops keyed on a joker's own name -- Hologram,
+        Constellation, Campfire, To Do List -- whose branches all say `not
+        context.blueprint`. Scoring goes through scoring.calculating_specs.
+        RRT5KY7W stopped on the discard at decision 188: a Ramen Crimson Heart
+        held went on losing X0.01 a card, X1.8 here against the game's X1.85.
 
         Over a copy of the row, as these loops always were, with the debuff
         read as each joker is reached.
@@ -1304,6 +1306,70 @@ class GameState:
         for joker in list(self.jokers):
             if not joker.debuffed:
                 yield joker
+
+    # Which copies answer a context outside the scoring of a hand. A Blueprint
+    # or a Brainstorm hands every context to the joker it copies
+    # (card.lua:2304-2333), and the copy runs unless the copied joker's branch
+    # says `not context.blueprint`. These are the jokers whose branch does, by
+    # hook; None shuts the whole context to copies.
+    _NOT_COPIED = {
+        # discard: Ramen 2757, Yorick 2788, Castle 2816, Hit the Road 2837,
+        # Green Joker 2846. Mail-In Rebate 2825 and Faceless Joker 2858 copy.
+        "discarded": frozenset(
+            {"Ramen", "Yorick", "Castle", "Hit the Road", "Green Joker"}),
+        # Trading Card's discard branch, 2802. Burnt Joker's pre_discard, 2749,
+        # copies.
+        "on_first_discard": frozenset({"Trading Card"}),
+        # Sixth Sense lives under `context.destroying_card and not
+        # context.blueprint` (2603); DNA's `before` branch, 3501, copies.
+        "before_hand": frozenset({"Sixth Sense"}),
+        # joker_main: Vagabond 3743, Superposition 3762, Seance 3787.
+        "after_hand": frozenset(),
+        # first_hand_drawn: Certificate 2463.
+        "on_round_start": frozenset(),
+        # end_of_round's joker branch is `elseif not context.blueprint` (2888),
+        # from Campfire through Mr. Bones.
+        "round_end": None,
+        "on_reroll": frozenset({"Flash Card"}),        # reroll_shop 2404
+        "on_pack_skip": frozenset({"Red Card"}),       # skipping_booster 2442
+        "on_pack_open": frozenset(),                   # Hallucination 2336
+        "on_shop_end": frozenset(),                    # Perkeo 2413
+        # remove_playing_cards and cards_destroyed: Caino 2623, 2673; Glass
+        # Joker 2647, 2687, and on The Hanged Man's using_consumeable, 2709.
+        "on_cards_destroyed": frozenset({"Canio"}),
+        "on_glass_shattered": frozenset({"Glass Joker"}),
+        # selling_self: Luchador 2355 and Diet Cola 2361 copy; Invisible Joker
+        # 2371 does not.
+        "on_sell": frozenset({"Invisible Joker"}),
+    }
+
+    def calculating_hooks(self, hook: str):
+        """(joker, hook) for each joker that answers `hook`, copies included.
+
+        calculating_jokers ran each joker's own hook, so outside scoring a
+        Blueprint or a Brainstorm answered nothing at all: a Blueprint on a
+        Mail-In Rebate paid once, on a Perkeo copied nothing, on a
+        Hallucination rolled nothing. The game calls the copied joker's own
+        calculate_joker (card.lua:2313, 2327), so this yields the *copied*
+        joker, whose state the hook then reads -- which is why every hook that
+        grows its joker's counter is one the game shuts to copies, and why a
+        copy is dropped here rather than run on the copier. Resolved over the
+        whole row by scoring.effective_specs, so a copier beside a debuffed
+        joker copies nothing; the copier's own debuff is read as it is reached.
+        """
+        from .scoring import effective_specs
+
+        row = list(self.jokers)
+        shut = self._NOT_COPIED[hook]
+        for owner, (spec, source) in zip(row, effective_specs(row)):
+            if owner.debuffed:
+                continue
+            answer = getattr(spec, hook)
+            if answer is None:
+                continue
+            if source is not owner and (shut is None or spec.name in shut):
+                continue
+            yield source, answer
 
     @property
     def seen_centers(self) -> set:
@@ -1797,10 +1863,9 @@ class GameState:
         # `first_hand_drawn`, so Certificate's card lands on top of a hand
         # that is already full and the round starts one card over the limit.
         # Running them first put the card in a hand that was then thrown away
-        # and dealt again.
-        for joker in self.calculating_jokers():
-            if joker.spec.on_round_start is not None:
-                joker.spec.on_round_start(joker, self)
+        # and dealt again. A Blueprint on a Certificate makes a second card.
+        for joker, answer in self.calculating_hooks("on_round_start"):
+            answer(joker, self)
 
         self.phase = Phase.PLAYING
         self.log(f"--- Ante {self.ante} {self.blind.name}: need {self.blind.target} ---")
@@ -2294,6 +2359,10 @@ class GameState:
         # such hand, and the extra cards were steel -- which is how a scoring
         # divergence turned out to be a deck-size one.
         #
+        # Sixth Sense is the other way round: its branch is
+        # `context.destroying_card and not context.blueprint` (card.lua:2603),
+        # so a copy destroys nothing and makes no second Spectral.
+        #
         # Neither runs on a hand the boss refuses. DNA is `context.before`
         # (card.lua:3501) and Sixth Sense `context.destroying_card`
         # (card.lua:2604), and evaluate_play asks both inside
@@ -2304,11 +2373,8 @@ class GameState:
         # reads.
         debuffed = self.hand_is_debuffed(result.hand, played)
         if not debuffed and self.hands_played_this_round == set():
-            from .scoring import calculating_specs
-
-            for _owner, spec, source in calculating_specs(list(self.jokers)):
-                if spec.before_hand is not None:
-                    spec.before_hand(source, played, self)
+            for joker, answer in self.calculating_hooks("before_hand"):
+                answer(joker, played, self)
 
         # And the held cards are read *after* them, because DNA puts its copy
         # in hand and the game scores that copy as a held card like any other.
@@ -2427,10 +2493,12 @@ class GameState:
 
         # Jokers that make a card off the back of a hand -- Superposition,
         # Séance, Vagabond -- run once the hand has resolved, so they can ask
-        # what it turned out to be.
-        for joker in self.calculating_jokers():
-            if joker.spec.after_hand is not None and ctx is not None:
-                joker.spec.after_hand(joker, ctx)
+        # what it turned out to be. Their joker_main branches have no `not
+        # context.blueprint` (card.lua:3743, 3762, 3787), so a copy makes a
+        # card of its own.
+        for joker, answer in self.calculating_hooks("after_hand"):
+            if ctx is not None:
+                answer(joker, ctx)
         gained = ctx.score if ctx is not None else 0
         self.chips_scored += gained
         # check_and_set_high_score only ever raises this.
@@ -2538,15 +2606,16 @@ class GameState:
         (card.lua:2749), so the cards The Hook takes level nothing.
         """
         first = self.discards_used == 0
-        for joker in self.calculating_jokers():
-            if joker.spec.discarded is not None:
-                joker.spec.discarded(joker, cards, self)
+        # Copies included: a Blueprint on a Mail-In Rebate pays twice, and on
+        # a Burnt Joker levels the hand twice (see _NOT_COPIED).
+        for joker, answer in self.calculating_hooks("discarded"):
+            answer(joker, cards, self)
         if first:
-            for joker in self.calculating_jokers():
+            for joker, answer in self.calculating_hooks("on_first_discard"):
+                # The copied joker, so a copy of Burnt Joker skips too.
                 if hook and joker.name == "Burnt Joker":
                     continue
-                if joker.spec.on_first_discard is not None:
-                    joker.spec.on_first_discard(joker, cards, self)
+                answer(joker, cards, self)
         for card in cards:
             # Card:calculate_seal opens `if self.debuff then return nil end`
             # (card.lua:2242-2243), ahead of the Purple Seal's discard branch
@@ -2746,7 +2815,8 @@ class GameState:
         # calculate_joker({end_of_round}) -- decay, growth and destruction,
         # all of it the instant the round closes and before the cash-out
         # screen appears. A Popcorn that has run out is gone by the time the
-        # player sees the score.
+        # player sees the score. No copies: the branch is `elseif not
+        # context.blueprint` (card.lua:2888).
         #
         # The row as it stood when that pass began is kept for the rent. The
         # game walks G.jokers.cards once and charges each joker's rent right
@@ -2756,9 +2826,8 @@ class GameState:
         # (card.lua:3021-3036, 2947-2962, 2905-2920). So it is still in the
         # row when calculate_rental runs on it, and a rental pays its last $3.
         in_row = list(self.jokers)
-        for joker in self.calculating_jokers():
-            if joker.spec.round_end is not None:
-                joker.spec.round_end(joker, self)
+        for joker, answer in self.calculating_hooks("round_end"):
+            answer(joker, self)
 
         # The stake's stickers are paid for when the round ends, not when the
         # money is taken: calculate_rental and calculate_perishable run in
@@ -3288,9 +3357,9 @@ class GameState:
         self.discards_left += voucher.extra_discards
 
     def _leave_shop(self) -> None:
-        for joker in self.calculating_jokers():
-            if joker.spec.on_shop_end is not None:
-                joker.spec.on_shop_end(joker, self)
+        # A Blueprint or a Brainstorm on a Perkeo makes a copy of its own.
+        for joker, answer in self.calculating_hooks("on_shop_end"):
+            answer(joker, self)
         # The blind index and the ante moved on at cash-out; leaving the shop
         # only chooses which blind is now on offer.
         if self.shop is not None:
@@ -3362,10 +3431,9 @@ class GameState:
         # 1.5*explode_time (card.lua:2002, 2071). The fill goes at
         # 1.3*sqrt(GAMESPEED), the Tarot at 1.95*sqrt(GAMESPEED), so the
         # pack's Tarots are blanked from Hallucination's pool rather than its
-        # Tarot from the pack's.
-        for joker in self.calculating_jokers():
-            if joker.spec.on_pack_open is not None:
-                joker.spec.on_pack_open(joker, self)
+        # Tarot from the pack's. A copied Hallucination rolls again.
+        for joker, answer in self.calculating_hooks("on_pack_open"):
+            answer(joker, self)
         self.phase = Phase.PACK
 
         # An Arcana or a Spectral pack deals a hand. Its cards need targets --
@@ -3856,14 +3924,23 @@ class GameState:
             self.jokers[i - 1], self.jokers[i] = (self.jokers[i],
                                                   self.jokers[i - 1])
         elif t is ActionType.SELL_JOKER:
+            from .scoring import effective_specs
+
+            # selling_self goes to the sold card alone, while it is still in
+            # the row (card.lua:1599), so a Blueprint sold beside a Diet Cola
+            # or a Luchador runs theirs -- and a Brainstorm the first joker's.
+            spec, source = effective_specs(list(self.jokers))[action.index]
             joker = self.jokers.pop(action.index)
+            answers = not joker.debuffed and (
+                source is joker
+                or spec.name not in self._NOT_COPIED["on_sell"])
             self._move_joker_counters(joker, arriving=False)
             self.add_money(self.sell_value(joker), f"sold {joker.name}")
             self.note_card_sold()
             # Selling is the whole point of some jokers -- Luchador disables
             # the boss, Diet Cola leaves a tag behind -- so the effect fires
             # after it has left the list, as the game does it.
-            if joker.spec.disables_boss_on_sell and not joker.debuffed:
+            if spec.disables_boss_on_sell and answers:
                 # selling_self is a calculate_joker context, and that returns
                 # nothing at all for a debuffed joker.
                 self.disable_blind(joker.name)
@@ -3873,8 +3950,8 @@ class GameState:
                 # Luchador -- that is the whole shape of the blind.
                 self.disable_blind("a joker was sold")
             # selling_self (card.lua:1599) is shut to a debuffed joker too.
-            if joker.spec.on_sell is not None and not joker.debuffed:
-                joker.spec.on_sell(joker, self)
+            if spec.on_sell is not None and answers:
+                spec.on_sell(source, self)
         elif t is ActionType.SELL_CONSUMABLE:
             spec = self.consumables.pop(action.index)
             self.add_money(max(1, spec.cost // 2), f"sold {spec.name}")
@@ -3909,9 +3986,8 @@ class GameState:
             # The jokers that count rerolls are told before the new cards are
             # made, which is the game's order -- calculate_joker fires on the
             # button, not on the shop that comes back.
-            for joker in self.calculating_jokers():
-                if joker.spec.on_reroll is not None:
-                    joker.spec.on_reroll(joker, self)
+            for joker, answer in self.calculating_hooks("on_reroll"):
+                answer(joker, self)
             self._fill_shop(self.shop)
         elif t is ActionType.BUY_PACK:
             assert self.shop is not None
@@ -3922,9 +3998,8 @@ class GameState:
         elif t is ActionType.PICK_PACK:
             self._pick_pack(action.index, action.cards)
         elif t is ActionType.SKIP_PACK:
-            for joker in self.calculating_jokers():
-                if joker.spec.on_pack_skip is not None:
-                    joker.spec.on_pack_skip(joker, self)
+            for joker, answer in self.calculating_hooks("on_pack_skip"):
+                answer(joker, self)
             self._close_pack()
         elif t is ActionType.CASH_OUT:
             self._cash_out()

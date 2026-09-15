@@ -185,9 +185,8 @@ def _hanged_man(game: "GameState", cards: list[Card]) -> None:
     """
     glass = [c for c in cards if c.enhancement is Enhancement.GLASS]
     if glass:
-        for joker in game.calculating_jokers():
-            if joker.spec.on_glass_shattered is not None:
-                joker.spec.on_glass_shattered(joker, list(glass), game)
+        for joker, answer in game.calculating_hooks("on_glass_shattered"):
+            answer(joker, list(glass), game)
     for card in cards:
         game.remove_card(card)
 
