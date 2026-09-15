@@ -189,20 +189,37 @@ def flush_suit(card: Card, suit: Suit, smeared: bool = False) -> bool:
     return card.suit is suit
 
 
+# The order get_flush tries the suits in (misc_functions.lua:525-530).
+_FLUSH_ORDER = (Suit.SPADES, Suit.HEARTS, Suit.CLUBS, Suit.DIAMONDS)
+
+
 def _flush_cards(cards: list[Card], needed: int,
                  smeared: bool = False) -> list[Card] | None:
-    """Largest same-suit group, if big enough, by `flush_suit`.
+    """get_flush (functions/misc_functions.lua:522): the first suit, in the
+    game's order, with enough cards by `flush_suit`.
 
     Smeared Joker collapses four suits into two, which changes what *is* a
     flush rather than what one scores -- A 3 5 7 9 in mixed spades and clubs
     is a flush only because of it.
+
+    The first suit to reach the count is the flush, not the biggest group
+    (532-542). Only Wild cards make two suits reach it at once, and then it
+    decides which cards score: with Four Fingers, four Wild cards and the
+    King of Clubs are a flush of Spades -- the four Wilds -- and the King
+    scores nothing. Taking the biggest group scored all five, 280 against
+    the game's 240 on the headless engine; three Wilds, a Diamond and a Club
+    are the Wilds and the Club, where it took the Diamond
+    (tests/test_hand_evaluation_matches_engine.py).
+
+    More than five cards are no flush at all (531), whatever their suits.
     """
-    best: list[Card] | None = None
-    for suit in Suit:
+    if len(cards) > 5:
+        return None
+    for suit in _FLUSH_ORDER:
         group = [c for c in cards if flush_suit(c, suit, smeared)]
-        if len(group) >= needed and (best is None or len(group) > len(best)):
-            best = group
-    return best
+        if len(group) >= needed:
+            return group
+    return None
 
 
 def _straight_cards(cards: list[Card], needed: int, shortcut: bool) -> list[Card] | None:
@@ -221,7 +238,10 @@ def _straight_cards(cards: list[Card], needed: int, shortcut: bool) -> list[Card
       suit in a flush; evaluate_play then skips it when it comes to score.
 
     Stone cards are out: get_id gives them a negative id, outside 2..14.
+    More than five cards are no straight (551), as they are no flush.
     """
+    if len(cards) > 5:
+        return None
     ids: dict[int, list[Card]] = {}
     for c in cards:
         if not c.is_stone:
