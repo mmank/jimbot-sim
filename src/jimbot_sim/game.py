@@ -2267,6 +2267,15 @@ class GameState:
             # check mode, as cardarea.lua:168 asks it, so nothing is set.
             if self.hand_is_debuffed(result.hand, played):
                 return 0, self.jokers
+            # Counted before it scores, as the play counts it (see _play) and
+            # as the game does: evaluate_play increments `played` at
+            # state_events.lua:574, before the jokers' context.before pass
+            # (card.lua:3411) where Obelisk decides whether to reset
+            # (card.lua:3543). Without it the preview saw the count one play
+            # late and called a reset a gain -- seven of twenty-six plays on
+            # PLOQ83ZX, two of them "clears the blind" that did not. `finally`
+            # puts the count back.
+            self.hand_levels.plays[result.hand] += 1
             score = score_hand(self, result, played, held).score
             # The copies, read before `finally` puts the real row back.
             return score, self.jokers
@@ -3652,6 +3661,19 @@ class GameState:
                     actions.append(Action(ActionType.PICK_PACK, index=i))
                 else:
                     actions += self._pack_consumable_actions(i, option)
+            # An open booster does not lock the row. Card:can_sell_card
+            # (card.lua:1640-1653) refuses a sale only while cards are being
+            # played, the controller is locked or STOP_USE is up, and asks of
+            # the card only that its area is a joker-type area -- which both
+            # G.jokers and G.consumeables are (game.lua:2235-2245). So a full
+            # row sells a joker to take the one in the pack, which is the
+            # ordinary way to play a Buffoon pack. The environment's mask has
+            # always offered it; only this list refused.
+            actions += [Action(ActionType.SELL_JOKER, index=i)
+                        for i, j in enumerate(self.jokers) if not j.eternal]
+            actions += [Action(ActionType.SELL_CONSUMABLE, index=i)
+                        for i in range(len(self.consumables))]
+            actions += self._swap_actions()
             return actions
 
         return []
@@ -3877,6 +3899,12 @@ class GameState:
         if self.phase is Phase.PACK:
             if t is ActionType.SKIP_PACK:
                 return True
+            # Selling inside a pack: see legal_actions.
+            if t is ActionType.SELL_JOKER:
+                return (0 <= index < len(self.jokers)
+                        and not self.jokers[index].eternal)
+            if t is ActionType.SELL_CONSUMABLE:
+                return 0 <= index < len(self.consumables)
             if t is ActionType.PICK_PACK:
                 if not 0 <= index < len(self.pack_options):
                     return False
