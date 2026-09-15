@@ -2289,6 +2289,22 @@ class GameState:
         return self.preview_play(indices)[0]
 
     def preview_play(self, indices: tuple[int, ...]) -> tuple[int, list]:
+        """The score and the joker row as scoring left it. See _preview."""
+        score, jokers, _ = self._preview(indices)
+        return score, jokers
+
+    def preview_value(self, indices: tuple[int, ...]) -> tuple[int, int]:
+        """The score, and the dollars the play earns while it scores.
+
+        Money a score cannot say: a Gold Seal is $3 a trigger, Golden Ticket
+        $4 a scored Gold card, a Lucky card's $20, Rough Gem's $1 a Diamond --
+        and a retrigger repeats every one of them, so which card leads a play
+        can be worth dollars where it is worth no chips at all.
+        """
+        score, _, dollars = self._preview(indices)
+        return score, dollars
+
+    def _preview(self, indices: tuple[int, ...]) -> tuple[int, list, int]:
         """Score a candidate play without advancing the run, and hand back
         the joker row as scoring left it.
 
@@ -2346,7 +2362,7 @@ class GameState:
                 # counted down. Returned untouched, a refused hand looked
                 # free to a policy pricing the row a play leaves.
                 self._refused_hand_after_pass(result, played, held)
-                return 0, self.jokers
+                return 0, self.jokers, 0
             # Counted before it scores, as the play counts it (see _play) and
             # as the game does: evaluate_play increments `played` at
             # state_events.lua:574, before the jokers' context.before pass
@@ -2356,9 +2372,13 @@ class GameState:
             # PLOQ83ZX, two of them "clears the blind" that did not. `finally`
             # puts the count back.
             self.hand_levels.plays[result.hand] += 1
-            score = score_hand(self, result, played, held).score
+            ctx = score_hand(self, result, played, held)
+            # The dollars before `finally` puts the money back: what _play
+            # would pay from the context once the hand has scored, and
+            # anything a hook paid into the run on the way.
+            dollars = ctx.money_gained + (self.money - money)
             # The copies, read before `finally` puts the real row back.
-            return score, self.jokers
+            return ctx.score, self.jokers, dollars
         finally:
             for card, enhancement, extra, seal, edition, debuffed in cards:
                 card.enhancement = enhancement
@@ -2392,6 +2412,36 @@ class GameState:
             played=tuple(played), held=tuple(held), game=self,
             contains=result.contains))
 
+    def swap_card_left(self, index: int) -> None:
+        """The card at `index` trades places with the one on its left.
+
+        BotAPI.swap_card_left, which is a drag in the game. Hand order is
+        scoring order -- play_cards_from_highlighted sorts the selection by
+        screen position (state_events.lua:463) -- so this is a decision, not
+        presentation: Hanging Chad retriggers the first card scored and
+        Photograph pays on the first face card scored.
+        """
+        if 0 < index < len(self.hand):
+            self.hand[index - 1], self.hand[index] = (self.hand[index],
+                                                      self.hand[index - 1])
+
+    def _arrange_play(self, indices: tuple[int, ...]) -> tuple[int, ...]:
+        """Put the played cards leftmost, in the order named, and renumber.
+
+        A play in hand order is left alone, which is every play the legal
+        list offers. Any other order is what a player gets by dragging those
+        cards to the front first, and is what the environment's and the
+        bridge's left-swaps reach: each named card moved left past the cards
+        before it, the rest keeping their order behind.
+        """
+        indices = tuple(indices)
+        if list(indices) == sorted(indices):
+            return indices
+        chosen = [self.hand[i] for i in indices]
+        rest = [c for i, c in enumerate(self.hand) if i not in indices]
+        self.hand[:] = chosen + rest
+        return tuple(range(len(chosen)))
+
     def _play(self, indices: tuple[int, ...]) -> None:
         # Which cards the boss debuffs is decided again every time, not once
         # when the round began. The game re-evaluates it in Card:update, so a
@@ -2408,6 +2458,7 @@ class GameState:
             # against the one the last deal took.
             self.blind.prepped = True
 
+        indices = self._arrange_play(indices)
         played = [self.hand[i] for i in indices]
         result = self.evaluate_selection(played)
 
@@ -3942,7 +3993,12 @@ class GameState:
 
         if self.phase is Phase.PLAYING:
             if t is ActionType.PLAY:
-                if not self._valid_indices(cards, MAX_PLAYED):
+                # In any order: a play names its cards in the order they
+                # score, and the listed plays are that set in hand order. See
+                # _arrange_play.
+                if (len(set(cards)) != len(cards)
+                        or not self._valid_indices(tuple(sorted(cards)),
+                                                   MAX_PLAYED)):
                     return False
                 return (self._restriction_ok(cards)
                         or not self._restriction_satisfiable())
