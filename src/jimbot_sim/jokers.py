@@ -58,6 +58,9 @@ class JokerSpec:
     # played card is scoring and so pays its new one immediately.
     update_before_scoring: bool = False   # most scaling jokers want True
     scored: ScoredHook | None = None
+    # A scoring Lucky card whose +Mult or $ roll hit on this trigger, asked
+    # right after `scored` and never on a copy's behalf. Lucky Cat.
+    lucky_trigger: ScoredHook | None = None
     held: HeldHook | None = None
     independent: IndepHook | None = None
     # context.other_joker: asked about each joker in the row, straight after
@@ -1076,6 +1079,8 @@ register("Glass Joker", Rarity.UNCOMMON,
 register("Lucky Cat", Rarity.UNCOMMON,
          "Gains X0.25 Mult each time a Lucky card triggers", enhancement_gate="m_lucky", cost=6,
          init_counter=1.0,
+         # card.lua:3076-3081; see scoring.score_hand for when it is asked.
+         lucky_trigger=lambda j, c, ctx: _bump(j, 0.25),
          independent=lambda j, ctx: ctx.times_mult(j.counter, j.name))
 
 

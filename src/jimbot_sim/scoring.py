@@ -135,9 +135,15 @@ def _apply_edition(edition: Edition, ctx: ScoreContext, source: str) -> None:
     _edition_after(edition, ctx, source)
 
 
-def _score_card_once(card: Card, ctx: ScoreContext) -> None:
-    """One trigger of a single scoring card's own abilities."""
+def _score_card_once(card: Card, ctx: ScoreContext) -> bool:
+    """One trigger of a single scoring card's own abilities.
+
+    Returns the card's `lucky_trigger` for this trigger: whether either of a
+    Lucky card's rolls hit (card.lua:988-989, 1076-1077). The jokers answer
+    it next, and the game clears it once they have (state_events.lua:700).
+    """
     game = ctx.game
+    lucky_trigger = False
     ctx.add_chips(card.base_chips, repr(card))
 
     if card.enhancement is Enhancement.BONUS:
@@ -151,13 +157,16 @@ def _score_card_once(card: Card, ctx: ScoreContext) -> None:
         # its name -- a different name is a different stream of numbers.
         if _listed(game, "lucky_mult", *LUCKY_MULT_CHANCE):
             ctx.add_mult(20, "lucky card")
+            lucky_trigger = True
         if _listed(game, "lucky_money", *LUCKY_MONEY_CHANCE):
             ctx.money_gained += 20
+            lucky_trigger = True
 
     _apply_edition(card.edition, ctx, "card")
 
     if card.seal is Seal.GOLD:
         ctx.money_gained += 3
+    return lucky_trigger
 
 
 def _held_card_once(card: Card, ctx: ScoreContext,
@@ -293,10 +302,21 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
             if spec.retrigger_scored is not None:
                 triggers += spec.retrigger_scored(source, card, ctx)
         for _ in range(triggers):
-            _score_card_once(card, ctx)
-            for _owner, spec, source in pairs:
+            lucky_trigger = _score_card_once(card, ctx)
+            for owner, spec, source in pairs:
                 if spec.scored is not None:
                     spec.scored(source, card, ctx)
+                # Lucky Cat, in the same pass and on its own account only:
+                # `not context.blueprint` (card.lua:3076). Once per trigger
+                # however many of the card's rolls hit, since the flag is
+                # cleared after this pass (state_events.lua:700), not after
+                # each roll. AWEFRTUZ, Blue Deck, stake 5, decision 70: a
+                # Lucky Queen under Hanging Chad hit both rolls on its third
+                # trigger, the game's Lucky Cat went to X1.25 and the
+                # simulator's, which had nothing that grew it, stayed at X1.
+                if (lucky_trigger and spec.lucky_trigger is not None
+                        and owner is source):
+                    spec.lucky_trigger(source, card, ctx)
 
     # A held card is repeated only when its first pass did something. The
     # game asks for repetitions once, after that pass, and gates the red seal
