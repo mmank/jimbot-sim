@@ -1475,10 +1475,21 @@ class GameState:
 
         boss = self.boss
         if boss is not None and boss.shuffles_jokers and len(self.jokers) > 1:
-            # Amber Acorn shuffles the joker row, twice, under its own pool
-            # name -- and joker order decides the order effects resolve in, so
-            # this is a real change rather than a cosmetic one.
-            for _ in range(2):
+            # Amber Acorn shuffles the joker row under its own pool name --
+            # and joker order decides the order effects resolve in, so this
+            # is a real change rather than a cosmetic one.
+            #
+            # Three times, not two, and each one sorted by card id first
+            # (blind.lua:195-201): every event calls G.jokers:shuffle('aajk'),
+            # CardArea:shuffle is pseudoshuffle, and pseudoshuffle sorts the
+            # list by sort_id before it shuffles. So the row the player
+            # dragged into is washed out by the first sort, and what decides
+            # the order is the third draw from the stream. Seed QWERTYUI on
+            # the headless engine reached an Amber Acorn at ante eight and the
+            # two rows came out holding the same six jokers in different
+            # orders; no recording had ever reached one.
+            for _ in range(3):
+                self.jokers.sort(key=lambda joker: joker.uid)
                 self.rng.shuffle(self.jokers, "aajk")
 
         self.draw_pile = list(self.full_deck)

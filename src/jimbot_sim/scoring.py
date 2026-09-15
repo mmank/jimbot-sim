@@ -261,9 +261,26 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
 
 
 def shattered_glass(game: "GameState", scoring: tuple[Card, ...]) -> list[Card]:
-    """Glass cards that break after scoring, to be removed from the deck."""
+    """Glass cards that break after scoring, to be removed from the deck.
+
+    A debuffed Glass card never breaks, and never rolls to (state_events.lua:
+    961):
+
+        if scoring_hand[i].ability.name == 'Glass Card'
+            and not scoring_hand[i].debuff
+            and pseudorandom('glass') < G.GAME.probabilities.normal/... then
+
+    The `and` stops before the draw, so the 'glass' stream does not move
+    either. Unreachable until a debuffed card could score at all -- it can
+    in a flush, since a flush reads a debuffed card's printed suit (see
+    `hands.flush_suit`). Seed QWERTYUI on the headless engine, the decision
+    after that fix: The Club and Smeared Joker debuff a Glass Ace of Spades
+    in a scoring flush, and this broke it -- the deck went to 51 here and
+    stayed at 52 in the game.
+    """
     return [c for c in scoring
             if c.enhancement is Enhancement.GLASS
+            and not c.debuffed
             and _listed(game, "glass", *GLASS_SHATTER_CHANCE)]
 
 
