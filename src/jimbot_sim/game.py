@@ -231,6 +231,12 @@ class GameState:
     # its used_jokers entry stands for the whole effect: The Emperor cannot
     # draw another Emperor. See seen_centers.
     using_key: str = ""
+    # G.STATES.PLAY_TAROT: true while a consumable's effect runs. use_card
+    # switches G.STATE for the whole effect and puts it back only in an event
+    # queued behind it (button_callbacks.lua:2178-2185, 2258-2263), so a hand
+    # size a Hex or a Judgement raises is not dealt into. See
+    # _hand_size_changed.
+    playing_tarot: bool = False
     # The same two as the game's keys, kept because a tag this simulator has
     # no effect for is still the tag the run was offered.
     ante_tag_keys: list = field(default_factory=list)
@@ -825,11 +831,13 @@ class GameState:
             # else changes, so the two paths stay one path.
             self.using_from_pack = from_pack
             self.using_key = shop_pool.KEY_BY_CONSUMABLE_NAME.get(spec.name, "")
+            self.playing_tarot = True
             try:
                 spec.apply(self, list(targets or []))
             finally:
                 self.using_from_pack = False
                 self.using_key = ""
+                self.playing_tarot = False
         self.log(f"Used {spec.name}")
         if spec.kind in (ConsumableKind.TAROT, ConsumableKind.PLANET):
             self.last_tarot_planet = shop_pool.KEY_BY_CONSUMABLE_NAME.get(
@@ -998,6 +1006,50 @@ class GameState:
         if discards > 0:
             self.discards_left = (self.discards_left + discards if arriving
                                   else max(0, self.discards_left - discards))
+        # change_size for the joker's hand size: h_size, Turtle Bean,
+        # Troubadour and Stuntman on the way in (card.lua:587, 606, 624, 628)
+        # and the reverse on the way out (card.lua:649, 663, 681, 685).
+        # Nothing for a debuffed joker -- its debuff already ran
+        # remove_from_deck(true), and both are guarded by added_to_deck --
+        # which is also why hand_size reads active_jokers.
+        if not joker.debuffed:
+            size = (int(joker.counter) if joker.spec.hand_size_from_counter
+                    else joker.spec.hand_size)
+            self._hand_size_changed(size if arriving else -size)
+
+    def _hand_size_changed(self, delta: int) -> None:
+        """Deal into a hand size that has just grown, as change_size does.
+
+        hand_size is derived from the row, so the limit itself has already
+        moved; what the game also does is deal. CardArea:change_size
+        (cardarea.lua:94-111):
+
+            if delta > 0 and self.config.real_card_limit > 1 and self == G.hand
+               and self.cards[1] and (G.STATE == G.STATES.DRAW_TO_HAND
+                                      or G.STATE == G.STATES.SELECTING_HAND)
+            then for i=1, math.abs(delta) do draw_card(G.deck, G.hand, ...)
+                     ... self:sort() ... end end
+
+        |delta| cards off the top of the deck, not a top-up to the limit: a
+        hand already over it still gets them. A decrease only lowers the limit
+        and discards nothing. U2EBFAQ2 stopped on this at decision 186: the
+        policy sold Stuntman while selecting a hand, the game held 10 cards
+        and the simulator 8.
+
+        Not during a consumable, whose G.STATE is PLAY_TAROT until after the
+        change_size event has run (see playing_tarot): on the engine a Hex
+        that destroys a Stuntman and a Judgement that makes a Juggler both
+        raise the limit and deal nothing.
+        """
+        if delta <= 0 or self.playing_tarot:
+            return
+        if self.phase is not Phase.PLAYING or not self.hand:
+            return
+        # real_card_limit is unfloored, but after an increase it is above one
+        # exactly when the floored hand_size is.
+        if self.hand_size <= 1:
+            return
+        self._draw_cards(delta)
 
     def add_joker_copy(self, joker: JokerInstance, source: str = "") -> None:
         """A copy of a joker already held, if the row has room for it."""
@@ -1089,7 +1141,11 @@ class GameState:
             self.discards_left = max(self.discards_left, discards)
 
         if boss.hand_size_delta < 0:
-            self._draw_to_hand_size()
+            # change_size(1) deals its card (blind.lua:387), and
+            # draw_from_deck_to_hand(1) another (blind.lua:389). Both are the
+            # delta rather than a top-up: on the engine eight cards held under
+            # a limit of seven became ten, where topping up gave nine.
+            self._hand_size_changed(-boss.hand_size_delta)
             self._draw_cards(-boss.hand_size_delta)
 
         self.log(f"{source}: {boss.name} is disabled")
