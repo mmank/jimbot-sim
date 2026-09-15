@@ -555,12 +555,18 @@ class BalatroBridge:
         self.wait_idle()
         return self.state()
 
-    def pick_pack(self, index: int, cards=None) -> dict:
+    def pick_pack(self, index: int, cards=None,
+                  closes: bool | None = None) -> dict:
         """Take a card from a pack and wait for it to arrive.
 
         The pack closing and the card landing are separate: moving on as soon
         as the pack shuts leaves the card still flying across the screen, which
         is visible as a joker drifting over the next screen.
+
+        `closes` is whether this pick is the pack's last, when the caller
+        knows. The state does not say how many picks are left, so without it
+        the wait for the pack to close runs its full length after the first
+        pick of a Mega pack, which stays open for the second.
         """
         # The pack's cards are dealt a few frames after the pack screen opens,
         # exactly as the shop's are. Picking before they land addresses an
@@ -595,7 +601,11 @@ class BalatroBridge:
                        or not s.get("in_pack")))
         # Then let the pack finish closing, if it is going to. A Mega pack
         # allows two picks and legitimately stays open, so this must not be
-        # treated as a failure -- it is a courtesy wait, not a condition.
+        # treated as a failure -- it is a courtesy wait, not a condition --
+        # and when the caller says the pack stays open there is nothing to
+        # wait for at all.
+        if closes is False:
+            return self.state()
         try:
             self.wait_until(lambda s: not s.get("in_pack"), timeout=8.0)
         except NotReady:
