@@ -274,6 +274,11 @@ class GameState:
     tarots_used: int = 0
     planets_used: int = 0
     unique_planets: set = field(default_factory=set)
+    # G.GAME.pool_flags: the run's history as the pools read it. One flag in
+    # the whole game -- 'gros_michel_extinct', set when Gros Michel dies
+    # (card.lua:3037) -- and it swaps Gros Michel out of every later pool and
+    # Cavendish in. Every call that rolls a joker has to pass it.
+    pool_flags: set = field(default_factory=set)
     rerolls: int = 0
     blinds_skipped: int = 0
     # G.GAME.unused_discards, which the Garbage Tag pays a dollar each for.
@@ -660,7 +665,9 @@ class GameState:
             rarity=4 if legendary else _RARITY_INDEX.get(rarity),
             append=append,
             owned_enhancements={"m_%s" % c.enhancement.value
-                                for c in self.full_deck})
+                                for c in self.full_deck},
+            showman=any(j.spec.allows_duplicates for j in self.active_jokers),
+            pool_flags=self.pool_flags)
         spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
         self.gain_joker(JokerInstance(spec))
         self.log(f"{source}: gained {spec.name}")
@@ -2435,7 +2442,8 @@ class GameState:
             # most of the joker's value, since the shop is where a run buys
             # the second Blueprint it is bought to allow.
             showman=any(j.spec.allows_duplicates for j in self.active_jokers),
-            owned_enhancements={"m_%s" % e for e in owned})
+            owned_enhancements={"m_%s" % e for e in owned},
+            pool_flags=self.pool_flags)
 
         # Illusion's first roll costs a draw on *every* slot, whatever the
         # slot turns out to be. The game decides Enhanced-or-Base inside the
@@ -2682,9 +2690,17 @@ class GameState:
             rarity, append = ((2, "uta") if tag is Tag.UNCOMMON
                               else (3, "rta"))
             self.tags.remove(tag)
-            key = shop_pool.draw_joker(self.rng, self.ante,
-                                       seen_jokers=self.seen_centers,
-                                       rarity=rarity, append=append)
+            # The same pool the shop rolls from, gates and all: a Rare Tag
+            # offered Lucky Cat to a deck with no Lucky card, and neither tag
+            # knew Gros Michel had gone extinct.
+            key = shop_pool.draw_joker(
+                self.rng, self.ante, seen_jokers=self.seen_centers,
+                rarity=rarity, append=append,
+                owned_enhancements={"m_%s" % c.enhancement.value
+                                    for c in self.full_deck},
+                showman=any(j.spec.allows_duplicates
+                            for j in self.active_jokers),
+                pool_flags=self.pool_flags)
             spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
             edition = _EDITION_BY_NAME[
                 shop_pool.poll_edition(self.rng, "edi%s%d" % (append, self.ante))]
@@ -2834,6 +2850,7 @@ class GameState:
             played_hands=played, seen=self.seen_centers,
             seen_jokers=self.seen_centers, owned_enhancements=owned,
             showman=any(j.spec.allows_duplicates for j in self.active_jokers),
+            pool_flags=self.pool_flags,
             stickers=self.sticker_rules,
             # Two vouchers change what a pack holds rather than what it
             # costs: Telescope forces the first card of a Celestial pack to

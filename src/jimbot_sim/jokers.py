@@ -487,8 +487,19 @@ register("Faceless Joker", Rarity.COMMON, "Earn $5 if 3+ face cards discarded", 
 
 
 def _gros_michel_end(j: JokerInstance, g: "GameState") -> None:
+    """1 in 6 at the end of a round, and extinction is recorded for good.
+
+    card.lua:3037 sets `G.GAME.pool_flags.gros_michel_extinct` in the same
+    branch that destroys the joker, and that flag is the whole of what gates
+    Cavendish -- `yes_pool_flag = 'gros_michel_extinct'` -- and takes Gros
+    Michel out of every later pool. Destroying it without the flag left
+    Cavendish unobtainable for the rest of any run. Marcin's live run of
+    QWEFRTUZ, Blue Deck, stake 5 stopped on it at decision 73: a reroll
+    stocked Cavendish in the game and Delayed Gratification here.
+    """
     if g.rng.chance("gros_michel", 1 * g.probability_scale(), 6):
         g.destroy_joker(j, "Gros Michel went extinct")
+        g.pool_flags.add("gros_michel_extinct")
 
 
 register("Gros Michel", Rarity.COMMON, "+15 Mult, 1 in 6 chance to be destroyed", cost=5,
