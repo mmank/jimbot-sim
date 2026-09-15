@@ -153,6 +153,10 @@ def _score_card_once(card: Card, ctx: ScoreContext) -> bool:
     elif card.enhancement is Enhancement.GLASS:
         ctx.times_mult(2.0, "glass card")
     elif card.enhancement is Enhancement.LUCKY:
+        # Every trigger rolls, hit or miss, so this count is exact where the
+        # rolls themselves are not: how many chances the play gives a Lucky
+        # Cat. See GameState.preview_outcome.
+        ctx.lucky_rolls += 1
         # The game's pool is called lucky_mult, and a pool is identified by
         # its name -- a different name is a different stream of numbers.
         if _listed(game, "lucky_mult", *LUCKY_MULT_CHANCE):

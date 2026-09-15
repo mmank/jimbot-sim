@@ -27,6 +27,8 @@ class ScoreContext:
     chips: float = 0.0
     mult: float = 0.0
     money_gained: int = 0
+    # Lucky card triggers this hand, hit or miss. See GameState.preview_outcome.
+    lucky_rolls: int = 0
 
     @property
     def money(self) -> int:

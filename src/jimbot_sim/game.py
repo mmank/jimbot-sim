@@ -2290,8 +2290,20 @@ class GameState:
 
     def preview_play(self, indices: tuple[int, ...]) -> tuple[int, list]:
         """The score and the joker row as scoring left it. See _preview."""
-        score, jokers, _ = self._preview(indices)
+        score, jokers, _, _ = self._preview(indices)
         return score, jokers
+
+    def preview_outcome(self, indices: tuple[int, ...]) -> tuple[int, int, int]:
+        """The score, the dollars earned while scoring, and the Lucky rolls.
+
+        A roll is a Lucky card triggering, whether or not either of its
+        chances comes up, so the count is exact where the outcome is not --
+        and it is what a Lucky Cat grows on: X0.25 for every trigger that
+        hits. Hanging Chad retriggers the first card scored twice, so a Lucky
+        card at the front of a play is three rolls and anywhere else one.
+        """
+        score, _, dollars, rolls = self._preview(indices)
+        return score, dollars, rolls
 
     def preview_value(self, indices: tuple[int, ...]) -> tuple[int, int]:
         """The score, and the dollars the play earns while it scores.
@@ -2301,10 +2313,11 @@ class GameState:
         and a retrigger repeats every one of them, so which card leads a play
         can be worth dollars where it is worth no chips at all.
         """
-        score, _, dollars = self._preview(indices)
+        score, _, dollars, _ = self._preview(indices)
         return score, dollars
 
-    def _preview(self, indices: tuple[int, ...]) -> tuple[int, list, int]:
+    def _preview(self, indices: tuple[int, ...]
+                 ) -> tuple[int, list, int, int]:
         """Score a candidate play without advancing the run, and hand back
         the joker row as scoring left it.
 
@@ -2362,7 +2375,7 @@ class GameState:
                 # counted down. Returned untouched, a refused hand looked
                 # free to a policy pricing the row a play leaves.
                 self._refused_hand_after_pass(result, played, held)
-                return 0, self.jokers, 0
+                return 0, self.jokers, 0, 0
             # Counted before it scores, as the play counts it (see _play) and
             # as the game does: evaluate_play increments `played` at
             # state_events.lua:574, before the jokers' context.before pass
@@ -2378,7 +2391,7 @@ class GameState:
             # anything a hook paid into the run on the way.
             dollars = ctx.money_gained + (self.money - money)
             # The copies, read before `finally` puts the real row back.
-            return ctx.score, self.jokers, dollars
+            return ctx.score, self.jokers, dollars, ctx.lucky_rolls
         finally:
             for card, enhancement, extra, seal, edition, debuffed in cards:
                 card.enhancement = enhancement
