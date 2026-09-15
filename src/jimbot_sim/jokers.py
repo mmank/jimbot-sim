@@ -92,6 +92,12 @@ class JokerSpec:
     on_shop_end: RoundHook | None = None       # Perkeo
     rerolls_a_hand: bool = False               # To Do List
     before_hand: object = None                 # DNA, Sixth Sense
+    # context.before, for a branch without `not context.blueprint`: the whole
+    # pass runs, in row order, ahead of the cards and of every joker's main
+    # effect (state_events.lua:628-638), and a Blueprint or a Brainstorm
+    # repeats it. `update` with update_before_scoring is the same pass on the
+    # joker's own account only.
+    before: IndepHook | None = None            # To Do List
     # context.debuffed_hand: a hand the boss refused still asks every joker,
     # after scoring nothing (state_events.lua:1015-1027).
     on_debuffed_hand: RoundHook | None = None  # Matador
@@ -1204,7 +1210,9 @@ register("Ancient Joker", Rarity.RARE,
 register("To Do List", Rarity.COMMON,
          "Earn $4 if the poker hand is one that changes each round", cost=4,
          rerolls_a_hand=True,
-         independent=lambda j, ctx: ctx.__setattr__(
+         # context.before, with no `not context.blueprint` (card.lua:3491):
+         # paid ahead of Bootstraps and Bull, and by a copy too.
+         before=lambda j, ctx: ctx.__setattr__(
              "money_gained", ctx.money_gained + 4)
          if ctx.hand is j.named_hand else None)
 

@@ -234,6 +234,18 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     ctx.add_mult(mult, result.hand.label)
 
     for owner, spec, source in pairs:
+        # context.before (state_events.lua:628-638), copies included. To Do
+        # List pays here, not with the jokers' main effects: card.lua:3491-3499
+        # is `ease_dollars` plus `G.GAME.dollar_buffer`, and Bootstraps
+        # (card.lua:4046) and Bull (3936) read `dollars + dollar_buffer` in
+        # joker_main -- so they count the $4 wherever the list sits in the row.
+        # Paying it from the main pass, in row order, left a Bootstraps to its
+        # left reading the money from before the hand. 2MIUP34I, Zodiac Deck,
+        # stake 8: $4 held, a High Card the list named, the game 46 x 31 =
+        # 1426 and this 46 x 29 = 1334. It came and went between runs of the
+        # same seed because the hand the list names does (see hands.py).
+        if spec.before is not None:
+            spec.before(source, ctx)
         # Only on its own account. A copier runs the copied joker's scoring
         # hooks, and the game guards the *scaling* branches against that
         # with `not context.blueprint` -- so a Blueprint standing left of an

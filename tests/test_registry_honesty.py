@@ -34,7 +34,8 @@ HOOKS = ("update", "scored", "held", "independent", "other_joker",
          "on_blind_select", "on_round_start", "on_sell", "on_reroll", "on_pack_skip", "on_pack_open",
          "on_cards_destroyed", "on_glass_shattered", "on_shop_end",
          "round_money",
-         "before_hand", "after_hand", "on_first_discard", "on_debuffed_hand")
+         "before", "before_hand", "after_hand", "on_first_discard",
+         "on_debuffed_hand")
 DECLARATIONS = ("hand_size", "extra_hands", "extra_discards", "free_rerolls",
                 "debt_limit", "interest_bonus", "free_planets",
                 "allows_duplicates", "prevents_death",
