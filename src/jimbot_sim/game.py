@@ -662,6 +662,16 @@ class GameState:
         stream, so getting it wrong draws the right joker from the wrong
         place. A forced rarity skips the rarity roll entirely, which is how
         Wraith is always rare and never legendary.
+
+        The joker polls an edition too, under the same append:
+        create_card ends every joker with
+        `poll_edition('edi'..(key_append or '')..ante)`
+        (common_events.lua:2149), whatever area it was made for. Nothing here
+        polled one, so a Polychrome Red Card out of a Riff-Raff arrived plain,
+        and a Judgement, a Soul, a Wraith or a Top-up Tag never made a Foil,
+        a Holographic or a Negative. The append is kept for a legendary here:
+        get_current_pool drops it from the *pool* key, create_card does not
+        drop it from the edition key.
         """
         if len(self.jokers) >= self.joker_slots:
             return
@@ -674,7 +684,10 @@ class GameState:
             showman=any(j.spec.allows_duplicates for j in self.active_jokers),
             pool_flags=self.pool_flags)
         spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
-        self.gain_joker(JokerInstance(spec))
+        edition = _EDITION_BY_NAME[shop_pool.poll_edition(
+            self.rng, "edi%s%d" % (append, self.ante),
+            edition_rate=self.edition_rate)]
+        self.gain_joker(JokerInstance(spec, edition=edition))
         self.log(f"{source}: gained {spec.name}")
 
     def can_use_consumable(self, spec: ConsumableSpec,

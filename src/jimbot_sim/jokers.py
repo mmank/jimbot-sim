@@ -1366,8 +1366,23 @@ register("Certificate", Rarity.UNCOMMON,
          "When the round begins, add a random playing card with a random seal "
          "to your hand", cost=6, on_round_start=_certificate)
 def _riff_raff(j: JokerInstance, game: "GameState") -> None:
-    for _ in range(2):
-        game.add_random_joker("Riff-Raff", Rarity.COMMON)
+    """Two Common jokers, from Riff-Raff's own streams.
+
+    card.lua:2529-2543 makes them with
+    `create_card('Joker', G.jokers, nil, 0, nil, nil, nil, 'rif')`. The 'rif'
+    was missing, so the pool drawn was "Joker1<ante>" rather than
+    "Joker1rif<ante>": two believable Commons, nearly always the wrong two.
+    (The forced rarity of 0 is no roll -- Lua's 0 is truthy and below both
+    thresholds -- which Rarity.COMMON already says.)
+
+    And the count is settled before either exists: jokers_to_create is
+    min(2, card_limit - (#jokers + joker_buffer)), taken when the blind is
+    selected. A Negative first joker raises the limit as it arrives, but one
+    free slot has already been turned into one joker.
+    """
+    room = game.joker_slots - len(game.jokers)
+    for _ in range(max(0, min(2, room))):
+        game.add_random_joker("Riff-Raff", Rarity.COMMON, append="rif")
 
 
 register("Riff-Raff", Rarity.COMMON,
