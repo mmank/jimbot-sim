@@ -2700,6 +2700,29 @@ class GameState:
                    Edition.NONE)
         return self.card_cost(slot.base_cost, edition)
 
+    def pack_price(self, pack) -> int:
+        """What a booster costs right now -- the price every caller must use.
+
+        Card:set_cost zeroes a Celestial booster while Astronomer is held,
+        exactly as it zeroes a Planet (card.lua:380):
+
+            if (self.ability.set == 'Planet' or (self.ability.set == 'Booster'
+                and self.ability.name:find('Celestial')))
+                and #find_joker('Astronomer') > 0 then self.cost = 0 end
+
+        Buying already knew that, and the legal-action list did not: it asked
+        whether the run afforded the *full* price, so a run holding Astronomer
+        and $3 was never offered the free pack beside it. Seed HELLO123,
+        Blue Deck, stake 1, stood in exactly that shop. One function, so the
+        offer and the charge cannot disagree again.
+        """
+        if self.shop_free:
+            return 0
+        if (pack.kind is PackKind.CELESTIAL
+                and any(j.spec.free_planets for j in self.active_jokers)):
+            return 0
+        return self.price(pack.cost)
+
     def _redeem_voucher(self, voucher: Voucher) -> None:
         """What redeeming does beyond the fields read off self.vouchers.
 
@@ -2983,7 +3006,7 @@ class GameState:
                     continue
                 actions.append(Action(ActionType.BUY, index=i))
             for i, pack in enumerate(self.shop.packs):
-                if self.affords(self.price(pack.cost)):
+                if self.affords(self.pack_price(pack)):
                     actions.append(Action(ActionType.BUY_PACK, index=i))
             for i, voucher in enumerate(self.shop.vouchers_on_offer()):
                 if self.affords(self.price(voucher.cost)):
@@ -3340,10 +3363,7 @@ class GameState:
         elif t is ActionType.BUY_PACK:
             assert self.shop is not None
             pack = self.shop.packs.pop(action.index)
-            free = self.shop_free or (
-                pack.kind is PackKind.CELESTIAL
-                and any(j.spec.free_planets for j in self.active_jokers))
-            cost = 0 if free else self.price(pack.cost)
+            cost = self.pack_price(pack)
             self.add_money(-cost, f"bought {pack.name}")
             self._open_pack(pack)
         elif t is ActionType.PICK_PACK:
