@@ -950,7 +950,15 @@ function api.highlight(indices)
   for _, i in ipairs(indices) do
     local card = G.hand.cards[i]
     if not card then error("no card at hand index " .. tostring(i)) end
-    G.hand:add_to_highlighted(card, true)
+    -- Cerulean Bell's card is still highlighted after the clear
+    -- (unhighlight_all skips forced_selection, cardarea.lua:201-208), and
+    -- add_to_highlighted does not ask whether a card is already in the list
+    -- (cardarea.lua:148-155). Adding it again counted it twice: a Magician
+    -- on it and one more read as three selected against mod_num
+    -- (card.lua:1566), and no clear could take either copy off.
+    if not api.is_highlighted(i) then
+      G.hand:add_to_highlighted(card, true)
+    end
   end
   return #G.hand.highlighted
 end

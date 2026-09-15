@@ -797,14 +797,43 @@ class GameState:
             return bool(self.jokers) and self.joker_slots > 1
         if spec.name == "Aura":
             return (hand_dealt and len(targets) == 1
-                    and targets[0].edition is Edition.NONE)
+                    and targets[0].edition is Edition.NONE
+                    and self._takes_forced_card(targets))
         if spec.name in SPARE_CARD_NEEDED:
             # They destroy a card at random, and the game will not let the
             # hand go empty that way.
             return hand_dealt and len(self.hand) > 1
         if spec.targets:
-            return hand_dealt and spec.accepts(len(targets))
+            return (hand_dealt and spec.accepts(len(targets))
+                    and self._takes_forced_card(targets))
         return True
+
+    def _takes_forced_card(self, targets: tuple) -> bool:
+        """Whether a selection holds Cerulean Bell's card, when one is forced.
+
+        Blind:drawn_to_hand highlights it with `ability.forced_selection`,
+        and neither unhighlight_all (cardarea.lua:201-208) nor
+        remove_from_highlighted (cardarea.lua:188) lets it go. So whatever
+        else a player picks, it is selected too: a targeting consumable's
+        gate counts it (card.lua:1545 for Aura, 1566 for the rest) and the
+        effect lands on it (card.lua:1142-1143). Aimed past it, The Magician
+        on two cards was three selected and the game refused -- seed
+        0RVVD29X, ante 8. Plays and discards already say this; see
+        `_restriction_ok`.
+
+        Only in a round, and only while the card is held. The flag is
+        cleared when the round ends (state_events.lua:279), so an Arcana
+        pack in the shop forces nothing even if its hand deals the same
+        card; and a card a Hanged Man has destroyed forces nothing until the
+        next draw nominates another.
+        """
+        boss = self.boss
+        card = self.forced_card
+        if (self.phase is not Phase.PLAYING or boss is None
+                or not boss.forces_a_card or card is None
+                or not any(c is card for c in self.hand)):
+            return True
+        return any(t is card for t in targets)
 
     def refuses_use(self, spec: ConsumableSpec) -> bool:
         """Card:check_use -- the one card the game refuses at the last moment.

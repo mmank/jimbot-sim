@@ -121,6 +121,44 @@ def test_a_forced_card_is_replaced_once_it_is_gone():
     assert game.forced_card in game.hand
 
 
+def test_a_targeting_tarot_under_the_bell_takes_the_forced_card_too():
+    """The forced card is still highlighted when a tarot is used on the hand.
+
+    unhighlight_all will not take it off (cardarea.lua:201-208), so the
+    Magician's gate counts it -- `mod_num >= #G.hand.highlighted`
+    (card.lua:1566) -- and the effect lands on it (card.lua:1142-1143). The
+    simulator offered The Magician on two *other* cards; seed 0RVVD29X took
+    it at ante 8 and the game refused with three selected. See
+    test_cerulean_bell_selection for the engine side.
+    """
+    from jimbot_sim.consumables import REGISTRY as CONSUMABLES
+
+    game = _under("Cerulean Bell")
+    game.consumables.append(game.hold_consumable(CONSUMABLES["The Magician"]))
+    forced = game.hand.index(game.forced_card)
+    others = [i for i in range(len(game.hand)) if i != forced]
+
+    def use(*cards):
+        return Action(ActionType.USE_CONSUMABLE, index=0,
+                      cards=tuple(sorted(cards)))
+
+    offered = [a.cards for a in game.legal_actions()
+               if a.type is ActionType.USE_CONSUMABLE]
+    assert offered and all(forced in cards for cards in offered)
+    assert not game.is_legal(use(others[0], others[1]))
+    assert not game.is_legal(use(others[0]))
+    assert game.is_legal(use(forced, others[0]))
+    assert game.is_legal(use(forced))
+
+    # Nothing is forced once the card has left the hand, or the boss is off.
+    card = game.forced_card
+    game.hand.remove(card)
+    assert game.is_legal(use(0, 1))
+    game.hand.insert(forced, card)
+    game.blind.disabled = True
+    assert game.is_legal(use(others[0], others[1]))
+
+
 def test_a_suit_boss_reads_the_cards_the_game_reads():
     """blind.lua:626 asks `card:is_suit(suit, true)`, not the printed suit.
 
