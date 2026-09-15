@@ -216,7 +216,10 @@ local COUNTER_FIELD = {
   j_square             = { "extra.chips" },
   j_rocket             = { "extra.dollars" },
   j_turtle_bean        = { "extra.h_size" },
-  j_yorick             = { "extra.xmult", "extra.discards" },
+  -- The live pair, not the constants: x_mult grows by extra.xmult and
+  -- yorick_discards counts down from extra.discards (card.lua:327-328,
+  -- 2788-2799). Reading extra.* reported 1/23 for the whole run.
+  j_yorick             = { "x_mult", "yorick_discards" },
   -- Rounds held, card.lua:2935. Without it the game side read 0 against the
   -- simulator's count from the first round on.
   j_invisible          = { "invis_rounds" },
