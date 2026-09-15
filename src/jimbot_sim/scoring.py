@@ -179,6 +179,14 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
         # magnifies it.
         chips = max(int(chips * 0.5 + 0.5), 0)
         mult = max(int(mult * 0.5 + 0.5), 1)
+    # G.GAME.blind.triggered, the half of it set while the hand scores:
+    # modify_hand for The Flint (blind.lua:512), and any debuffed card in the
+    # scoring hand, whatever the boss (state_events.lua:655-656) -- which is
+    # how a Flush of Clubs into The Club triggers it. GameState._play has
+    # cleared it and set the rest; Matador reads it with the jokers below.
+    if game.blind is not None and ((boss is not None and boss.halve_base)
+                                   or any(c.debuffed for c in result.scoring)):
+        game.blind.triggered = True
     ctx.add_chips(chips, result.hand.label)
     ctx.add_mult(mult, result.hand.label)
 

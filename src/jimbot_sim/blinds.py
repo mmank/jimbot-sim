@@ -178,6 +178,11 @@ class Blind:
     # blind rather than on the joker, which matters: the blind stays disabled
     # for the rest of the round even after the joker that did it is gone.
     disabled: bool = False
+    # G.GAME.blind.triggered: whether the boss's ability went off on the hand
+    # being played, which is the only thing Matador reads. Starts at nil in
+    # set_blind (blind.lua:93); every play clears it, and GameState._play and
+    # score_hand set it again the way the game does.
+    triggered: bool = False
 
     @property
     def name(self) -> str:

@@ -88,6 +88,9 @@ class JokerSpec:
     on_shop_end: RoundHook | None = None       # Perkeo
     rerolls_a_hand: bool = False               # To Do List
     before_hand: object = None                 # DNA, Sixth Sense
+    # context.debuffed_hand: a hand the boss refused still asks every joker,
+    # after scoring nothing (state_events.lua:1015-1027).
+    on_debuffed_hand: RoundHook | None = None  # Matador
     after_hand: IndepHook | None = None        # Superposition, Séance
     on_first_discard: DiscardHook | None = None   # Burnt Joker, Trading Card
     copier: str | None = None  # "right" (Blueprint) or "leftmost" (Brainstorm)
@@ -1137,11 +1140,26 @@ register("Seltzer", Rarity.UNCOMMON,
          # bought once retriggered for the rest of the run.
          update=lambda j, ctx: _decay(j, -1, ctx.game),
          retrigger_scored=lambda j, c, ctx: 1 if j.counter > 0 else 0)
+def _matador_triggered(game: "GameState") -> bool:
+    """`G.GAME.blind.triggered`, and nothing else (card.lua:2737, 3720).
+
+    Not "is this a boss": a Flush into The Head debuffs no hand and triggers
+    nothing, and paying for every boss hand made the simulator eight dollars
+    a hand richer than the game. GameState._play and score_hand set it.
+    """
+    return game.blind is not None and game.blind.triggered
+
+
 register("Matador", Rarity.UNCOMMON,
          "Earn $8 if the played hand triggers the Boss Blind ability", cost=7,
          independent=lambda j, ctx: ctx.__setattr__(
              "money_gained", ctx.money_gained + 8)
-         if ctx.game.boss is not None else None)
+         if _matador_triggered(ctx.game) else None,
+         # A refused hand scores nothing but still asks every joker, under
+         # context.debuffed_hand (state_events.lua:1015-1027), and Matador
+         # is the one joker that answers (card.lua:2735-2745).
+         on_debuffed_hand=lambda j, g: g.add_money(8, j.name)
+         if _matador_triggered(g) else None)
 def _red_card(j: JokerInstance, game: "GameState") -> None:
     j.counter += 3.0
 

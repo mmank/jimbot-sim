@@ -696,7 +696,7 @@ class GameState:
         edition = _EDITION_BY_NAME[shop_pool.poll_edition(
             self.rng, "edi%s%d" % (append, self.ante),
             edition_rate=self.edition_rate)]
-        self.gain_joker(JokerInstance(spec, edition=edition))
+        self.gain_joker(self._made_joker(JokerInstance(spec, edition=edition)))
         self.log(f"{source}: gained {spec.name}")
 
     def can_use_consumable(self, spec: ConsumableSpec,
@@ -843,6 +843,11 @@ class GameState:
             self.tarots_used += 1
         elif spec.kind is ConsumableKind.PLANET:
             self.planets_used += 1
+            # G.GAME.consumeable_usage is keyed by centre, and Satellite pays
+            # a dollar for each key whose set is Planet (card.lua:1667-1674):
+            # one per distinct Planet. It was declared and never written, so
+            # Satellite paid nothing for a whole run.
+            self.unique_planets.add(spec.name)
             for joker in self.jokers:
                 if joker.name == "Constellation":
                     joker.counter += 0.1
@@ -1004,6 +1009,11 @@ class GameState:
 
         duplicate = copy.deepcopy(joker)
         duplicate.uid = next_sort_id()
+        # copy_card builds the new card through set_ability before it copies
+        # the ability table across (common_events.lua:2156-2166), so a To Do
+        # List copy spends a creation draw and then keeps the original's hand.
+        self._made_joker(duplicate)
+        duplicate.named_hand = joker.named_hand
         self.gain_joker(duplicate)
         self.log(f"{source}: copied {joker.name}")
 
@@ -1383,6 +1393,22 @@ class GameState:
                 continue
             pool = [h for h in visible if h is not joker.named_hand]
             joker.named_hand = self.rng.random_element(pool, "to_do")
+
+    def _made_joker(self, joker: JokerInstance) -> JokerInstance:
+        """A joker has just been built: what Card:set_ability does with it.
+
+        For a To Do List that is rolling its hand (card.lua:311-322) -- from
+        every visible hand, on the same 'to_do' stream as the round-end roll,
+        and for every card built whether or not anyone buys it: a shop builds
+        its whole shelf, a Buffoon pack its whole spread. Left to the
+        round-end roll, a To Do List bought mid-ante named nothing and paid
+        nothing for its first round, and each one built without its draw put
+        every later roll in the run a draw out of step with the game's.
+        """
+        if joker.spec.rerolls_a_hand:
+            joker.named_hand = self.rng.random_element(self.visible_hands,
+                                                       "to_do")
+        return joker
 
     def _reset_round_cards(self) -> None:
         """Re-roll the card and the suits that some jokers name.
@@ -1876,6 +1902,9 @@ class GameState:
         plays = dict(self.hand_levels.plays)
         consumables = list(self.consumables)
         money = self.money
+        # score_hand sets the blind's triggered flag for The Flint and for a
+        # debuffed scoring card; a preview must not leave it set.
+        triggered = self.blind.triggered if self.blind is not None else False
         self.jokers = [copy.copy(j) for j in real_jokers]
         # A throwaway generator, named off the run's own seed. This used to
         # xor the seed with a constant, which worked only while seeds were
@@ -1906,6 +1935,8 @@ class GameState:
             self.hand_levels.plays.update(plays)
             self.consumables[:] = consumables
             self.money = money
+            if self.blind is not None:
+                self.blind.triggered = triggered
             self.jokers, self.rng = real_jokers, real_rng
 
     def _play(self, indices: tuple[int, ...]) -> None:
@@ -2026,7 +2057,9 @@ class GameState:
         # after scoring, which is what this did, gave the round one free hand
         # at the old level -- worth about a third here.
         boss = self.boss
+        arm_triggered = ox_triggered = False
         if boss is not None and boss.level_down_played_hand:
+            arm_triggered = self.hand_levels.levels[result.hand] > 1
             self.hand_levels.levels[result.hand] = max(
                 1, self.hand_levels.levels[result.hand] - 1)
 
@@ -2047,6 +2080,7 @@ class GameState:
                                boss.name)
             if (boss.zero_money_on_most_played
                     and self._is_most_played(result.hand)):
+                ox_triggered = True
                 self.money = 0
                 self.log(f"{boss.name}: money set to $0")
 
@@ -2061,10 +2095,34 @@ class GameState:
         if (not debuffed and boss is not None and boss.lock_first_hand_type
                 and self.mouth_only_hand is None):
             self.mouth_only_hand = result.hand
+
+        # G.GAME.blind.triggered, which is all Matador reads. Every play clears
+        # it first (state_events.lua:455). The Hook, The Tooth and Crimson
+        # Heart set it in press_play (blind.lua:464-507), but debuff_hand opens
+        # with `if self.debuff then self.triggered = false` (blind.lua:521-522)
+        # and set_blind makes debuff `{}` at the least (blind.lua:85) -- true
+        # in Lua -- so that is wiped before any joker looks. debuff_hand then
+        # sets it for a refused hand (blind.lua:523-547), The Arm on a hand
+        # above level 1 and The Ox on the most played hand (549-566). A
+        # disabled blind skips its own hooks, which `boss` being None stands
+        # for here. The two that happen while the hand scores -- The Flint and
+        # a debuffed scoring card -- are set in score_hand.
+        if self.blind is not None:
+            self.blind.triggered = bool(boss is not None and (
+                debuffed or arm_triggered or ox_triggered))
+
         if debuffed:
             self.log("%s debuffed by %s: scores nothing"
                      % (result.hand.label, boss.name if boss else "the blind"))
             ctx = None
+            # Nothing scores, but every joker is still asked, under
+            # context.debuffed_hand (state_events.lua:1015-1027) -- through a
+            # Blueprint too, which passes any context on (card.lua:2305-2317).
+            from .scoring import effective_specs
+
+            for spec, source in effective_specs(self.active_jokers):
+                if spec.on_debuffed_hand is not None:
+                    spec.on_debuffed_hand(source, self)
         else:
             ctx = score_hand(self, result, played, held)
 
@@ -2453,7 +2511,13 @@ class GameState:
         # The money rows on the cash-out screen -- calculate_dollar_bonus --
         # are paid when the button is pressed. What happens the moment the
         # round *closes* is the other hook, and that runs in _beat_blind.
-        for joker in list(self.jokers):
+        #
+        # A debuffed joker has no row: calculate_dollar_bonus opens with
+        # `if self.debuff then return end` (card.lua:1656). A perishable that
+        # ran out this round was debuffed in end_round (state_events.lua:109)
+        # before evaluate_round built the rows (1176), so its last round pays
+        # nothing -- a perished Golden Joker went on paying four dollars.
+        for joker in list(self.active_jokers):
             if joker.spec.round_money is not None:
                 joker.spec.round_money(joker, self)
 
@@ -2548,7 +2612,7 @@ class GameState:
             edition = _EDITION_BY_NAME[shop_pool.poll_edition(
                 self.rng, "edi%s%d" % (shop_pool.SHOP_APPEND, self.ante),
                 edition_rate=self.edition_rate)]
-            joker = JokerInstance(spec, edition=edition)
+            joker = self._made_joker(JokerInstance(spec, edition=edition))
             self._apply_stickers(joker)
             return ShopSlot("joker", spec.cost, joker=joker)
         if kind in ("Tarot", "Planet", "Spectral"):
@@ -2790,7 +2854,8 @@ class GameState:
             # The tag's joker is free, which the game says by couponing it
             # rather than by pricing it at nothing.
             return ShopSlot("joker", spec.cost, couponed=True,
-                            joker=JokerInstance(spec, edition=edition))
+                            joker=self._made_joker(
+                                JokerInstance(spec, edition=edition)))
         return None
 
     def _apply_shop_tags(self) -> None:
@@ -3000,7 +3065,7 @@ class GameState:
             joker.rental = entry.get("rental", False)
             if joker.perishable:
                 joker.perish_tally = PERISHABLE_ROUNDS
-            return joker
+            return self._made_joker(joker)
         if entry["set"] == "Playing":
             card = Card(_RANK_BY_CODE[entry["rank"]], _SUIT_BY_CODE[entry["suit"]])
             if entry["enhancement"]:
