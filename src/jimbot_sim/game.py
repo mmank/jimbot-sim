@@ -2780,8 +2780,11 @@ class GameState:
                             for j in self.active_jokers),
                 pool_flags=self.pool_flags)
             spec = JOKER_REGISTRY[shop_pool.NAME_BY_JOKER_KEY[key]]
-            edition = _EDITION_BY_NAME[
-                shop_pool.poll_edition(self.rng, "edi%s%d" % (append, self.ante))]
+            # At the run's edition rate, like every create_card joker
+            # (common_events.lua:2071-2076, 2149).
+            edition = _EDITION_BY_NAME[shop_pool.poll_edition(
+                self.rng, "edi%s%d" % (append, self.ante),
+                edition_rate=self.edition_rate)]
             # The tag's joker is free, which the game says by couponing it
             # rather than by pricing it at nothing.
             return ShopSlot("joker", spec.cost, couponed=True,

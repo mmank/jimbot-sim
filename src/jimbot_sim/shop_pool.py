@@ -528,7 +528,11 @@ def pack_contents(rng: RunRng, kind: str, cards: int, ante: int,
             # A pack joker takes the same sticker polls a shop joker does,
             # under the pack's own pool names.
             marks = poll_stickers(rng, ante, in_pack=True, **(stickers or {}))
-            edition = poll_edition(rng, "edi%s%d" % (append, ante))
+            # poll_edition reads the global G.GAME.edition_rate, so Hone and
+            # Glow Up widen a pack joker's bands as they do a shop joker's
+            # (common_events.lua:2071-2076, 2149).
+            edition = poll_edition(rng, "edi%s%d" % (append, ante),
+                                   edition_rate=edition_rate)
             card = {"set": "Joker", "key": key, "edition": edition, **marks}
         elif kind == "Standard":
             card = _standard_card(rng, ante, edition_rate)
