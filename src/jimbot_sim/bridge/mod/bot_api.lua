@@ -1697,6 +1697,9 @@ local function use_when_usable(card, frames)
         no_delete = true, func = attempt }))
       return true
     end
+    -- Death copies the highlighted card with the largest T.x
+    -- (card.lua:1111-1113), so settle the hand the way play and discard do.
+    settle_hand()
     G.FUNCS.use_card({ config = { ref_table = card } }, true)
     return true
   end
@@ -1785,6 +1788,7 @@ function BotAPI.buy_and_use(args)
     error("no shop card at " .. tostring(area) .. "[" .. tostring(index) .. "]", 0)
   end
   queue(function()
+    settle_hand()          -- Death copies by screen position; see settle_hand
     G.FUNCS.buy_from_shop({ config = { ref_table = card, id = 'buy_and_use' } })
   end)
   return { bought = true, key = card.config.center.key }

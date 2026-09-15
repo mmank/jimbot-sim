@@ -434,7 +434,7 @@ _SPE_POOL = ["m_bonus", "m_mult", "m_wild", "m_glass", "m_steel", "m_gold",
 
 
 def _destroy_and_make(game: "GameState", count: int, ranks: list[str],
-                      rank_key: str, suit_key: str) -> None:
+                      rank_key: str | None, suit_key: str) -> None:
     """Familiar, Grim and Incantation: one card out, several in.
 
     All three work the same way and the simulator had all three wrong in the
@@ -448,6 +448,12 @@ def _destroy_and_make(game: "GameState", count: int, ranks: list[str],
     Rank and suit come from the same pool name -- "familiar_create" for both
     halves of a Familiar card -- so the two draws come out of one stream in
     that order.
+
+    Grim draws no rank at all: card.lua:1322-1324 sets `_rank = 'A'` and only
+    the suit goes through pseudorandom_element. A draw from a one-element list
+    is not free -- pseudoseed advances `grim_create` either way -- so drawing
+    one here put every Ace after the first a step behind the game's suit.
+    `rank_key=None` says there is no draw.
     """
     if game.hand:
         doomed = game.rng.random_element(sorted(game.hand,
@@ -455,7 +461,8 @@ def _destroy_and_make(game: "GameState", count: int, ranks: list[str],
                                          "random_destroy")
         game.remove_card(doomed)
     for _ in range(count):
-        rank = RANKS_BY_LETTER[game.rng.random_element(ranks, rank_key)]
+        rank = RANKS_BY_LETTER[ranks[0] if rank_key is None
+                               else game.rng.random_element(ranks, rank_key)]
         suit = SUITS_BY_LETTER[game.rng.random_element(
             ["S", "H", "D", "C"], suit_key)]
         card = Card(rank, suit)
@@ -510,7 +517,7 @@ def _fool(game: "GameState", cards: list[Card]) -> None:
 
 
 def _grim(game: "GameState", cards: list[Card]) -> None:
-    _destroy_and_make(game, 2, ["A"], "grim_create", "grim_create")
+    _destroy_and_make(game, 2, ["A"], None, "grim_create")
 
 
 def _incantation(game: "GameState", cards: list[Card]) -> None:

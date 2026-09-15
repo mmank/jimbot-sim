@@ -536,6 +536,7 @@ end
 function api.pick_pack(index)
   local card = G.pack_cards and G.pack_cards.cards and G.pack_cards.cards[index]
   if not card then error('no pack card at index ' .. tostring(index)) end
+  api.settle_hand()        -- a tarot taken here may be a Death; see settle_hand
   G.FUNCS.use_card({ config = { ref_table = card } }, true)
   api.pump(120)
   return G.STATE
@@ -672,6 +673,7 @@ function api.use_consumable(index, card_indices)
   else
     api.clear_highlights()
   end
+  api.settle_hand()        -- Death copies by screen position; see settle_hand
   G.FUNCS.use_card({ config = { ref_table = card } }, true)
   api.pump_until(function()
     for _, c in ipairs(G.consumeables.cards) do if c == card then return false end end
@@ -871,6 +873,7 @@ function api.buy_and_use(area, index, card_indices)
     api.clear_highlights()
   end
   local before = G.GAME.dollars
+  api.settle_hand()        -- Death copies by screen position; see settle_hand
   G.FUNCS.buy_from_shop({ config = { ref_table = card, id = 'buy_and_use' } })
   api.pump_until(function()
     return G.GAME.dollars ~= before or card.area ~= G[area]
@@ -1092,13 +1095,22 @@ end
 --- freshly drawn Ace first in the list and last on screen, and Hanging Chad
 --- retriggered a 5 instead of it. This is the path the training environment
 --- plays through as well as the bot.
-local function settle_hand()
+---
+--- Death reads screen order as well: it copies the highlighted card with the
+--- largest `T.x` (card.lua:1111-1113). So every path that uses a consumable on
+--- the hand settles it too. Without that, a Death used right after a draw
+--- copied whichever highlighted card had been dealt last: seed 86I68JIR turned
+--- a lucky 7S into an 8H where the game turns the 8H into a lucky 7S.
+---
+--- A field of api rather than a local so pick_pack, use_consumable and
+--- buy_and_use above it, and bot_headless, can reach it.
+function api.settle_hand()
   if G.hand then G.hand:align_cards() end
 end
 
 function api.play_selected()
   local before = G.GAME.current_round.hands_played
-  settle_hand()
+  api.settle_hand()
   G.FUNCS.play_cards_from_highlighted()
   api.pump_until(function()
     return G.GAME.current_round.hands_played > before and api.playable()
@@ -1108,7 +1120,7 @@ end
 
 function api.discard_selected()
   local before = G.GAME.current_round.discards_used
-  settle_hand()
+  api.settle_hand()
   G.FUNCS.discard_cards_from_highlighted()
   api.pump_until(function()
     return G.GAME.current_round.discards_used > before and api.playable()

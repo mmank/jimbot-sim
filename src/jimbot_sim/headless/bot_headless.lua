@@ -82,6 +82,9 @@ function H.use_consumable(args)
     error("cannot use " .. tostring(card.config.center.key) ..
           " right now (" .. #G.hand.highlighted .. " selected)", 0)
   end
+  -- Death copies the highlighted card furthest right on screen, so the hand's
+  -- x positions have to follow its order first. See api.settle_hand.
+  api.settle_hand()
   G.FUNCS.use_card({ config = { ref_table = card } }, true)
   api.pump(240)
   return { used = true }

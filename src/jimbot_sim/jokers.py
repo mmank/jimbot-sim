@@ -1323,7 +1323,24 @@ register("Diet Cola", Rarity.UNCOMMON,
 # arrives rather than being guessed at then.
 
 def _marble(j: JokerInstance, game: "GameState") -> None:
-    game.add_card(Card(Rank.ACE, Suit.SPADES,
+    """A Stone card with a random front, into the deck.
+
+    card.lua:2583 draws the front out of the whole of G.P_CARDS, keyed by
+    string and so sorted the way shop_pool.FRONTS is -- the same draw
+    Certificate makes, under its own pool name. A Stone card scores no rank
+    or suit, but the front is what the hand shows and what orders two Stone
+    cards against each other (get_nominal, card.lua:950-955). Always making
+    an Ace of Spades showed up on seed TTL5O2HL as a 7C in the game's hand.
+    """
+    front = game.rng.random_element(shop_pool.FRONTS, "marb_fr")
+    suit, rank = front.split("_")
+    by_rank = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR, "5": Rank.FIVE,
+               "6": Rank.SIX, "7": Rank.SEVEN, "8": Rank.EIGHT,
+               "9": Rank.NINE, "T": Rank.TEN, "J": Rank.JACK,
+               "Q": Rank.QUEEN, "K": Rank.KING, "A": Rank.ACE}
+    by_suit = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
+               "S": Suit.SPADES}
+    game.add_card(Card(by_rank[rank], by_suit[suit],
                        enhancement=Enhancement.STONE))
 
 
