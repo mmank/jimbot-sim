@@ -17,7 +17,7 @@ from .cards import Card, Edition, Enhancement, Rank, Seal, Suit, next_sort_id
 from .consumables import ConsumableKind
 from .effects import ScoreContext
 from .blinds import BlindKind
-from .hands import LEVEL_GAIN, HandType
+from .hands import HandType
 from . import shop_pool
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -1174,18 +1174,20 @@ register("Reserved Parking", Rarity.COMMON,
 def _space_joker(j: JokerInstance, ctx: ScoreContext) -> None:
     """Upgrade the played hand, and score it at the new level.
 
-    The game raises the level before the base chips and mult are read, so the
-    upgrade pays on the very hand that triggered it. Scoring runs the base in
-    first, so the level gain is added to the context by hand -- levelling up
-    alone leaves the hand scored at its old value and only the next one
-    benefits.
+    A `before` effect (card.lua:3420-3426): the game levels the hand at
+    state_events.lua:634-635 and reads the base afterwards (640-641), so the
+    upgrade pays on the very hand that triggered it. score_hand reads the
+    base after this pass too, so levelling up is all there is to do here.
+
+    Adding the level's gain to the context by hand, as this once did, was
+    right only while nothing touched the base: The Flint halves the base it
+    reads (blind.lua:512-514), and the gain added on top came through whole.
+    OCMTUFBK, Blue Deck, stake 3: a Two Pair levelled from 9 to 10 into The
+    Flint scored 214 x 74 in the game and 224 x 74 here.
     """
     if not _chance(ctx, "space", 1, 4):
         return
     ctx.game.hand_levels.level_up(ctx.hand)
-    chips, mult = LEVEL_GAIN[ctx.hand]
-    ctx.add_chips(chips, j.name)
-    ctx.add_mult(mult, j.name)
 
 
 register("Space Joker", Rarity.UNCOMMON,

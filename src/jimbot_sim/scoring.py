@@ -209,30 +209,6 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
     # Blueprint or a Brainstorm, and only the owner's edition applies.
     pairs = calculating_specs(game.jokers)
 
-    chips, mult = game.hand_levels.values(result.hand)
-    boss = game.boss
-    if boss is not None and boss.halve_base:
-        # The Flint rounds rather than halving. Blind:modify_hand is
-        #
-        #     max(floor(mult*0.5 + 0.5), 1), max(floor(chips*0.5 + 0.5), 0)
-        #
-        # so a Three of a Kind's three mult becomes two, not one and a half.
-        # Dividing by two loses a whole point of mult on every odd number,
-        # and it is the base mult, so everything the hand multiplies by
-        # magnifies it.
-        chips = max(int(chips * 0.5 + 0.5), 0)
-        mult = max(int(mult * 0.5 + 0.5), 1)
-    # G.GAME.blind.triggered, the half of it set while the hand scores:
-    # modify_hand for The Flint (blind.lua:512), and any debuffed card in the
-    # scoring hand, whatever the boss (state_events.lua:655-656) -- which is
-    # how a Flush of Clubs into The Club triggers it. GameState._play has
-    # cleared it and set the rest; Matador reads it with the jokers below.
-    if game.blind is not None and ((boss is not None and boss.halve_base)
-                                   or any(c.debuffed for c in result.scoring)):
-        game.blind.triggered = True
-    ctx.add_chips(chips, result.hand.label)
-    ctx.add_mult(mult, result.hand.label)
-
     for owner, spec, source in pairs:
         # context.before (state_events.lua:628-638), copies included. To Do
         # List pays here, not with the jokers' main effects: card.lua:3491-3499
@@ -259,6 +235,39 @@ def score_hand(game: "GameState", result: HandResult, played: list[Card],
             continue
         if spec.update is not None and spec.update_before_scoring:
             spec.update(source, ctx)
+
+    # The base is read after the before pass, and it is this reading The
+    # Flint halves: evaluate_play reads G.GAME.hands[text] again at
+    # state_events.lua:640-641, straight after the jokers' `before` pass, and
+    # passes that to Blind:modify_hand (645-646). Space Joker levels the hand
+    # in that pass (card.lua:3420-3426, level_up_hand at 634-635), so the new
+    # level is what scores and what gets halved. Reading and halving the base
+    # first, with Space Joker adding the level's gain on top, let the gain
+    # through whole into The Flint: OCMTUFBK, Blue Deck, stake 3, a Two Pair
+    # levelled from 9 to 10 scored 214 x 74 in the game and 224 x 74 here.
+    chips, mult = game.hand_levels.values(result.hand)
+    boss = game.boss
+    if boss is not None and boss.halve_base:
+        # The Flint rounds rather than halving. Blind:modify_hand is
+        #
+        #     max(floor(mult*0.5 + 0.5), 1), max(floor(chips*0.5 + 0.5), 0)
+        #
+        # so a Three of a Kind's three mult becomes two, not one and a half.
+        # Dividing by two loses a whole point of mult on every odd number,
+        # and it is the base mult, so everything the hand multiplies by
+        # magnifies it.
+        chips = max(int(chips * 0.5 + 0.5), 0)
+        mult = max(int(mult * 0.5 + 0.5), 1)
+    # G.GAME.blind.triggered, the half of it set while the hand scores:
+    # modify_hand for The Flint (blind.lua:512), and any debuffed card in the
+    # scoring hand, whatever the boss (state_events.lua:655-656) -- which is
+    # how a Flush of Clubs into The Club triggers it. GameState._play has
+    # cleared it and set the rest; Matador reads it with the jokers below.
+    if game.blind is not None and ((boss is not None and boss.halve_base)
+                                   or any(c.debuffed for c in result.scoring)):
+        game.blind.triggered = True
+    ctx.add_chips(chips, result.hand.label)
+    ctx.add_mult(mult, result.hand.label)
 
     for card in result.scoring:
         if card.debuffed:
