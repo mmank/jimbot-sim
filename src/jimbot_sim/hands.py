@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from enum import IntEnum
 
-from .cards import Card, Rank, Suit
+from .cards import Card, Enhancement, Rank, Suit
 
 
 class HandType(IntEnum):
@@ -151,22 +151,55 @@ _SMEARED_PAIRS = {Suit.HEARTS: Suit.DIAMONDS, Suit.DIAMONDS: Suit.HEARTS,
                   Suit.SPADES: Suit.CLUBS, Suit.CLUBS: Suit.SPADES}
 
 
+_RED = (Suit.HEARTS, Suit.DIAMONDS)
+
+
+def flush_suit(card: Card, suit: Suit, smeared: bool = False) -> bool:
+    """`Card:is_suit(suit, nil, true)` -- the question a flush is judged on.
+
+    The game asks its suit question two ways (card.lua:4064), and they part
+    on a debuffed card. The ordinary one refuses it outright. This one --
+    `flush_calc` -- reads the printed suit anyway, and only a Wild card loses
+    its every-suit to a debuff, falling back to the suit it was printed as:
+
+        if flush_calc then
+            if self.ability.effect == 'Stone Card' then return false end
+            if self.ability.name == "Wild Card" and not self.debuff then
+                return true end
+            if next(find_joker('Smeared Joker')) and
+                (self.base.suit == 'Hearts' or self.base.suit == 'Diamonds')
+                == (suit == 'Hearts' or suit == 'Diamonds') then
+                return true end
+            return self.base.suit == suit
+
+    Hand detection used the ordinary question, so a hand of debuffed cards
+    was never a flush. Seed QWERTYUI, Blue Deck, stake 1, on the headless
+    engine at decision 101: The Club debuffs Clubs, Smeared Joker makes
+    Spades Clubs, and A-Q-Q-9-6 of Spades and Clubs was a level-three Flush
+    in the game at 135 x 26 = 3510 and a level-two Pair here at 95 x 21 =
+    1995 -- exactly the 1515 chips the run parted by. Blackboard asks the
+    same question, so `jokers.counts_for_flush` reads this too.
+    """
+    if card.is_stone:
+        return False
+    if card.enhancement is Enhancement.WILD and not card.debuffed:
+        return True
+    if smeared:
+        return (card.suit in _RED) == (suit in _RED)
+    return card.suit is suit
+
+
 def _flush_cards(cards: list[Card], needed: int,
                  smeared: bool = False) -> list[Card] | None:
-    """Largest same-suit group (wilds count everywhere), if big enough.
+    """Largest same-suit group, if big enough, by `flush_suit`.
 
     Smeared Joker collapses four suits into two, which changes what *is* a
     flush rather than what one scores -- A 3 5 7 9 in mixed spades and clubs
     is a flush only because of it.
     """
-    def matches(card: Card, suit: Suit) -> bool:
-        if card.counts_as_suit(suit):
-            return True
-        return smeared and card.counts_as_suit(_SMEARED_PAIRS[suit])
-
     best: list[Card] | None = None
     for suit in Suit:
-        group = [c for c in cards if matches(c, suit)]
+        group = [c for c in cards if flush_suit(c, suit, smeared)]
         if len(group) >= needed and (best is None or len(group) > len(best)):
             best = group
     return best

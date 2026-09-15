@@ -528,16 +528,12 @@ def counts_for_flush(card: Card, suit: Suit, game) -> bool:
     Blackboard still counts it black, which took a flush from 2320 to 6960 in
     the game while the simulator left it at 2320.
     """
-    if card.is_stone:
-        return False
-    if card.enhancement is Enhancement.WILD:
-        return not card.debuffed
-    if game.has_smeared():
-        # The game's own test: same colour group, which also covers the
-        # identical suit.
-        return ((card.suit in (Suit.HEARTS, Suit.DIAMONDS))
-                == (suit in (Suit.HEARTS, Suit.DIAMONDS)))
-    return card.suit is suit
+    # One implementation, shared with hand detection -- see
+    # `hands.flush_suit`. The copy that lived here refused a debuffed Wild
+    # card outright, where the game falls back to its printed suit.
+    from .hands import flush_suit
+
+    return flush_suit(card, suit, game.has_smeared())
 
 
 register("Blackboard", Rarity.UNCOMMON,
