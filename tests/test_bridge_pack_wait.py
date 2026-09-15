@@ -5,17 +5,24 @@ shut, so the card taken is not still flying over the next screen. A Mega pack
 allows two picks and stays open after the first, so that wait ran its full
 length every time: eight seconds of a live run standing still between the two
 picks. The caller knows how many picks are left, and says so.
+
+And a pick that leaves the pack open still waits for itself to finish. The
+courtesy wait had been doing that too, by running out: The Hanged Man taken
+from a Mega Arcana pack dissolves its two cards over the second after the pack
+shrinks, and a live run stopped on a hand still holding them.
 """
 
 from jimbot_sim.bridge.client import BalatroBridge, NotReady
 
 
 class OpenPack(BalatroBridge):
-    """A game that takes a pick at once and keeps its pack open."""
+    """A game that takes a pick at once, keeps its pack open, and stays busy
+    for a few reads while the pick resolves."""
 
-    def __init__(self) -> None:
+    def __init__(self, busy_reads: int = 0) -> None:
         super().__init__()
         self.picked = False
+        self.busy_reads = busy_reads
         self.waited: list[float] = []
 
     def command(self, cmd, *args):
@@ -24,9 +31,13 @@ class OpenPack(BalatroBridge):
         return None
 
     def state(self) -> dict:
+        busy = 0
+        if self.picked and self.busy_reads > 0:
+            self.busy_reads -= 1
+            busy = 1
         pack = [{"center": 1}] if self.picked else [{"center": 1},
                                                     {"center": 2}]
-        return {"ready": 1, "in_pack": 1, "pack": pack, "busy": 0,
+        return {"ready": 1, "in_pack": 1, "pack": pack, "busy": busy,
                 "jokers": [], "consumables": [], "deck_size": 52,
                 "hand_levels": {}}
 
@@ -45,6 +56,12 @@ def test_a_pick_that_leaves_the_pack_open_does_not_wait_for_it_to_close():
     bridge = OpenPack()
     bridge.pick_pack(1, closes=False)
     assert bridge.picked and bridge.waited == []
+
+
+def test_a_pick_that_leaves_the_pack_open_still_waits_for_itself():
+    bridge = OpenPack(busy_reads=5)
+    state = bridge.pick_pack(1, closes=False)
+    assert bridge.busy_reads == 0 and not state["busy"]
 
 
 def test_a_pick_that_closes_the_pack_still_waits_for_it():

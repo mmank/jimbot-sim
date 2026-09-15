@@ -601,11 +601,19 @@ class BalatroBridge:
                        or not s.get("in_pack")))
         # Then let the pack finish closing, if it is going to. A Mega pack
         # allows two picks and legitimately stays open, so this must not be
-        # treated as a failure -- it is a courtesy wait, not a condition --
-        # and when the caller says the pack stays open there is nothing to
-        # wait for at all.
+        # treated as a failure -- it is a courtesy wait, not a condition.
+        #
+        # When the caller says the pack stays open there is no closing to
+        # wait for, but the pick itself still has to finish, and the
+        # courtesy wait was doing that too by running out its eight seconds.
+        # The Hanged Man taken from a Mega Arcana pack destroys its two cards
+        # in events 0.4s and 0.2s apart and then dissolves them
+        # (card.lua:1271-1291); returning as the pack shrank handed back a
+        # hand still holding them, and a live run stopped on the hand size.
+        # use_card holds G.CONTROLLER.locks.use until the use is done, which
+        # is what `busy` reads.
         if closes is False:
-            return self.state()
+            return self.wait_idle()
         try:
             self.wait_until(lambda s: not s.get("in_pack"), timeout=8.0)
         except NotReady:
