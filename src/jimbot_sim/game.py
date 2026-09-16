@@ -333,6 +333,10 @@ class GameState:
     skipped_this_ante: set = field(default_factory=set)
     cards_sold: int = 0
     glass_destroyed: int = 0
+    # Cards that have entered the deck, counted for the same reason Hologram
+    # counts them: it is *additions*, not deck size, and a policy pricing a
+    # joker that grows on them needs the run's own rate. See note_card_created.
+    cards_created: int = 0
     lucky_triggers: int = 0
     chips_scored: int = 0
     hands_left: int = 0
@@ -645,7 +649,12 @@ class GameState:
         -- undercounted by however many Cryptid copies and Certificate cards
         a run made. The deck size stayed right, which is what made it hard to
         see: Hologram counts *additions*, not cards.
+
+        The run's own total is kept here too, so a policy can price a joker
+        that grows on additions by the rate this run actually manages rather
+        than by hoping.
         """
+        self.cards_created += 1
         for joker in self.calculating_jokers():
             if joker.name == "Hologram":
                 joker.counter += 0.25
