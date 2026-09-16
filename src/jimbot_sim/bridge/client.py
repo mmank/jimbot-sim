@@ -19,10 +19,53 @@ from typing import Any
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 34143
 DEFAULT_BUILD = Path("vendor/modded_game/BalatroBot.exe")
+# The mod scripts/build_modded_game.py bakes into the build.
+MOD_DIR = Path(__file__).resolve().parent / "mod"
 
 
 class BridgeError(RuntimeError):
     pass
+
+
+def stale_mod(build: Path = DEFAULT_BUILD) -> list[str]:
+    """The mod files `build` carries that are not this checkout's.
+
+    The mod is baked into the executable when it is built and never read from
+    the source tree again, so a change to bot_api.lua does nothing until the
+    build is redone -- and nothing said so. ICEMAN18 stopped on Invisible
+    Joker's rounds, game 0 against shadow 1, because the build dated from
+    2026-09-08 and the export of `invis_rounds` from 2026-09-15; the Yorick
+    counters, To Do List's hand and the per-round swap budget were missing
+    from it as well. Empty when the build is current or absent.
+    """
+    import zipfile
+
+    build = Path(build)
+    if not build.exists():
+        return []
+    differ = []
+    with zipfile.ZipFile(build) as archive:
+        baked = set(archive.namelist())
+        for path in sorted(MOD_DIR.glob("*.lua")):
+            # Compared as text, as the build writes it: read_text and
+            # writestr both leave line endings as "\n".
+            if (path.name not in baked
+                    or archive.read(path.name).decode("utf-8")
+                    != path.read_text(encoding="utf-8")):
+                differ.append(path.name)
+    return differ
+
+
+def require_current_mod(build: Path = DEFAULT_BUILD) -> None:
+    """Refuse a build whose mod is not this checkout's."""
+    stale = stale_mod(build)
+    if stale:
+        raise BridgeError(
+            "%s carries an older %s than this checkout -- rebuild it: "
+            "python external/jimbot-sim/scripts/build_modded_game.py "
+            "--out vendor/modded_game --mods "
+            "external/jimbot-sim/src/jimbot_sim/bridge/mod --force"
+            % (build, ", ".join(stale)))
 
 
 class NotReady(BridgeError):
@@ -653,6 +696,7 @@ def launch(build: Path = DEFAULT_BUILD, wait: float = 90.0) -> subprocess.Popen:
     if not build.exists():
         raise BridgeError(
             f"{build} not found -- run scripts/build_modded_game.py first")
+    require_current_mod(build)
     # Kept rather than inherited, because the game says why it is quitting on
     # stderr and nowhere else. Without this the failure reads "exited during
     # startup (code 0)", which is indistinguishable between a Lua error in the
