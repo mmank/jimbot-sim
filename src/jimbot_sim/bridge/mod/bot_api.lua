@@ -318,13 +318,18 @@ end
 --- on anything that redraws: playing, discarding, a Death, a pack's targets.
 local SORT_STATE = { key = nil, rank = false, suit = false, toggles = 0 }
 
---- How much the jokers have been rearranged since the set last changed.
+--- How much the jokers have been rearranged since the set or the round last
+--- changed.
 ---
 --- Joker order is scoring order, so rearranging is a real move -- but only
 --- until they are arranged. Left ungated it was two thirds of every episode:
 --- 333 swaps a run against 9 hands played. Keyed on which jokers are held, so
---- the budget refreshes exactly when the decision comes back, which is when
---- one is bought or sold.
+--- the budget refreshes when the decision comes back because one was bought or
+--- sold -- and on the round, because some arrangements are worth changing
+--- inside one: a Blueprint left of a Mail-In Rebate for a discard pays twice,
+--- and left of a scoring joker for the play after it. The simulator
+--- environment keys its count the same way (balatro_env/sim_env.py), so the
+--- two backends offer the same swaps at the same moments.
 local JOKER_STATE = { key = nil, swaps = 0 }
 
 local function joker_state()
@@ -333,7 +338,8 @@ local function joker_state()
     keys[#keys + 1] = card.config.center.key
   end
   table.sort(keys)
-  local key = table.concat(keys, ",")
+  local key = tostring((G.GAME and G.GAME.round) or 0) .. "|"
+      .. table.concat(keys, ",")
   if key ~= JOKER_STATE.key then
     JOKER_STATE.key, JOKER_STATE.swaps = key, 0
   end
