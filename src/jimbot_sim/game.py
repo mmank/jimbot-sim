@@ -2439,7 +2439,11 @@ class GameState:
                                                       self.hand[index - 1])
 
     def _arrange_play(self, indices: tuple[int, ...]) -> tuple[int, ...]:
-        """Put the played cards leftmost, in the order named, and renumber.
+        """Put the named cards leftmost, in the order named, and renumber.
+
+        Serves a play, whose order is its scoring order, and a consumable
+        whose targets are positional -- Death converts the left card into the
+        right one.
 
         A play in hand order is left alone, which is every play the legal
         list offers. Any other order is what a player gets by dragging those
@@ -3885,10 +3889,23 @@ class GameState:
     # single-action legality (what the env masks with; no enumeration)
     # ------------------------------------------------------------------
 
-    def _valid_indices(self, cards: tuple[int, ...], max_size: int) -> bool:
-        return (1 <= len(cards) <= max_size
-                and all(0 <= i < len(self.hand) for i in cards)
-                and all(a < b for a, b in zip(cards, cards[1:])))
+    def _valid_indices(self, cards: tuple[int, ...], max_size: int,
+                       ordered: bool = True) -> bool:
+        """Hand indices a selection may name.
+
+        `ordered` is the usual case: a selection is the set of cards, and
+        naming them ascending is the one spelling of it. A consumable whose
+        targets are *positional* is the exception -- Death converts the left
+        card into the right one -- so there the order named is a choice, and
+        any distinct indices are a selection the player can reach by dragging.
+        See `_arrange_play`.
+        """
+        if not (1 <= len(cards) <= max_size
+                and all(0 <= i < len(self.hand) for i in cards)):
+            return False
+        if ordered:
+            return all(a < b for a, b in zip(cards, cards[1:]))
+        return len(set(cards)) == len(cards)
 
     def _restriction_ok(self, cards: tuple[int, ...]) -> bool:
         """Whether a play is *legal*, which is narrower than it looks.
@@ -3967,7 +3984,8 @@ class GameState:
         if spec.targets == 0:
             if cards:
                 return False
-        elif not self._valid_indices(cards, spec.max_targets or spec.targets):
+        elif not self._valid_indices(cards, spec.max_targets or spec.targets,
+                                     ordered=False):
             return False
         return self._usable_now(
             spec, tuple(self.hand[i] for i in cards))
@@ -4124,7 +4142,13 @@ class GameState:
             self._discard(action.cards)
         elif t is ActionType.USE_CONSUMABLE:
             spec = self.consumables.pop(action.index)
-            targets = [self.hand[i] for i in action.cards]
+            # Named out of hand order, the targets are dragged into it first,
+            # exactly as an ordered play is. Death reads its two cards by
+            # screen position, so this is the only way to say which of them
+            # is spent: without it the card converted is always the one
+            # further left, which under the hand's rank-descending sort is
+            # always the higher of the two.
+            targets = [self.hand[i] for i in self._arrange_play(action.cards)]
             self.use_consumable(spec, targets)
         elif t is ActionType.SWAP_JOKER_LEFT:
             i = action.index

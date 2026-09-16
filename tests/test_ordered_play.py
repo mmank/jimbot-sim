@@ -89,3 +89,49 @@ def test_the_queen_first_scores_the_photograph_three_times():
     before = played.chips_scored
     played.step(Action(ActionType.PLAY, cards=QUEEN_FIRST))
     assert played.chips_scored - before == game.preview_score(QUEEN_FIRST)
+
+
+def test_a_consumable_names_its_targets_in_drag_order():
+    """Death converts the left card into the right one, so the order the two
+    targets are named in is which of them is spent.
+
+    Without the drag the pair had to be named in hand order, and a hand is
+    sorted by rank descending -- so the card spent always outranked the copy
+    and Death could never make a higher card. Here the Three of Clubs, which
+    sits last, is spent on a copy of the Ace of Hearts, which sits first.
+    """
+    from jimbot_sim.consumables import REGISTRY as CONSUMABLES
+
+    game = _game()
+    game.consumables.append(game.hold_consumable(CONSUMABLES["Death"]))
+    ace, three = game.hand[0], game.hand[7]
+    assert (three.rank, three.suit) == (Rank.THREE, Suit.CLUBS)
+
+    # Naming them out of hand order is legal for a consumable, because the
+    # order is a choice the player makes by dragging.
+    action = Action(ActionType.USE_CONSUMABLE, index=0, cards=(7, 0))
+    assert game.is_legal(action)
+    assert not game.is_legal(
+        Action(ActionType.USE_CONSUMABLE, index=0, cards=(0, 0)))
+
+    game.step(action)
+    # The Three became an Ace of Hearts; the Ace it copied is untouched.
+    assert (three.rank, three.suit) == (Rank.ACE, Suit.HEARTS)
+    assert (ace.rank, ace.suit) == (Rank.ACE, Suit.HEARTS)
+    # And the pair was dragged to the front, spent card first, the way
+    # _arrange_play leaves an ordered play.
+    assert game.hand[0] is three and game.hand[1] is ace
+
+
+def test_a_consumable_in_hand_order_is_left_alone():
+    from jimbot_sim.consumables import REGISTRY as CONSUMABLES
+
+    game = _game()
+    game.consumables.append(game.hold_consumable(CONSUMABLES["Death"]))
+    before = list(game.hand)
+    ace, queen = game.hand[0], game.hand[1]
+    game.step(Action(ActionType.USE_CONSUMABLE, index=0, cards=(0, 1)))
+    # The left card becomes the right one, and nothing moved.
+    assert (ace.rank, ace.suit) == (Rank.QUEEN, Suit.HEARTS)
+    assert (queen.rank, queen.suit) == (Rank.QUEEN, Suit.HEARTS)
+    assert game.hand == before
