@@ -5,7 +5,9 @@ game by scripts/build_modded_game.py; the Steam install is never touched.
 """
 
 from .client import (DEFAULT_BUILD, DEFAULT_HOST, DEFAULT_PORT, BalatroBridge,
-                     BridgeError, NotReady, launch)
+                     BridgeError, NotReady, launch, require_current_mod,
+                     stale_mod)
 
 __all__ = ["BalatroBridge", "BridgeError", "DEFAULT_BUILD", "DEFAULT_HOST",
-           "DEFAULT_PORT", "NotReady", "launch"]
+           "DEFAULT_PORT", "NotReady", "launch", "require_current_mod",
+           "stale_mod"]
