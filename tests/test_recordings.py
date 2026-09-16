@@ -40,21 +40,32 @@ RECORDINGS = pathlib.Path(__file__).resolve().parents[1] / "recordings"
 # How far each recording gets. `None` means all the way; a number would be a
 # floor that must not regress, with the reason it stops.
 #
-# All eight go the whole way now. 8 is the one that took the longest -- it
+# All thirteen go the whole way. 8 is the one that took the longest -- it
 # carries a reconstructed action, see ops/repair_recording.py, because the
 # recorder was not capturing the boss reroll when it was made -- and it is
 # worth keeping the entry shape around: a recording that stops part way is a
 # perfectly good regression test for the part it does reach.
+#
+# This table is what the suite replays, not the directory, so a recording
+# checked in without an entry here proves nothing. 9 to 12 sat that way for
+# some time; they are listed now, with 14.
 REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None,
-           8: None}
+           8: None, 9: None, 10: None, 11: None, 12: None, 14: None}
 
 
 def _replay(path):
     """Follow one recording, returning (steps reached, total, first problem)."""
     payload = json.loads(path.read_text())
     actions = sim_replay.merge_buy_and_use(payload["actions"])
+    # Endless, because a human does not stop at the win: 11, 12 and 14 all
+    # reach ante nine. A run built without it is one the simulator believes
+    # should be over, and 12 stopped at 361 of 362 on "the simulator's shop
+    # offers no voucher" -- the last shop, past ante eight, where a finished
+    # run no longer stocks one. ops/sim_replay.py and
+    # ops/explain_divergence.py have always built it this way, and that flag
+    # is the whole of why they disagreed with this test about that recording.
     game = GameState(seed=payload["seed"], deck=payload["deck"],
-                     stake=payload.get("stake") or 1)
+                     stake=payload.get("stake") or 1, endless=True)
     if payload.get("money") is not None:
         game.money = payload["money"]
     index = {card.uid: i for i, card in enumerate(game.full_deck)}
