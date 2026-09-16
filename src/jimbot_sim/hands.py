@@ -267,7 +267,62 @@ def _straight_cards(cards: list[Card], needed: int, shortcut: bool) -> list[Card
     return run if straight else None
 
 
+# Classification is a pure function of the cards' shape and the four flags,
+# and the policy asks it over and over: profiled over three runs of the mix,
+# 221,640 calls were 67,812 distinct, and it is 14.2s of a 63s run. So the
+# answer is kept.
+#
+# What is kept is the *shape*, not the cards. `result` picks the scoring cards
+# out of the caller's own list by uid, so a cached HandResult would hand back
+# somebody else's Card objects; the positions it picked are the same for the
+# same shape, and those are what is stored and rebuilt against.
+#
+# The key has to carry everything the classification reads, which is more than
+# rank and suit. `flush_suit` refuses a Stone card, gives a Wild card every
+# suit unless it is debuffed, and otherwise reads the printed suit -- so the
+# enhancement and the debuff are part of the shape, and a cache keyed on rank
+# and suit alone would call a debuffed Wild card a flush.
+_SHAPES: dict = {}
+_SHAPES_CAP = 250_000
+
+
+def _shape(cards: list[Card], flags: tuple) -> tuple:
+    return (tuple((c.rank, c.suit, c.is_stone,
+                   c.enhancement is Enhancement.WILD, c.debuffed)
+                  for c in cards), flags)
+
+
 def evaluate(
+    cards: list[Card],
+    *,
+    four_fingers: bool = False,
+    shortcut: bool = False,
+    splash: bool = False,
+    smeared: bool = False,
+) -> HandResult:
+    """Classify a played hand and return the cards that score.
+
+    Memoised on the shape; see `_SHAPES`. `_evaluate` is the classification
+    itself and is what the comments below describe.
+    """
+    if not cards:
+        raise ValueError("cannot evaluate an empty hand")
+    key = _shape(cards, (four_fingers, shortcut, splash, smeared))
+    kept = _SHAPES.get(key)
+    if kept is not None:
+        hand, places, contains = kept
+        return HandResult(hand, tuple(cards[i] for i in places), contains)
+    found = _evaluate(cards, four_fingers=four_fingers, shortcut=shortcut,
+                      splash=splash, smeared=smeared)
+    scored = {id(c) for c in found.scoring}
+    places = tuple(i for i, c in enumerate(cards) if id(c) in scored)
+    if len(_SHAPES) >= _SHAPES_CAP:
+        _SHAPES.clear()
+    _SHAPES[key] = (found.hand, places, found.contains)
+    return found
+
+
+def _evaluate(
     cards: list[Card],
     *,
     four_fingers: bool = False,
