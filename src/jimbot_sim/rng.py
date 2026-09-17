@@ -211,3 +211,22 @@ def random_string(length: int, rng: TW223) -> str:
         else:
             out.append(chr(int(rng.random(ord("P"), ord("Z")))))
     return "".join(out)
+
+
+class PessimisticRng(RunRng):
+    """The throwaway generator for a pessimistic preview: nothing lucky.
+
+    Every "1 in N" misses and every ranged draw comes up at its bottom, so
+    Misprint adds nothing, a Lucky card neither pays nor multiplies,
+    Bloodstone and Space Joker never fire. A policy that asks "is this safe?"
+    of a preview wants this number: previews rolled off one fixed stream are
+    about 10% optimistic across the plays a policy picks, because it picks
+    the best of ~200 previews and the best is where the fixed dice landed
+    well. See GameState.preview_score's `mode`.
+    """
+
+    def pseudorandom(self, key: str, low: float | None = None,
+                     high: float | None = None) -> float:
+        if low is None:
+            return 1.0 - 1e-9
+        return low if high is None or low <= high else high

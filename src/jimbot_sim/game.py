@@ -47,7 +47,7 @@ from .jokers import (EDITION_VALUE, REGISTRY as JOKER_REGISTRY,
 # The game's rarity numbers, which its pools are keyed by.
 _RARITY_INDEX = {Rarity.COMMON: 1, Rarity.UNCOMMON: 2, Rarity.RARE: 3,
                  Rarity.LEGENDARY: 4}
-from .rng import RunRng
+from .rng import PessimisticRng, RunRng
 from .scoring import held_triggers, score_hand, shattered_glass
 from .shop import PackKind, PackSpec, Shop, ShopSlot, Voucher
 
@@ -2293,14 +2293,38 @@ class GameState:
                         four_fingers=self._four_fingers(),
                         shortcut=self._shortcut())
 
-    def preview_score(self, indices: tuple[int, ...]) -> int:
-        """Score a candidate play without advancing the run. See preview_play."""
-        return self.preview_play(indices)[0]
+    def preview_score(self, indices: tuple[int, ...], mode: str = "roll"
+                      ) -> int:
+        """Score a candidate play without advancing the run. See preview_play.
 
-    def preview_play(self, indices: tuple[int, ...]) -> tuple[int, list]:
+        `mode` is how chance is treated. "roll" draws every chance off one
+        throwaway stream, the same for every preview. "pessimistic" misses
+        every chance and takes every range at its bottom (PessimisticRng),
+        and takes The Hook's two cards as the pair whose loss costs most.
+        "expected" is the mean of four rolled previews off different streams.
+        """
+        return self.preview_play(indices, mode)[0]
+
+    def preview_play(self, indices: tuple[int, ...], mode: str = "roll"
+                     ) -> tuple[int, list]:
         """The score and the joker row as scoring left it. See _preview."""
-        score, jokers, _, _ = self._preview(indices)
+        score, jokers, _, _ = self._preview_mode(indices, mode)
         return score, jokers
+
+    # Rolled previews averaged for mode="expected".
+    EXPECTED_ROLLS = 4
+
+    def _preview_mode(self, indices: tuple[int, ...], mode: str
+                      ) -> tuple[int, list, int, int]:
+        if mode == "expected":
+            runs = [self._preview(indices, salt="_preview%d" % k)
+                    for k in range(self.EXPECTED_ROLLS)]
+            score = sum(r[0] for r in runs) / len(runs)
+            dollars = sum(r[2] for r in runs) / len(runs)
+            return int(round(score)), runs[0][1], dollars, runs[0][3]
+        if mode == "pessimistic":
+            return self._preview(indices, pessimistic=True)
+        return self._preview(indices)
 
     def preview_outcome(self, indices: tuple[int, ...]) -> tuple[int, int, int]:
         """The score, the dollars earned while scoring, and the Lucky rolls.
@@ -2314,7 +2338,8 @@ class GameState:
         score, _, dollars, rolls = self._preview(indices)
         return score, dollars, rolls
 
-    def preview_value(self, indices: tuple[int, ...]) -> tuple[int, int]:
+    def preview_value(self, indices: tuple[int, ...], mode: str = "roll"
+                      ) -> tuple[int, int]:
         """The score, and the dollars the play earns while it scores.
 
         Money a score cannot say: a Gold Seal is $3 a trigger, Golden Ticket
@@ -2322,10 +2347,11 @@ class GameState:
         and a retrigger repeats every one of them, so which card leads a play
         can be worth dollars where it is worth no chips at all.
         """
-        score, _, dollars, _ = self._preview(indices)
+        score, _, dollars, _ = self._preview_mode(indices, mode)
         return score, dollars
 
-    def _preview(self, indices: tuple[int, ...]
+    def _preview(self, indices: tuple[int, ...], salt: str = "_preview",
+                 pessimistic: bool = False, hook_taken=None
                  ) -> tuple[int, list, int, int]:
         """Score a candidate play without advancing the run, and hand back
         the joker row as scoring left it.
@@ -2343,6 +2369,31 @@ class GameState:
         """
         played = [self.hand[i] for i in indices]
         held = [c for i, c in enumerate(self.hand) if i not in indices]
+        # The Hook takes two held cards before the hand scores, as `_play`
+        # does, and the preview never did: on seed set 12 its previews missed
+        # 12 plays in 45, a Raised Fist play by 1242 against 162. Rolled, the
+        # two are drawn as `_play` draws them off the preview's stream;
+        # pessimistic, they are the pair whose loss costs the play most.
+        boss = self.boss
+        hook = (boss is not None and boss.discard_random_on_play
+                and len(held) > 0)
+        if hook and hook_taken is None:
+            pool = sorted(held, key=lambda card: card.uid)
+            count = min(boss.discard_random_on_play, len(pool))
+            if pessimistic:
+                from itertools import combinations
+
+                worst = None
+                for pair in combinations(pool, count):
+                    result = self._preview(indices, salt, True,
+                                           hook_taken=pair)
+                    if worst is None or result[0] < worst[0]:
+                        worst = result
+                return worst
+            chooser = RunRng("%s%s" % (self.seed, salt))
+            hook_taken = tuple(chooser.sample("hook", pool, count))
+        if hook_taken:
+            held = [c for c in held if not any(c is t for t in hook_taken)]
         real_jokers, real_rng = self.jokers, self.rng
         # Everything a scoring hook can write to that is not the joker it
         # runs on. The jokers are copied; these are put back. Space Joker
@@ -2369,7 +2420,8 @@ class GameState:
         # xor the seed with a constant, which worked only while seeds were
         # integers -- every preview against a real run's seed raised
         # TypeError.
-        self.rng = RunRng("%s_preview" % self.seed)
+        self.rng = (PessimisticRng if pessimistic else RunRng)(
+            "%s%s" % (self.seed, salt))
         try:
             result = self.evaluate_selection(played)
             # A hand the boss zeroes -- The Psychic, The Eye, The Mouth --
@@ -2394,6 +2446,12 @@ class GameState:
             # PLOQ83ZX, two of them "clears the blind" that did not. `finally`
             # puts the count back.
             self.hand_levels.plays[result.hand] += 1
+            # The Arm takes the level off before the hand scores, as `_play`
+            # does; the preview scored at the old level (11 plays of 23 off
+            # on seed set 12). `finally` puts the level back.
+            if boss is not None and boss.level_down_played_hand:
+                self.hand_levels.levels[result.hand] = max(
+                    1, self.hand_levels.levels[result.hand] - 1)
             ctx = score_hand(self, result, played, held)
             # The dollars before `finally` puts the money back: what _play
             # would pay from the context once the hand has scored, and
