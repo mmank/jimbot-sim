@@ -187,7 +187,7 @@ def test_the_boss_on_deck_is_not_in_force_until_the_round_sets_it():
 
 def test_a_boss_built_off_the_blind_select_is_in_force():
     # What a policy's fork does to price the boss to come from a shop.
-    game = _in_a_shop("AGREE016")
+    game = _in_a_shop("AGREE018")
     game.blind = _boss("The Manacle")(game)
     assert game.boss is not None
 
@@ -286,3 +286,48 @@ def test_a_skipped_orbital_tag_levels_its_hand():
     after = game.eval("(function() local n = 0 for _, h in pairs(G.GAME.hands)"
                       " do n = n + h.level end return n end)()")
     assert after == before + 3
+
+
+def test_marbles_stone_card_is_made_after_the_verdant_leaf_is_set():
+    # set_blind asks every card its debuff before new_round runs the
+    # setting_blind context (state_events.lua:333-337), and Card() builds
+    # the Stone card `initial`, never asking (card.lua:43-44).
+    from jimbot_sim.cards import Enhancement
+
+    game = GameState(seed="AGREE019", deck="Red Deck")
+    game.gain_joker(JokerInstance(JOKERS["Marble Joker"]))
+    game.blind = _on_deck("Verdant Leaf")(game)
+    game.step(Action(ActionType.SELECT_BLIND))
+    stones = [c for c in game.full_deck if c.enhancement is Enhancement.STONE]
+    assert len(stones) == 1 and not stones[0].debuffed
+    assert all(c.debuffed for c in game.full_deck if c is not stones[0])
+
+
+def test_perkeo_draws_its_consumable_oldest_first():
+    # pseudorandom_element sorts by sort_id (misc_functions.lua:260).
+    from jimbot_sim import consumables as cons
+
+    picks = []
+    for order in ((0, 1), (1, 0)):
+        game = GameState(seed="AGREE020", deck="Red Deck")
+        made = [game.hold_consumable(cons.REGISTRY[n])
+                for n in ("The Fool", "Strength")]
+        game.consumables = [made[i] for i in order]
+        perkeo = JokerInstance(JOKERS["Perkeo"])
+        perkeo.spec.on_shop_end(perkeo, game)
+        picks.append(game.consumables[-1].name)
+    assert picks[0] == picks[1]
+
+
+def test_a_consumable_bought_is_as_old_as_the_shop_that_stocked_it():
+    from jimbot_sim import consumables as cons
+
+    game = _in_a_shop("AGREE021")
+    game.money = 100
+    game.shop.slots.insert(0, shop_mod.ShopSlot(
+        "consumable", 3, consumable=cons.REGISTRY["The Fool"]))
+    later = game.hold_consumable(cons.REGISTRY["Strength"])
+    game.consumables.append(later)
+    game.step(Action(ActionType.BUY, index=0))
+    fool = next(c for c in game.consumables if c.name == "The Fool")
+    assert fool.uid < later.uid

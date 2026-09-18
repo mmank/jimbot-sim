@@ -1953,6 +1953,13 @@ class GameState:
         # set_blind leaves the blind prepped (blind.lua:94), which is what lets
         # Crimson Heart take a joker on the opening deal.
         self.blind.prepped = True
+        # set_blind asks every playing card its debuff (blind.lua:207-210)
+        # before new_round runs the setting_blind context (state_events.lua:
+        # 333-337). So Marble Joker's Stone card, made after, is never asked:
+        # Card() builds it `initial` (card.lua:43-44), and under Verdant Leaf
+        # it is the one card in the hand that scores -- until a joker joining
+        # or leaving the row re-asks the deck.
+        self._apply_debuffs()
 
         # Selecting the blind is its own moment, before any card is dealt:
         # Marble Joker's Stone card is in the deck for the first draw, and
@@ -1999,7 +2006,6 @@ class GameState:
         self.rng.shuffle(self.draw_pile, f"nr{self.ante}")
         self.hand = []
         self.discard_pile = []
-        self._apply_debuffs()
         self._draw_to_hand_size()
         if self.phase is Phase.GAME_OVER:
             # A run whose hand size has reached zero dies on the deal itself.
@@ -4471,7 +4477,9 @@ class GameState:
         if slot.joker is not None:
             self.gain_joker(slot.joker)
         elif slot.consumable is not None:
-            self.consumables.append(self.hold_consumable(slot.consumable))
+            held = self.hold_consumable(slot.consumable)
+            held.uid = slot.sort_id
+            self.consumables.append(held)
         elif slot.card is not None:
             self.add_card(slot.card)
 

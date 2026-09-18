@@ -7,11 +7,11 @@ legal action when that many cards are selected.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Callable
 
-from .cards import Card, Edition, Enhancement, Rank, Seal, Suit
+from .cards import Card, Edition, Enhancement, Rank, Seal, Suit, next_sort_id
 from .hands import PLANET_FOR_HAND, HandType
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -78,6 +78,9 @@ class ConsumableInstance:
     # sell price (card.lua:382). A card's, not a centre's: two Fools held for
     # different numbers of rounds sell for different money.
     extra_sell_value: int = 0
+    # Age, for Perkeo's draw, which sorts by it (see cards.next_sort_id). A
+    # card bought from the shop carries the age it was stocked with.
+    uid: int = field(default_factory=next_sort_id)
 
     def __getattr__(self, name: str):
         # Only reached for names the instance itself does not define. The

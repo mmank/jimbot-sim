@@ -862,7 +862,10 @@ def _perkeo(j: JokerInstance, game: "GameState") -> None:
     """
     if not game.consumables:
         return
-    chosen = game.rng.random_element(list(game.consumables), "perkeo")
+    # pseudorandom_element sorts by sort_id (misc_functions.lua:260), so the
+    # draw is over the row oldest first, not in the order it is laid out.
+    chosen = game.rng.random_element(
+        sorted(game.consumables, key=lambda c: c.uid), "perkeo")
     copy = game.hold_consumable(chosen.spec, Edition.NEGATIVE)
     # copy_card copies the whole ability table, extra_value included
     # (common_events.lua:2161-2167), so the copy keeps any Gift Card money.

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .cards import Card, Edition
+from .cards import Card, Edition, next_sort_id
 from .consumables import ConsumableKind, ConsumableSpec
 from .jokers import BASE_COST, REGISTRY as JOKER_REGISTRY, JokerInstance, JokerSpec, Rarity
 from .pack_data import PACK_DATA
@@ -151,6 +151,10 @@ class ShopSlot:
     joker: JokerInstance | None = None
     consumable: ConsumableSpec | None = None
     card: Card | None = None
+    # The consumable's age: the game made the card when it stocked the shop,
+    # not when it was bought. A Tarot stocked before a pack was opened is
+    # older than one the pack's joker made, whichever reached the row first.
+    sort_id: int = field(default_factory=next_sort_id)
 
     @property
     def label(self) -> str:
