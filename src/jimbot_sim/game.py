@@ -1261,17 +1261,17 @@ class GameState:
     def boss(self) -> BossEffect | None:
         """The boss in force, if one is.
 
-        Not while the run is in a shop or a pack: `blind` holds the blind on
-        deck there, but the game's G.GAME.blind is the empty one
-        Blind:defeat left behind (blind.lua:336), and the boss does nothing
-        until set_blind. Read regardless, the boss on deck reached into the
-        hand an Arcana pack deals on the blind select screen -- The Manacle
-        took a card from it, The Serpent dealt it three, and a debuff landed
-        on any card a Tarot there changed.
+        Not the one on deck (`Blind.on_deck`): on the blind select screen
+        `blind` holds the blind on offer, but the game's G.GAME.blind is the
+        empty one Blind:defeat left behind (blind.lua:336), and the boss does
+        nothing until set_blind. Read regardless, the boss on deck reached
+        into the hand an Arcana pack deals there -- The Manacle took a card
+        from it, The Serpent dealt it three, The Cerulean Bell spent a draw
+        -- and a debuff landed on any card a Tarot there changed.
         """
-        if self._between_rounds():
-            return None
         if self.blind is None or self.blind.kind is not BlindKind.BOSS:
+            return None
+        if self.blind.on_deck:
             return None
         if self.blind.disabled:
             return None
@@ -1647,12 +1647,6 @@ class GameState:
         # decayed Turtle Bean another, and The Manacle one more on top.
         return max(0, size)
 
-    def _between_rounds(self) -> bool:
-        """In a shop or a pack, where no blind is in force whatever is on
-        deck. (The blind select screen is too, but it holds no hand, and a
-        GameState is built on it -- scenarios set a boss and score there.)"""
-        return self.phase in (Phase.SHOP, Phase.PACK)
-
     @property
     def interest_cap(self) -> int:
         caps = [v.interest_cap for v in self.vouchers if v.interest_cap]
@@ -1901,6 +1895,7 @@ class GameState:
             ante_scaling=self.deck_config.get("ante_scaling", 1),
             scaling=self.blind_scaling,
             no_reward=(kind is BlindKind.SMALL and self.stake >= 2))
+        self.blind.on_deck = True
         # No counters here. The game writes current_round.hands_left and
         # discards_left only at start_run (game.lua:2381), cash_out
         # (button_callbacks.lua:2929) and new_round (state_events.lua:296),
@@ -1922,6 +1917,9 @@ class GameState:
 
     def _start_round(self) -> None:
         assert self.blind is not None
+        # set_blind: the blind on offer is the one in force from here, for
+        # everything below -- the allowance, Amber Acorn, the debuffs, the deal.
+        self.blind.on_deck = False
         self.round_number += 1
         self.chips_scored = 0
         self.discards_used = 0
@@ -2216,10 +2214,12 @@ class GameState:
         """
         self._roll_boss()
         if self.blind is not None and self.blind.kind is BlindKind.BOSS:
+            on_deck = self.blind.on_deck
             self.blind = make_blind(
                 BlindKind.BOSS, self.ante, self._pick_boss(),
                 ante_scaling=self.deck_config.get("ante_scaling", 1),
                 scaling=self.blind_scaling)
+            self.blind.on_deck = on_deck
         # G.FUNCS.reroll_boss ends by offering the tags a new blind choice
         # (button_callbacks.lua:2848), paid re-roll or Boss Tag alike.
         self._new_blind_choice()

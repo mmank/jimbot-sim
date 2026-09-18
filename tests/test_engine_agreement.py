@@ -128,6 +128,15 @@ def _boss(name):
                                    _BOSS_BY_NAME[name])
 
 
+def _on_deck(name):
+    """The boss offered on the blind select screen, not yet set."""
+    def build(game):
+        blind = _boss(name)(game)
+        blind.on_deck = True
+        return blind
+    return build
+
+
 def test_checkered_rolls_its_held_cards_before_it_converts():
     # start_run rolls The Idol's card and Castle's suit synchronously; the
     # Checkered Deck's conversion is an event after it (back.lua:239).
@@ -162,18 +171,30 @@ def test_every_antes_orbital_hands_are_rolled_at_its_blind_select():
     assert {(1, 0), (1, 1), (1, 2)} <= set(game.orbital_choices)
 
 
-def test_no_boss_is_in_force_in_a_shop_or_a_pack():
+def test_the_boss_on_deck_is_not_in_force_until_the_round_sets_it():
+    # On the blind select screen G.GAME.blind is the empty blind the last
+    # round left (blind.lua:336); the boss on offer acts from set_blind.
     game = _in_a_shop("AGREE012")
-    game.blind = _boss("The Manacle")(game)
+    game.step(Action(ActionType.LEAVE_SHOP))
+    assert game.phase is Phase.BLIND_SELECT and game.blind.on_deck
+    game.blind = _on_deck("The Manacle")(game)
     size = game.hand_size
     assert game.boss is None
-    game.phase = Phase.PLAYING
+    game.step(Action(ActionType.SELECT_BLIND))
+    assert not game.blind.on_deck
     assert game.boss is not None and game.hand_size == size - 1
+
+
+def test_a_boss_built_off_the_blind_select_is_in_force():
+    # What a policy's fork does to price the boss to come from a shop.
+    game = _in_a_shop("AGREE016")
+    game.blind = _boss("The Manacle")(game)
+    assert game.boss is not None
 
 
 def test_a_pack_at_the_blind_select_does_not_spend_the_bells_draw():
     game = GameState(seed="AGREE013", deck="Red Deck")
-    game.blind = _boss("Cerulean Bell")(game)
+    game.blind = _on_deck("Cerulean Bell")(game)
     game._open_pack(shop_mod.pack_from_key("p_arcana_normal_1"))
     assert game.hand and game.forced_card is None
     assert not any(key.startswith("cerulean_bell") for key in game.rng.pools)
@@ -182,7 +203,7 @@ def test_a_pack_at_the_blind_select_does_not_spend_the_bells_draw():
 def test_a_sale_before_the_verdant_leaf_leaves_it_standing():
     game = GameState(seed="AGREE014", deck="Red Deck")
     game.gain_joker(JokerInstance(JOKERS["Joker"]))
-    game.blind = _boss("Verdant Leaf")(game)
+    game.blind = _on_deck("Verdant Leaf")(game)
     game.step(Action(ActionType.SELL_JOKER, index=0))
     assert not game.blind.disabled
 

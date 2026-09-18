@@ -188,6 +188,12 @@ class Blind:
     # has a joker to take (blind.lua:488-493); cleared by drawn_to_hand
     # (blind.lua:602). Only Crimson Heart reads it: GameState._drawn_to_hand.
     prepped: bool = False
+    # On offer on the blind select screen and not yet set (set_blind is
+    # _start_round). The game's G.GAME.blind is then the empty one the last
+    # round left (blind.lua:336), so a boss on deck does nothing: see
+    # GameState.boss. A blind built any other way -- a scenario, a policy's
+    # fork pricing against the boss to come -- is in force.
+    on_deck: bool = False
 
     @property
     def name(self) -> str:
