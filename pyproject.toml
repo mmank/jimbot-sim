@@ -19,6 +19,10 @@ dev = ["pytest>=8.0"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# The engine's centre list, frozen: jimbot_sim.state numbers ids from it.
+jimbot_sim = ["vocabulary.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # LuaJIT signals its own errors with a Windows SEH exception (0xE24C4A02).
