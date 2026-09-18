@@ -311,10 +311,16 @@ class EngineRun:
     open.
     """
 
-    def __init__(self, bridge) -> None:
+    def __init__(self, bridge, endless: bool = False) -> None:
         self.bridge = bridge
         self.driver = _Driver(bridge)
         self._names: Names | None = None
+        # Carry on past a win, as `SimRun(endless=True)` does: the game puts
+        # its win screen up and waits, paused, for a button no recording has
+        # (bot_api's continue_endless). A replay of a player who pressed it
+        # presses it too.
+        self.endless = endless
+        self._carried_on = False
 
     @property
     def names(self) -> Names:
@@ -425,7 +431,12 @@ class EngineRun:
         return True
 
     def state(self) -> dict:
-        return self.bridge.wait_ready(timeout=60)
+        state = self.bridge.wait_ready(timeout=60)
+        if self.endless and not self._carried_on and state.get("won"):
+            if (self.bridge.command("continue_endless") or {}).get("continued"):
+                self._carried_on = True
+                state = self.bridge.wait_ready(timeout=60)
+        return state
 
     @property
     def is_over(self) -> bool:

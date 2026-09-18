@@ -1793,6 +1793,42 @@ function BotAPI.set_money(args)
   return { dollars = G.GAME.dollars }
 end
 
+--- Carry on past the win, as the win screen's "Endless Mode" button does.
+---
+--- win_game puts up an overlay that pauses the game, and queues a blocking
+--- event that waits for the pause to lift (functions/state_events.lua:76-84).
+--- stop_use's decrement is queued behind it, so until the button is pressed
+--- G.GAME.STOP_USE stays up and every consumable is refused: recording 14,
+--- replayed, stopped at step 347 on a Venus used at the cash-out after the
+--- ante 8 boss. The button is exit_overlay_menu (UI_definitions.lua:2785),
+--- which is not a game action and so never reaches a recording.
+---
+--- The screen is not there yet when the run first reads won: win_game raises
+--- it from a queued event some frames later, and pressing early found nothing
+--- to press. So this queues a watcher instead, outside the blocking chain,
+--- that presses the button the frame the paused screen appears -- and gives
+--- up after ten seconds of frames, for a run whose screen has already gone.
+--- `pause_force`, because an event made while the game runs is skipped for
+--- as long as it is paused (engine/event.lua:50), and the screen pauses it.
+--- Nothing if the run is not won.
+function BotAPI.continue_endless()
+  if not (G.GAME and G.GAME.won) then return { continued = false } end
+  local frames = 600
+  G.E_MANAGER:add_event(Event({
+    trigger = 'immediate', blocking = false, blockable = false,
+    no_delete = true, pause_force = true,
+    func = function()
+      if G.OVERLAY_MENU and G.SETTINGS.paused then
+        G.FUNCS.exit_overlay_menu()
+        return true
+      end
+      frames = frames - 1
+      return frames <= 0
+    end,
+  }))
+  return { continued = true }
+end
+
 --- Buy a consumable and use it in the same click, the shop's second button.
 --- Distinct from buy: the card never reaches the consumable slots, so it works
 --- with them full, and the effect lands immediately.

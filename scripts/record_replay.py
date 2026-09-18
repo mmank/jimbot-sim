@@ -186,7 +186,9 @@ def do_record(args) -> None:
 def do_replay(args) -> None:
     recording = Recording.load(args.recording)
     bridge = _headless() if getattr(args, "headless", False) else _connect(args)
-    run = EngineRun(bridge)
+    # Endless, as the simulator replays it: a recording that goes on past
+    # ante eight is the player having pressed "Endless Mode".
+    run = EngineRun(bridge, endless=True)
     print(f"replaying {len(recording.actions)} actions on seed "
           f"{recording.seed} ({recording.deck})\n")
 
