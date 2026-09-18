@@ -69,3 +69,77 @@ def test_a_pick_that_closes_the_pack_still_waits_for_it():
         bridge = OpenPack()
         bridge.pick_pack(1, closes=closes)
         assert bridge.waited == [8.0]
+
+
+class Counted(OpenPack):
+    """The same game, reporting how many picks the pack has left."""
+
+    def __init__(self, choices: int) -> None:
+        super().__init__()
+        self.choices = choices
+
+    def state(self) -> dict:
+        return dict(super().state(), pack_choices=self.choices)
+
+
+def test_the_state_says_whether_a_pick_closes_the_pack():
+    # The environments drive the engine without a shadow to ask, so the
+    # game's own count (G.GAME.pack_choices) answers when the caller cannot.
+    bridge = Counted(choices=2)
+    bridge.pick_pack(1)
+    assert bridge.waited == []
+    bridge = Counted(choices=1)
+    bridge.pick_pack(1)
+    assert bridge.waited == [8.0]
+
+
+class NextPack(BalatroBridge):
+    """A pick that closes its pack, straight into another one: two pack tags
+    open their packs back to back, and the game is never out of a pack."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.picked = False
+
+    def command(self, cmd, *args):
+        if cmd == "pick_pack":
+            self.picked = True
+        return None
+
+    def state(self) -> dict:
+        pack = ([{"center": 7}, {"center": 8}] if self.picked
+                else [{"center": 1}, {"center": 2}])
+        return {"ready": 1, "in_pack": 1, "pack": pack, "busy": 0,
+                "pack_choices": 1,
+                "jokers": [{"id": 1}] if self.picked else [],
+                "consumables": [], "deck_size": 52, "hand_levels": {}}
+
+    def _pause(self, seconds: float) -> None:
+        pass
+
+
+def test_a_pack_followed_by_another_has_closed():
+    import time
+
+    bridge = NextPack()
+    started = time.perf_counter()
+    state = bridge.pick_pack(1)
+    # Not the eight seconds the wait for a pack that never closes runs.
+    assert time.perf_counter() - started < 2.0
+    assert [r["center"] for r in state["pack"]] == [7, 8]
+
+
+def test_a_skip_into_another_pack_has_left_the_first():
+    import time
+
+    class SkipIntoNext(NextPack):
+        def command(self, cmd, *args):
+            if cmd == "skip_pack":
+                self.picked = True          # the next pack is up
+            return None
+
+    bridge = SkipIntoNext()
+    started = time.perf_counter()
+    state = bridge.skip_pack()
+    assert time.perf_counter() - started < 2.0
+    assert [r["center"] for r in state["pack"]] == [7, 8]

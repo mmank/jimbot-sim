@@ -12,6 +12,8 @@ So there is one interface, and the backends implement it:
 
     start(seed, deck, stake)   a fresh run; returns its state
     state()                    the state, in the engine's shape, settled
+    advance(state, settled)    through a phase no player decides (a cash-out,
+                               the engine's animations); False if none
     step(action)               an `Action` from jimbot_sim.game, carried out
     is_over                    whether the run has ended
 
@@ -39,20 +41,46 @@ and `selection`, the highlighted cards as hand positions. The highlight is
 part of what a policy sees, so it is held where the backend shows it -- in
 the game's own G.hand.highlighted, and in `SimRun` by card, so it follows the
 cards through a sort or a swap as the game's does. A play, a discard or a
-consumable is then an `Action` carrying the selection.
+consumable is then an `Action` carrying the selection. `balatro_env.flat_run`
+turns a policy's flat actions into these, on any backend; the training
+environments are that over a `SimRun` or a headless `EngineRun`.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Protocol
 
 from .compare import Names, differences
 from .game import Action, ActionType, GameState, Phase
 from .hands import HandType
-from .headless.driving import AUTO_STATES, advance, is_over
+from .headless.driving import advance, is_over
 from .joker_data import JOKER_DATA
 from .shop_pool import NAME_BY_CONSUMABLE_KEY
-from .state import state_dict
+from .state import _pack_row, state_dict
+
+# When on, `SimRun.patched` checks every patch against a full `state()`. Off
+# in training, where it would double the cost of the step it exists to save;
+# the test suites turn it on (`verify`), and so does the environment variable.
+VERIFY = bool(os.environ.get("BALATRO_VERIFY_SHORTCUTS"))
+
+
+def verify(on: bool = True) -> None:
+    """Turn `SimRun.patched`'s self-check on or off for this process."""
+    global VERIFY
+    VERIFY = on
+
+
+def _same_state(patched: dict, fresh: dict) -> None:
+    if set(patched) != set(fresh):
+        raise AssertionError(
+            "a patched state and a full one hold different keys: %r"
+            % (set(patched) ^ set(fresh)))
+    for key in fresh:
+        if patched[key] != fresh[key]:
+            raise AssertionError(
+                "the patch left %r stale: patched %r, rebuilt %r"
+                % (key, patched[key], fresh[key]))
 
 
 class Run(Protocol):
@@ -89,11 +117,15 @@ class Run(Protocol):
 
     def selection(self) -> tuple[int, ...]: ...
 
+    def advance(self, state: dict, settled: int = 0) -> bool: ...
+
 
 # The game allows this many cards highlighted (G.hand.config.highlighted_limit).
 HIGHLIGHT_LIMIT = 5
-# Actions after which the highlight and the hand's toggle count start over,
-# as balatro_env.sim_env has them. A buy is on the list for being in a shop,
+# Packs that deal a hand to aim their cards at.
+HAND_PACKS = {"TAROT_PACK", "SPECTRAL_PACK"}
+# Actions after which the highlight, the hand's toggle count and its sort
+# presses start over in `SimRun`. A buy is on the list for being in a shop,
 # where there is no hand to hold a highlight.
 CLEARS_SELECTION = {ActionType.PLAY, ActionType.DISCARD,
                     ActionType.USE_CONSUMABLE, ActionType.SELECT_BLIND,
@@ -126,11 +158,20 @@ class SimRun:
 
     Endless is off by default: the simulator would play on past ante eight
     while the game declares the run won, which is a divergence about the best
-    thing that can happen.
+    thing that can happen. `all_stickers` puts every sticker on whatever the
+    stake allows -- a training device, see `GameState.all_stickers`.
+
+    What the engine keeps per hand in bot_api is kept here too, so the state
+    reads the same: the highlight and the toggles spent (`toggle`), one press
+    of each sort button (`sort_hand`), and the joker-swap budget, which
+    refreshes with the round and with the set of jokers held (bot_api's
+    `joker_state`).
     """
 
-    def __init__(self, endless: bool = False) -> None:
+    def __init__(self, endless: bool = False,
+                 all_stickers: bool = False) -> None:
         self.endless = endless
+        self.all_stickers = all_stickers
         self.game: GameState | None = None
         # Each starting card's place in the deck, which is the id the game
         # gives it -- the simulator builds its deck in the game's own order.
@@ -140,26 +181,135 @@ class SimRun:
         # dragged. And how many toggles this hand, which the state reports.
         self._selected: list = []
         self._toggles = 0
+        self._sorted = {"rank": False, "suit": False}
+        self._swaps = 0
+        self._swap_key: tuple | None = None
+
+    @property
+    def seed(self) -> str | None:
+        return self.game.seed if self.game is not None else None
 
     def start(self, seed: str, deck: str = "Red Deck",
               stake: int = 1) -> dict:
-        self.game = GameState(seed=seed, deck=deck, stake=stake,
-                              endless=self.endless)
-        self.deck_index = {card.uid: i
-                           for i, card in enumerate(self.game.full_deck)}
-        self._selected, self._toggles = [], 0
+        self.adopt(GameState(seed=seed, deck=deck, stake=stake,
+                             endless=self.endless,
+                             all_stickers=self.all_stickers))
         return self.state()
 
+    def adopt(self, game: GameState, selected=()) -> None:
+        """Carry on from a `GameState` built elsewhere -- a replayed position.
+
+        `selected` is what is highlighted there, as hand positions, counted
+        as that many toggles. `deck_index` is only as good as the game's
+        `full_deck` order, which a played game may have moved on from.
+        """
+        self.game = game
+        self.deck_index = {card.uid: i
+                           for i, card in enumerate(game.full_deck)}
+        self._new_hand()
+        self._selected = [game.hand[i] for i in selected
+                          if 0 <= i < len(game.hand)][:HIGHLIGHT_LIMIT]
+        self._toggles = len(self._selected)
+        self._swaps, self._swap_key = 0, None
+
     def state(self) -> dict:
-        return state_dict(self.game, self.selection(), self._toggles)
+        state = state_dict(self.game, self.selection(), self._toggles,
+                           self._swap_budget())
+        # state_dict reports the sort buttons as pressed, for a caller with
+        # no notion of them; here they are real, one press each per hand.
+        state["sorted_rank"] = 1 if self._sorted["rank"] else 0
+        state["sorted_suit"] = 1 if self._sorted["suit"] else 0
+        return state
+
+    def patched(self, previous: dict) -> dict:
+        """`previous` brought up to date after clicks alone, in place.
+
+        For a caller that knows nothing but `toggle` and `clear` happened
+        since it took `previous` from `state()`: the training environment,
+        where nineteen actions in twenty are a toggle, and rebuilding the
+        jokers, the shop, the blind, thirteen hand levels and all fifty-two
+        cards for one was most of a step. Only what the highlight decides is
+        redone -- which cards read as highlighted, how many are picked and
+        the toggles spent, the hand they make, and what is usable with them:
+        every targeting consumable is gated on how many cards are highlighted,
+        and an Arcana pack's rows with it.
+
+        That list is the contract with `state_dict`, and a field left off it
+        keeps a plausible stale value and raises nothing. So with `VERIFY` on
+        -- the test suites turn it on -- every patch is checked against a
+        full `state()`.
+        """
+        game = self.game
+        state = previous
+        chosen = self.selection()
+        picked_at = set(chosen)
+        for i, row in enumerate(state["hand"]):
+            row["highlighted"] = 1 if i in picked_at else 0
+
+        made = {"name": "", "level": 0, "chips": 0, "mult": 0, "cards": 0,
+                "estimate": 0}
+        if chosen:
+            hand = list(game.hand)
+            result = game.evaluate_selection([hand[i] for i in chosen])
+            chips, mult = game.hand_levels.values(result.hand)
+            card_chips = sum(c.rank.chips for c in result.scoring)
+            made = {"name": result.hand.label,
+                    "level": game.hand_levels.levels[result.hand],
+                    "chips": chips + card_chips, "mult": mult,
+                    "cards": len(result.scoring), "estimate": 0}
+
+        picked = tuple(game.hand[i] for i in chosen)
+        for row, held in zip(state["consumables"], game.consumables):
+            row["usable"] = 1 if game.can_use_consumable(held, picked) else 0
+        # Rebuilt rather than patched: a pack row can hold a joker or a
+        # playing card too, and those have their own rule.
+        if game.pack_options:
+            state["pack"] = [_pack_row(game, option, picked)
+                             for option in game.pack_options]
+
+        state["selected_hand"] = made
+        state["selection_size"] = len(chosen)
+        state["toggles_used"] = self._toggles
+        if VERIFY:
+            _same_state(state, self.state())
+        return state
 
     def legal_actions(self) -> list[Action]:
         return self.game.legal_actions()
 
     def step(self, action: Action) -> None:
+        if action.type is ActionType.SWAP_JOKER_LEFT:
+            # Spent from the budget as it stands before the swap.
+            self._swap_budget()
+            self._swaps += 1
         self.game.step(action)
         if action.type in CLEARS_SELECTION:
-            self._selected, self._toggles = [], 0
+            self._new_hand()
+
+    def advance(self, state: dict | None = None, settled: int = 0) -> bool:
+        """Move on through a phase no player is asked about; False if none.
+
+        Here that is only the cash-out: nothing is ever in flight. The same
+        question `EngineRun.advance` answers for the engine, so a driver
+        loops over either the same way.
+        """
+        if self.game.phase is Phase.ROUND_EVAL:
+            self.step(Action(ActionType.CASH_OUT))
+            return True
+        return False
+
+    def _new_hand(self) -> None:
+        """The highlight, the toggles and the sort presses start over."""
+        self._selected, self._toggles = [], 0
+        self._sorted = {"rank": False, "suit": False}
+
+    def _swap_budget(self) -> int:
+        """Swaps spent, refreshed when the round or the set of jokers moves."""
+        game = self.game
+        key = (game.round_number, tuple(sorted(j.name for j in game.jokers)))
+        if key != self._swap_key:
+            self._swap_key, self._swaps = key, 0
+        return self._swaps
 
     def selection(self) -> tuple[int, ...]:
         if self.game is None or not self._selected:
@@ -212,7 +362,10 @@ class SimRun:
         match_joker_order(self.game, joker_keys)
 
     def sort_hand(self, by: str) -> None:
+        # The order sticks for later draws (GameState.sort_hand); the press
+        # counts until the hand starts over.
         self.game.sort_hand(by)
+        self._sorted["suit" if by == "suit" else "rank"] = True
 
     def set_money(self, amount: int) -> None:
         self.game.money = amount
@@ -385,6 +538,7 @@ class EngineRun:
         # presses it too.
         self.endless = endless
         self._carried_on = False
+        self.seed: str | None = None
 
     @property
     def names(self) -> Names:
@@ -394,11 +548,30 @@ class EngineRun:
 
     def start(self, seed: str, deck: str = "Red Deck",
               stake: int = 1) -> dict:
+        self.seed = seed
+        self._carried_on = False
         # in_run flips before the blind-select screen exists, and
         # select_blind is a no-op until it does.
         self.bridge.command("start_run", seed, deck.replace(" ", "_"), stake)
         return self.bridge.wait_until(
             lambda s: s.get("in_run") and s.get("ready"), timeout=60)
+
+    def restore(self, packed: str, seed: str | None = None) -> dict:
+        """Begin from a snapshot (bot_api's snapshot_run) rather than ante one.
+
+        The headless engine only: the payload is tens of kilobytes of Lua
+        source, handed over through a global rather than a command line.
+        """
+        engine = getattr(self.bridge, "engine", None)
+        if engine is None:
+            raise NotImplementedError("restoring a snapshot needs the "
+                                      "headless engine")
+        self.seed = seed
+        self._carried_on = False
+        engine.lua.globals().BOT_SNAPSHOT = packed
+        engine.execute("BOT.restore_run(BOT_SNAPSHOT)")
+        self.bridge.pump(200)
+        return self.state()
 
     def key(self, row: dict) -> str:
         return self.names.key(row, live=True)
@@ -636,22 +809,45 @@ class _Driver:
         self.bridge = bridge
 
     def wait(self) -> None:
-        # Short on purpose: the caller advances repeatedly and gives up after
-        # a bounded number of tries, so a long timeout here does not fail
-        # faster, it only blocks.
-        try:
-            self.bridge.wait_for(
-                lambda s: s["state_name"] not in AUTO_STATES
-                and (s["state_name"] != "SHOP" or s.get("shop_ready")),
-                timeout=0.5)
-        except Exception:                                  # noqa: BLE001
-            pass
+        """A moment passes: a few frames headless, a tenth of a second live.
+
+        Only that. `advance` asks for it while the game settles on its own
+        -- a phase animating, the use guard (stop_use) coming down, a shop
+        stocking -- and counts the asks against a patience of its own, so
+        this does not wait for any condition itself.
+
+        It used to wait up to half a second for the phase to settle. The
+        use guard is up in a phase that is already settled, so that returned
+        at once and headless pumped nothing: a policy was handed a blind
+        where nothing could be sold or used. And a shop whose joker row is
+        bought out never reads as stocked, so every ask ran its half second
+        out -- thirty seconds a shop, headless or live, where the headless
+        driver this replaced spent 720 frames.
+        """
+        self.bridge._pause(0.1)
 
     def cash_out(self) -> None:
         self.bridge.cash_out()
 
     def settle_pack(self) -> None:
-        pass                    # the client's pick_pack waits for the pack
+        """Let a pack finish dealing before it is chosen from.
+
+        A bought one is waited for by buy_pack, but a pack a skip tag opens
+        arrives with nothing to wait on it, and in a pack the game reads as
+        ready before its cards are dealt -- only skipping would be legal.
+
+        And an Arcana or Spectral pack deals a hand to aim its cards at, over
+        several frames more. Both environments used to put the pack to the
+        policy with that hand still empty, so every Tarot in it that needs a
+        target was unusable on the first decision.
+        """
+        try:
+            state = self.bridge.wait_for(lambda s: bool(s.get("pack")),
+                                         timeout=2.0)
+            if state.get("state_name") in HAND_PACKS:
+                self.bridge.wait_hand_dealt(timeout=5.0)
+        except Exception:                                  # noqa: BLE001
+            pass
 
 
 # ----------------------------------------------------------------------

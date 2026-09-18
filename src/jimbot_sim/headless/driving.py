@@ -86,9 +86,11 @@ def advance(state, driver: Driver, settled: int = 0) -> bool:
         return True
     if name in PACK_STATES:
         # A pack deals its contents over several frames, and its targeting hand
-        # with them. Settle it, then let the policy choose.
+        # with them. Settle it, then let the policy choose -- once the guard
+        # opening it raised is down too (below). Returning here without that
+        # put every fresh pack to the policy with no joker sellable and no
+        # consumable usable.
         driver.settle_pack()
-        return False
     if (state.get("stop_use") or 0) > 0 and settled < STOP_USE_PATIENCE:
         # Bounded, like the shop wait: if it somehow never clears, deciding
         # with a stale guard is better than hanging the run.

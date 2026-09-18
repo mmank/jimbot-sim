@@ -84,6 +84,73 @@ def test_a_play_starts_the_highlight_over():
     assert run.state()["toggles_used"] == 0
 
 
+def _in_a_round():
+    run = SimRun()
+    run.start("ABCDEFGH", "Red Deck", 1)
+    run.step(Action(ActionType.SELECT_BLIND))
+    return run
+
+
+def test_each_sort_button_is_one_press_a_hand():
+    run = _in_a_round()
+    assert (run.state()["sorted_rank"], run.state()["sorted_suit"]) == (0, 0)
+    run.sort_hand("suit")
+    assert (run.state()["sorted_rank"], run.state()["sorted_suit"]) == (0, 1)
+    run.toggle(0)
+    run.step(Action(ActionType.DISCARD, cards=run.selection()))
+    assert (run.state()["sorted_rank"], run.state()["sorted_suit"]) == (0, 0)
+
+
+def test_the_joker_swap_budget_follows_the_round_and_the_row():
+    from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
+
+    run = _in_a_round()
+    for name in ("Joker", "Blueprint"):
+        run.game.gain_joker(JokerInstance(JOKERS[name]))
+    run.step(Action(ActionType.SWAP_JOKER_LEFT, index=1))
+    run.step(Action(ActionType.SWAP_JOKER_LEFT, index=1))
+    assert run.state()["joker_swaps_used"] == 2
+    run.game.gain_joker(JokerInstance(JOKERS["Jolly Joker"]))
+    assert run.state()["joker_swaps_used"] == 0      # a new set of jokers
+
+
+def test_a_round_end_is_cashed_out_by_advance():
+    run = _in_a_round()
+    run.game.blind.target = 1
+    run.toggle(0)
+    run.step(Action(ActionType.PLAY, cards=run.selection()))
+    assert run.game.phase is Phase.ROUND_EVAL
+    assert run.advance(run.state()) is True
+    assert run.state()["state_name"] == "SHOP"
+    assert run.advance(run.state()) is False
+
+
+def test_a_patch_after_clicks_is_the_state_rebuilt():
+    from jimbot_sim import run as run_module
+
+    run = _in_a_round()
+    state = run.state()
+    was = run_module.VERIFY
+    run_module.verify(True)                  # patched() checks itself too
+    try:
+        for i in (3, 1, 4, 1, 5):
+            run.toggle(i)
+            state = run.patched(state)
+            assert state == run.state()
+        run.clear()
+        assert run.patched(state) == run.state()
+    finally:
+        run_module.verify(was)
+
+
+def test_an_adopted_position_keeps_its_highlight():
+    game = _in_a_round().game
+    run = SimRun()
+    run.adopt(game, selected=(2, 0, 9))      # 9 is past the hand
+    assert run.selection() == (0, 2)
+    assert run.state()["toggles_used"] == 2
+
+
 # -- the engine's translation ------------------------------------------------
 
 class Calls(BalatroBridge):
@@ -150,6 +217,27 @@ def test_the_engines_highlight_reads_as_hand_positions():
     engine.clear()
     engine.swap_card_left(3)
     assert engine.bridge.calls == [("clear",), ("swap_card_left", 4)]
+
+
+def test_waiting_lets_time_pass_even_in_a_settled_phase():
+    # The use guard (stop_use) is waited out in a phase that is itself
+    # settled; a wait that only checked the phase let no frame pass headless.
+    from jimbot_sim.run import _Driver
+
+    class Clock(BalatroBridge):
+        def __init__(self):
+            super().__init__()
+            self.paused = 0
+
+        def state(self):
+            return {"state_name": "SELECTING_HAND"}
+
+        def _pause(self, seconds):
+            self.paused += 1
+
+    bridge = Clock()
+    _Driver(bridge).wait()
+    assert bridge.paused >= 1
 
 
 def test_cards_already_highlighted_are_not_picked_again():

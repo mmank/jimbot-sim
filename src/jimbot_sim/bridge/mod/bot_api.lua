@@ -617,6 +617,10 @@ function BotAPI.state()
     reroll_cost = in_run and (G.GAME.current_round.reroll_cost or 0) or 0,
     won = (in_run and G.GAME.won) and 1 or 0,
     in_pack = in_pack() and 1 or 0,
+    -- Picks left in the open pack: a Mega pack takes two, and the game
+    -- counts them down (button_callbacks.lua:2273-2278). A client waiting
+    -- for the pack to close after a pick needs to know whether it will.
+    pack_choices = (in_pack() and (G.GAME.pack_choices or 1)) or 0,
     selection_size = in_run and #G.hand.highlighted or 0,
     -- How many cards may be selected at once. Not always five: a Serpent-style
     -- hand or a joker can change it, so it cannot be a constant on the client.

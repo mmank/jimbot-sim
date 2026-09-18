@@ -282,9 +282,15 @@ class BalatroBridge:
                                          and len(s.get("hand") or []) > 0))
 
     def toggle(self, index: int) -> dict:
-        before = self.state().get("selection_size", 0)
-        return self.act("toggle", index, settle=5.0,
-                        until=lambda s: s.get("selection_size") != before)
+        """Click a card in the hand: highlight it, or take the highlight off.
+
+        Taken or refused in the same call, and counted against the hand's
+        toggles either way, so there is nothing to wait for. Waiting for the
+        selection to change -- as this did -- hung for five seconds and then
+        raised on a click the game refuses: the card The Cerulean Bell holds
+        up, which a policy is free to click.
+        """
+        return self.command("toggle", index)
 
     def play(self) -> dict:
         state = self.state()
@@ -633,10 +639,11 @@ class BalatroBridge:
         as the pack shuts leaves the card still flying across the screen, which
         is visible as a joker drifting over the next screen.
 
-        `closes` is whether this pick is the pack's last, when the caller
-        knows. The state does not say how many picks are left, so without it
-        the wait for the pack to close runs its full length after the first
-        pick of a Mega pack, which stays open for the second.
+        `closes` is whether this pick is the pack's last. Without it the
+        wait for the pack to close runs its full length after the first pick
+        of a Mega pack, which stays open for the second -- so when the caller
+        does not say, the state's `pack_choices` does (a mod built before it
+        existed reports nothing, and the wait runs as it used to).
         """
         # The pack's cards are dealt a few frames after the pack screen opens,
         # exactly as the shop's are. Picking before they land addresses an
@@ -653,6 +660,8 @@ class BalatroBridge:
             self.wait_hand_dealt()
             self.select(cards)
         before = self.state()
+        if closes is None and before.get("pack_choices"):
+            closes = int(before["pack_choices"]) <= 1
         jokers = len(before.get("jokers") or [])
         consumables = len(before.get("consumables") or [])
         deck = before.get("deck_size", 0)
@@ -684,8 +693,18 @@ class BalatroBridge:
         # is what `busy` reads.
         if closes is False:
             return self.wait_idle()
+
+        # Closed, or closed and followed by another: two pack tags open their
+        # packs back to back, and the game is never out of a pack in between.
+        held = _pack_rows(before)
+        left = held[:index - 1] + held[index:]
+
+        def closed(state):
+            # Neither this pack nor what is left of it: another pack.
+            return (not state.get("in_pack")
+                    or _pack_rows(state) not in (held, left))
         try:
-            self.wait_until(lambda s: not s.get("in_pack"), timeout=8.0)
+            self.wait_until(closed, timeout=8.0)
         except NotReady:
             pass
         return self.state()
@@ -706,8 +725,18 @@ class BalatroBridge:
         """
         self.wait_for(lambda s: s.get("in_pack"), timeout=30.0)
         self.wait_idle()
+        held = _pack_rows(self.state())
         self.command("skip_pack")
-        return self.wait_for(lambda s: not s.get("in_pack"), timeout=30.0)
+        # Gone, or gone and followed by another: two pack tags open their
+        # packs back to back, and the game is never out of a pack in between.
+        return self.wait_for(lambda s: (not s.get("in_pack")
+                                        or _pack_rows(s) != held),
+                             timeout=30.0)
+
+
+def _pack_rows(state: dict) -> list:
+    """What an open pack holds, to tell one pack from the next."""
+    return [(r.get("center"), r.get("edition")) for r in state.get("pack") or []]
 
 
 def launch(build: Path = DEFAULT_BUILD, wait: float = 90.0) -> subprocess.Popen:
