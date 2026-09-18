@@ -534,7 +534,11 @@ def _ankh(game: "GameState", cards: list[Card]) -> None:
     """
     if not game.jokers:
         return
-    chosen = game.rng.choice("ankh_choice", game.jokers)
+    # Oldest first: pseudorandom_element sorts by sort_id before it draws
+    # (card.lua:1434), so the row's order -- which a drag changes -- says
+    # nothing about which joker the draw lands on.
+    chosen = game.rng.choice("ankh_choice",
+                             sorted(game.jokers, key=lambda j: j.uid))
     for joker in list(game.jokers):
         if joker is not chosen:
             game.destroy_joker(joker, "Ankh")

@@ -667,6 +667,7 @@ class BalatroBridge:
         deck = before.get("deck_size", 0)
         packed = len(before.get("pack") or [])
         levels = before.get("hand_levels")
+        held = _pack_rows(before)
         self.command("pick_pack", index)
         self._await_use(
             lambda s: (len(s.get("jokers") or []) != jokers
@@ -677,7 +678,13 @@ class BalatroBridge:
                        # afterwards: it is not kept, no card moves, and the
                        # only mark it leaves is the hand it levelled.
                        or s.get("hand_levels") != levels
-                       or not s.get("in_pack")))
+                       or not s.get("in_pack")
+                       # Or the pack closed into another: a Double Tag's copy
+                       # of a pack tag opens its pack the moment the first
+                       # shuts, as full as the first was, and an Ouija
+                       # changes nothing else counted here.
+                       or _pack_rows(s) not in (held, held[:index - 1]
+                                                + held[index:])))
         # Then let the pack finish closing, if it is going to. A Mega pack
         # allows two picks and legitimately stays open, so this must not be
         # treated as a failure -- it is a courtesy wait, not a condition.
@@ -696,7 +703,6 @@ class BalatroBridge:
 
         # Closed, or closed and followed by another: two pack tags open their
         # packs back to back, and the game is never out of a pack in between.
-        held = _pack_rows(before)
         left = held[:index - 1] + held[index:]
 
         def closed(state):

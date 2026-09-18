@@ -475,6 +475,7 @@ class GameState:
         self._roll_voucher()
         self._roll_ante_tags()
         self._reset_round_cards()
+        self._checker_the_deck()
         self._reroll_todo_hands()
         # The counters, not the cards: start_run puts round_resets on the HUD
         # (game.lua:2381-2382) before anything is dealt. A recording's first
@@ -1038,11 +1039,23 @@ class GameState:
         `pairs(G.GAME.hands)` pool as To Do List, with the same caveat about
         the engine's own order not being reproducible; see hands.py.
         """
-        slot = (self.ante, self.blind_index)
-        if slot not in self.orbital_choices:
-            self.orbital_choices[slot] = self.rng.random_element(
-                self.visible_hands, "orbital")
-        return self.orbital_choices[slot]
+        self._roll_orbital_choices()
+        return self.orbital_choices[(self.ante, self.blind_index)]
+
+    def _roll_orbital_choices(self) -> None:
+        """Each blind's Orbital hand for the ante, as the select screen rolls it.
+
+        create_UIBox_blind_choice rolls the Small's, the Big's and the Boss's
+        in turn as it builds the screen (UI_definitions.lua:1506-1515), once
+        an ante, whatever tags the blinds carry -- so every ante spends three
+        draws from 'orbital', and the Big blind's hand is the second of them.
+        Rolling one only when an Orbital Tag fired read the stream elsewhere.
+        """
+        for index in range(3):
+            slot = (self.ante, index)
+            if slot not in self.orbital_choices:
+                self.orbital_choices[slot] = self.rng.random_element(
+                    self.visible_hands, "orbital")
 
     def note_card_sold(self) -> None:
         """Tell the jokers that count sales that one has happened.
@@ -1132,6 +1145,13 @@ class GameState:
             size = (int(joker.counter) if joker.spec.hand_size_from_counter
                     else joker.spec.hand_size)
             self._hand_size_changed(size if arriving else -size)
+        # And both end by resetting the blind (card.lua add_to_deck and
+        # remove_from_deck: set_blind(nil, true)), which asks every playing
+        # card its debuff again: a Smeared Joker sold under The Window lets
+        # go of the Hearts it had caught, a Pareidolia bought under The Plant
+        # catches every card. Not the jokers -- a reset skips them.
+        for card in self.full_deck:
+            self.debuff_card(card)
 
     def _hand_size_changed(self, delta: int) -> None:
         """Deal into a hand size that has just grown, as change_size does.
@@ -1239,6 +1259,18 @@ class GameState:
 
     @property
     def boss(self) -> BossEffect | None:
+        """The boss in force, if one is.
+
+        Not while the run is in a shop or a pack: `blind` holds the blind on
+        deck there, but the game's G.GAME.blind is the empty one
+        Blind:defeat left behind (blind.lua:336), and the boss does nothing
+        until set_blind. Read regardless, the boss on deck reached into the
+        hand an Arcana pack deals on the blind select screen -- The Manacle
+        took a card from it, The Serpent dealt it three, and a debuff landed
+        on any card a Tarot there changed.
+        """
+        if self._between_rounds():
+            return None
         if self.blind is None or self.blind.kind is not BlindKind.BOSS:
             return None
         if self.blind.disabled:
@@ -1615,6 +1647,12 @@ class GameState:
         # decayed Turtle Bean another, and The Manacle one more on top.
         return max(0, size)
 
+    def _between_rounds(self) -> bool:
+        """In a shop or a pack, where no blind is in force whatever is on
+        deck. (The blind select screen is too, but it holds no hand, and a
+        GameState is built on it -- scenarios set a boss and score there.)"""
+        return self.phase in (Phase.SHOP, Phase.PACK)
+
     @property
     def interest_cap(self) -> int:
         caps = [v.interest_cap for v in self.vouchers if v.interest_cap]
@@ -1815,10 +1853,16 @@ class GameState:
         self.base_joker_slots += config.get("joker_slot", 0)
         self.extra_consumable_slots += config.get("consumable_slot", 0)
 
-        # A few decks change the cards themselves rather than the numbers,
-        # and the game does it by walking the deck it has just built rather
-        # than by building a different one -- so a card keeps its place, and
-        # its id, and changes suit where it stands.
+    def _checker_the_deck(self) -> None:
+        """The Checkered Deck's suits: Clubs to Spades, Diamonds to Hearts.
+
+        By walking the deck it has just built rather than by building a
+        different one -- so a card keeps its place, and its id, and changes
+        suit where it stands. And from an event (back.lua:239-252), which
+        runs after start_run has rolled The Idol's card and Castle's suit
+        from the deck as it was: those can name a Club or a Diamond, and a
+        run that converted first rolled them from a different deck.
+        """
         if self.deck == "Checkered Deck":
             for card in self.full_deck:
                 if card.suit is Suit.CLUBS:
@@ -1866,6 +1910,7 @@ class GameState:
         # Troubadour bought in the shop a blind early -- 3 hands against the
         # game's 4 (card.lua:625 moves round_resets.hands alone).
         self.phase = Phase.BLIND_SELECT
+        self._roll_orbital_choices()
         self._apply_blind_select_tags()
 
     @property
@@ -2079,6 +2124,12 @@ class GameState:
         Chosen when the hand is dealt, and only when the hand does not
         already hold the one it chose -- so it survives a discard that leaves
         it in place and is replaced when it goes.
+
+        Blind:drawn_to_hand, which only a round calls (blind.lua:573-587) --
+        not the hand an Arcana or Spectral pack deals, even with the Bell the
+        boss on deck (`boss` is None in a pack). Nominating there spent a
+        draw from 'cerulean_bell' the game never makes, and the round's own
+        nomination then picked another card.
         """
         boss = self.boss
         if boss is None or not boss.forces_a_card or not self.hand:
@@ -2244,12 +2295,20 @@ class GameState:
         The game has draw_from_deck_to_hand, which takes a number and does not
         consult the limit -- which is how a disabled Manacle leaves the hand
         one card over it.
+
+        Sorted as each card lands -- draw_card is called with `sort` true
+        (common_events.lua:418) -- which is to say only if one did: a hand
+        the player dragged into an order keeps it when nothing is dealt, and
+        a draw the deck runs out partway through is sorted all the same.
         """
+        drawn = 0
         for _ in range(count):
             if not self.draw_pile:
-                return
+                break
             self.hand.append(self.draw_pile.pop())
-        self._sort_hand()
+            drawn += 1
+        if drawn:
+            self._sort_hand()
 
     def _draw_to_hand_size(self) -> None:
         # Checked before anything is dealt, at the top of the game's own
@@ -2275,9 +2334,15 @@ class GameState:
             self._draw_cards(min(3, len(self.draw_pile)))
             self._nominate_forced_card()
             return
+        # Sorted only if a card was dealt: see _draw_cards. A discard that
+        # leaves the hand at its limit deals nothing, and the order the
+        # player dragged the hand into stands.
+        drawn = 0
         while len(self.hand) < self.hand_size and self.draw_pile:
             self.hand.append(self.draw_pile.pop())
-        self._sort_hand()
+            drawn += 1
+        if drawn:
+            self._sort_hand()
         self._nominate_forced_card()
         if not self.hand and not self.draw_pile and self.phase is Phase.PLAYING:
             # Hand and deck both empty ends the round where it stands --
@@ -3412,18 +3477,6 @@ class GameState:
             forced = self._forced_shop_slot()
             slot = forced if forced is not None else self._roll_slot()
             shop.slots.append(self._modify_shop_slot(slot))
-        # The Coupon Tag runs last, over the finished shop: every card on the
-        # shelves then is free, the packs included. By card -- it marks each
-        # one couponed (tag.lua:451-458) -- so what a reroll brings in, or an
-        # Overstock adds, costs its price. `shop_free` is the game's flag
-        # that the tag has been spent on this shop, and prices the packs,
-        # which no reroll replaces.
-        if Tag.COUPON in self.tags:
-            self.tags.remove(Tag.COUPON)
-            self.shop_free = True
-            for slot in shop.slots:
-                slot.couponed = True
-            self.log("Coupon Tag: the shop is free")
 
 
     def _open_shop(self) -> None:
@@ -3441,6 +3494,21 @@ class GameState:
         # it look like a draw-order problem rather than this.
         self.shop = shop
         self._fill_shop(shop)
+        # The Coupon Tag, over the stocked shop and only as it opens
+        # (shop_final_pass, game.lua:3165; a reroll does not run it, so a tag
+        # taken mid-shop waits for the next one). Every card on the shelves
+        # then is free, and the packs. By card -- it marks each one couponed
+        # (tag.lua:451-458) -- so what a reroll brings in, or an Overstock
+        # adds, costs its price. `shop_free` is the game's flag that the tag
+        # has been spent on this shop, and prices the packs, which no reroll
+        # replaces; it draws nothing, so running it before they are rolled
+        # changes no stream.
+        if Tag.COUPON in self.tags:
+            self.tags.remove(Tag.COUPON)
+            self.shop_free = True
+            for slot in shop.slots:
+                slot.couponed = True
+            self.log("Coupon Tag: the shop is free")
         shop.packs = [self._roll_pack() for _ in range(2)]
         # The ante's voucher, unless it has already been taken. All three
         # shops of an ante show the same one, so it is rolled per ante and not
@@ -4312,11 +4380,16 @@ class GameState:
             # Selling is the whole point of some jokers -- Luchador disables
             # the boss, Diet Cola leaves a tag behind -- so the effect fires
             # after it has left the list, as the game does it.
-            if spec.disables_boss_on_sell and answers:
+            # Both only while the boss is in force. Sold on the blind select
+            # screen, the game's blind is the empty one the last round left
+            # (blind.lua:336) -- Luchador asks G.GAME.blind, and the Verdant
+            # Leaf is not yet set -- so the boss on deck comes up untouched.
+            in_round = self.phase is Phase.PLAYING
+            if spec.disables_boss_on_sell and answers and in_round:
                 # selling_self is a calculate_joker context, and that returns
                 # nothing at all for a debuffed joker.
                 self.disable_blind(joker.name)
-            boss = self.boss
+            boss = self.boss if in_round else None
             if boss is not None and boss.debuff_until_sale:
                 # Verdant Leaf lifts the moment any joker is sold, not just
                 # Luchador -- that is the whole shape of the blind.
@@ -4355,6 +4428,7 @@ class GameState:
             # (card.lua:1850), so buying a Voucher Tag's one forgoes the
             # round's too until the next ante draws another.
             self.round_voucher = ""
+            self.shop.cut_until_reroll += voucher.reroll_discount
             self._redeem_voucher(voucher)
         elif t is ActionType.REROLL:
             assert self.shop is not None
@@ -4364,6 +4438,7 @@ class GameState:
                 self.shop.free_rerolls -= 1
             else:
                 self.shop.rerolls += 1
+            self.shop.cut_until_reroll = 0
             # The jokers that count rerolls are told before the new cards are
             # made, which is the game's order -- calculate_joker fires on the
             # button, not on the shop that comes back.

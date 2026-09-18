@@ -13,6 +13,34 @@ local api = {}
 
 local DT = 1 / 60
 
+-- G.GAME.hands walked in G.handlist's order, not the hash table's.
+--
+-- To Do List draws its hand from a pool built by walking pairs(G.GAME.hands)
+-- (card.lua:313, 2977), and so does the Orbital Tag's screen: an index into
+-- a list whose order is the table's. LuaJIT seeds its string hashes per
+-- process, so the same draw named a different hand in a different process
+-- -- the engine disagreed with itself from one run of a batch to the next,
+-- and with the simulator, which walks jimbot_sim.hands.HANDLIST. That is
+-- G.handlist, the game's own fixed list of the twelve hands, and every other
+-- walk of the table either sums over it or breaks ties by `order`, so the
+-- order changes nothing else. The real game is as unrepeatable as ever.
+local raw_pairs = pairs
+function pairs(t)
+  if G and G.GAME and t == G.GAME.hands and G.handlist then
+    local i = 0
+    return function()
+      i = i + 1
+      local name = G.handlist[i]
+      while name and t[name] == nil do
+        i = i + 1
+        name = G.handlist[i]
+      end
+      if name then return name, t[name] end
+    end, t, nil
+  end
+  return raw_pairs(t)
+end
+
 -- See api.pump: animation-only, but game code may read card state.
 api.update_card_areas = true
 -- Updating every card every frame is what Game:update does, and it is not
@@ -191,9 +219,15 @@ local function ensure_orbital_choices()
   for _, kind in ipairs({ 'Small', 'Big', 'Boss' }) do
     local states = G.GAME.round_resets.blind_states or {}
     if states[kind] ~= 'Hide' and not G.GAME.orbital_choices[ante][kind] then
+      -- In G.handlist's order, not pairs(G.GAME.hands)'s. The screen walks
+      -- the hash table, whose order LuaJIT seeds per process, so the same
+      -- roll named Straight Flush in one process and Pair in the next. The
+      -- game's own list of the hands is fixed, and is the order the
+      -- simulator draws from (jimbot_sim.hands.HANDLIST).
       local hands = {}
-      for name, data in pairs(G.GAME.hands) do
-        if data.visible then hands[#hands + 1] = name end
+      for _, name in ipairs(G.handlist) do
+        local data = G.GAME.hands[name]
+        if data and data.visible then hands[#hands + 1] = name end
       end
       if #hands > 0 then
         G.GAME.orbital_choices[ante][kind] =
@@ -400,9 +434,14 @@ function api.skip_blind()
     G.jokers.cards[i]:calculate_joker({ skip_blind = true })
   end
 
+  -- Built as the blind-select screen builds it (UI_definitions.lua:1464),
+  -- with the blind it was offered on: an Orbital Tag reads which hand it
+  -- levels from orbital_choices by that blind (tag.lua set_ability).
+  -- Without it the hand is the placeholder '[Poker Hand]', and applying
+  -- the tag indexed G.GAME.hands with it and raised (tag.lua:194).
   local tag = G.GAME.round_resets.blind_tags[on_deck]
   if tag then
-    add_tag(Tag(tag))
+    add_tag(Tag(tag, nil, on_deck))
   end
 
   G.GAME.round_resets.blind_states[on_deck] = 'Skipped'

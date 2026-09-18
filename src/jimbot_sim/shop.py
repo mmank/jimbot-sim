@@ -184,6 +184,11 @@ class Shop:
     # shop. Not a spare reroll like Chaos: the price starts at nothing and
     # climbs from there as usual.
     free_reroll_cost: bool = False
+    # A reroll voucher bought here cuts the current price on the spot --
+    # current_round.reroll_cost - extra, floored at 0 (card.lua:1925-1929)
+    # -- and the cut stands until the next reroll works the price out again.
+    # Only visible under the D6 Tag, whose price leaves the vouchers out.
+    cut_until_reroll: int = 0
 
     def reroll_cost(self, discount: int = 0) -> int:
         """What the next reroll costs.
@@ -198,6 +203,14 @@ class Shop:
         return self.reroll_price(discount)
 
     def reroll_price(self, discount: int = 0) -> int:
-        """The price a reroll has once no free one is left."""
-        base = 0 if self.free_reroll_cost else 5
-        return max(0, base + self.rerolls - discount)
+        """The price a reroll has once no free one is left.
+
+        `(temp_reroll_cost or round_resets.reroll_cost) + increase`
+        (common_events.lua:2268). The reroll vouchers lower
+        round_resets.reroll_cost, so the D6 Tag's temp price replaces the
+        discount along with the base: its rerolls climb 0, 1, 2 whatever
+        vouchers the run holds.
+        """
+        if self.free_reroll_cost:
+            return max(0, self.rerolls - self.cut_until_reroll)
+        return max(0, 5 + self.rerolls - discount)
