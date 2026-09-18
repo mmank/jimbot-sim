@@ -7,10 +7,17 @@ what the game sees and does.
 
     python scripts/record_replay.py record --seed ABCDEFGH   # then play
     python scripts/record_replay.py replay recording.json
+    python scripts/record_replay.py replay recording.json --headless
 
 A divergence is informative either way: a missing action means the API cannot
 express something a player can, and a state mismatch means we are reading or
 driving the game differently than a click does.
+
+The replay is `jimbot_sim.replay` on an `EngineRun` -- the replayer
+ops/sim_replay.py runs on the simulator, and the interface every other driver
+uses -- so a recorded action becomes the same `Action` here as there, and the
+engine carries it out through the same translation a policy's actions go
+through.
 """
 
 from __future__ import annotations
@@ -25,302 +32,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from jimbot_sim.bridge import (DEFAULT_BUILD, DEFAULT_HOST, DEFAULT_PORT,  # noqa: E402
                             BalatroBridge, BridgeError, launch)
+from jimbot_sim.replay import (SCORE_STABLE_PHASES, Recording,  # noqa: E402,F401
+                               differences, normalise, ranked, replay)
+from jimbot_sim.run import EngineRun  # noqa: E402
 
-# Fields compared at every step. Money, jokers and round score are the ones
-# that catch real divergence; hand_size and deck_size catch bookkeeping drift.
-COMPARED = ("phase", "dollars", "chips", "ante", "round", "hands_left",
-            "discards_left", "blind", "blind_chips", "hand_size", "jokers",
-            "consumables", "hand_levels", "deck_size", "hands_played",
-            "last_hand", "hand_ids", "tags", "joker_ids")
-
-
-
-# Phases where the round score is a settled number rather than mid-animation.
-# cash_out resets it with ease_chips(0) over several frames, so between the
-# cash-out and the next blind its value depends on exactly when you sample --
-# a race, not a divergence. It is compared exactly everywhere it is meaningful.
-SCORE_STABLE_PHASES = {"SELECTING_HAND", "HAND_PLAYED", "ROUND_EVAL"}
-
-
-# How a recorded G.FUNCS call is re-issued through the bot's API. These use the
-# client's waiting wrappers rather than raw commands: the real game animates,
-# and firing the next action before the last one lands is how a replay ends up
-# playing an empty hand.
-REPLAY = {
-    "select_blind": lambda b, p: b.select_blind(),
-    "skip_blind": lambda b, p: b.command("skip_blind"),
-    "play_cards_from_highlighted": lambda b, p: _play(b, p),
-    "discard_cards_from_highlighted": lambda b, p: _discard(b, p),
-    "buy_from_shop": lambda b, p: b.buy(p["area"], p["index"]),
-    "use_card": lambda b, p: _use(b, p),
-    "buy_and_use": lambda b, p: b.buy_and_use(p["area"], p["index"],
-                                              cards=p.get("targets") or None),
-    "sell_card": lambda b, p: b.sell(p["area"], p["index"]),
-    "reroll_shop": lambda b, p: b.reroll(),
-    "reroll_boss": lambda b, p: b.command("reroll_boss"),
-    "toggle_shop": lambda b, p: b.leave_shop(),
-    "cash_out": lambda b, p: b.cash_out(),
-    "skip_booster": lambda b, p: b.skip_pack(),
-    "sort_hand_value": lambda b, p: b.command("sort_hand", "rank"),
-    "sort_hand_suit": lambda b, p: b.command("sort_hand", "suit"),
-}
-
-
-def _select(bridge, params):
-    """Reproduce the human's card selection.
-
-    Selects by card identity (sort_id) rather than position, so a recording
-    still picks the right cards if the hand ended up in a different order.
-    Falls back to the recorded positions when identities are unavailable.
-
-    Waits for a hand rather than for the hand-selection phase: cards are also
-    selectable while a pack is open, which is how a tarot from an Arcana pack
-    gets its targets.
-    """
-    bridge.wait_hand_dealt()
-    bridge.command("clear")
-    ids = params.get("card_ids")
-    wanted = list(ids) if ids else list(params.get("cards") or [])
-    if ids:
-        try:
-            for card_id in ids:
-                bridge.command("toggle_id", card_id)
-        except BridgeError:
-            # A card added during the run carries an id from the run's card
-            # counter, and that counter drifts when the real game builds
-            # something the engine does not. The recorded positions are the
-            # same click and do not drift, so they are the better answer once
-            # an id cannot be found.
-            bridge.command("clear")
-            for index in params.get("cards") or []:
-                bridge.toggle(index)
-    else:
-        for index in params.get("cards") or []:
-            bridge.toggle(index)
-
-    # Confirm the selection took. A tarot applied to fewer cards than it needs
-    # crashes the game rather than refusing, so a partial selection must be
-    # caught here rather than discovered downstream.
-    got = int(bridge.command("check").get("hand_size") is not None
-              and bridge.state().get("selection_size", 0))
-    if wanted and got != len(wanted):
-        raise BridgeError(
-            f"selected {got} of {len(wanted)} cards -- the hand may not have "
-            f"been dealt yet")
-
-
-def _match_order(bridge, expected_ids, field: str, command: str) -> bool:
-    """Put an area into the recorded order.
-
-    Dragging is not a G.FUNCS call so it cannot be hooked, but the order it
-    produces is observable and can be set directly. Joker order matters as much
-    as hand order: effects resolve left to right, and a recording of this very
-    project diverged by 434 chips on ordering alone.
-    """
-    if not expected_ids:
-        return True
-    current = normalise(bridge.command("check").get(field)) or []
-    expected = list(expected_ids)
-    if current == expected:
-        return True
-    if sorted(current) != sorted(expected):
-        return False          # different contents, not a reorder
-    bridge.command(command, *expected)
-    return True
-
-
-def _match_joker_order(bridge, expected: dict) -> bool:
-    """Put the jokers into the recorded order.
-
-    Prefers ids, but falls back to the recorded key order: a recording made
-    before joker ids existed still carries the joker keys in order, and the
-    key sequence is enough to reorder by. Jokers sharing a key are
-    interchangeable for this purpose.
-    """
-    ids = normalise(expected.get("joker_ids"))
-    if ids and _match_order(bridge, ids, "joker_ids", "set_joker_order"):
-        return True
-    # Ids can be right about identity and still not match: the run's card
-    # counter moves whenever the real game builds something the engine never
-    # does, so a card can be the same card under a different number. Falling
-    # through to the keys keeps the order reproducible when that happens,
-    # rather than leaving the jokers in whatever order they landed -- and
-    # joker order decides the order effects resolve in.
-    keys = normalise(expected.get("jokers")) or []
-    if not keys:
-        return True
-    state = bridge.command("check")
-    current_keys = normalise(state.get("jokers")) or []
-    if list(current_keys) == list(keys):
-        return True
-    if sorted(current_keys) != sorted(keys):
-        return False
-    live = normalise(bridge.command("state").get("jokers")) or []
-    if len(live) != len(current_keys):
-        return True
-    # Greedily pair each recorded key with an unused joker carrying that key.
-    remaining = {i: k for i, k in enumerate(current_keys)}
-    order = []
-    for key in keys:
-        for i, have in list(remaining.items()):
-            if have == key:
-                order.append(live[i]["id"])
-                del remaining[i]
-                break
-    if len(order) != len(live):
-        return False
-    bridge.command("set_joker_order", *order)
-    return True
-
-
-def _match_hand_order(bridge, expected_ids) -> bool:
-    """Put the hand in the recorded order.
-
-    Dragging a card is not a G.FUNCS call so it cannot be hooked, but the order
-    it produces is observable -- and reproducible by setting it directly. This
-    is what lets a replay follow a hand the player rearranged by hand.
-    """
-    if not expected_ids:
-        return True
-    state = bridge.command("check")
-    current = normalise(state.get("hand_ids")) or []
-    expected = list(expected_ids)
-    if current == expected:
-        return True
-    if sorted(current) == sorted(expected):
-        bridge.command("set_hand_order", *expected)
-        return True
-
-    # The numbers can drift apart while the hand is the same hand: the run's
-    # card counter moves whenever the real game builds something the engine
-    # does not, so a card is the same card under a different number. That is
-    # what _ranked exists for, and the comparison already uses it -- but this
-    # was matching raw, so a hand the player had merely dragged looked like a
-    # different set of cards and was left in whatever order it landed in.
-    # Ranking both sides and mapping back gives the reorder anyway.
-    if len(current) != len(expected) or _ranked(current) == _ranked(expected):
-        return _ranked(current) == _ranked(expected)
-    by_rank = sorted(current)
-    wanted = [by_rank[r] for r in _ranked(expected)]
-    bridge.command("set_hand_order", *wanted)
-    return True
-
-
-def _play(bridge, params):
-    _select(bridge, params)
-    return bridge.play()
-
-
-def _discard(bridge, params):
-    _select(bridge, params)
-    return bridge.discard()
-
-
-def merge_buy_and_use(actions):
-    """Fold the shop's buy-and-use click back into one action.
-
-    The game routes that button through buy_from_shop, which then calls
-    use_card itself, so recordings made before the recorder knew about it hold
-    two entries for one click: a buy, and a use of a card that by then belongs
-    to no area at all (`area: "?"`). Replaying both buys the card into the
-    consumable slots and then cannot find it to use.
-    """
-    merged, skip = [], False
-    for i, action in enumerate(actions):
-        if skip:
-            skip = False
-            continue
-        params = action.get("params") or {}
-        following = actions[i + 1] if i + 1 < len(actions) else None
-        pair = (action.get("action") == "buy_from_shop" and following
-                and following.get("action") == "use_card"
-                and (following.get("params") or {}).get("area") == "?"
-                and (following.get("params") or {}).get("key") == params.get("key"))
-        if params.get("buy_and_use") or pair:
-            action = dict(action, action="buy_and_use")
-            skip = bool(pair)
-        merged.append(action)
-    return merged
-
-
-def _use(bridge, params):
-    """use_card covers consumables, vouchers, packs and pack picks."""
-    area, index = params.get("area"), params.get("index")
-    # Hand the targets to the client rather than selecting here: the selection
-    # has to happen after the previous consumable has finished resolving (it
-    # holds locks.use and clears the highlight on its way out) and after a
-    # pack's targeting hand has finished being dealt. The client knows how to
-    # wait for both; selecting up front and passing none loses that.
-    targets = params.get("targets") or None
-    if area == "consumeables":
-        return bridge.use_consumable(index, cards=targets)
-    if area == "pack_cards":
-        return bridge.pick_pack(index, cards=targets)
-    if area == "shop_booster":
-        return bridge.buy_pack(area, index)
-    return bridge.buy(area, index)
-
-
-def normalise(value):
-    """Lua tables arrive as dicts keyed 1..n; compare them as lists."""
-    if isinstance(value, dict):
-        if not value:
-            return []
-        if all(isinstance(k, int) for k in value):
-            return [normalise(value[k]) for k in sorted(value)]
-        return {k: normalise(v) for k, v in sorted(value.items())}
-    return value
-
-
-# A card's id is its place in the run's card counter, and that counter moves
-# for reasons a recording cannot capture: opening the deck collection screen
-# builds fifty-two Card objects to fan out behind the deck art, and the
-# recorder hooks game actions, not looking at a menu. The engine never builds
-# that screen, so from the first time a player opens one, every card made
-# afterwards is numbered differently while being the same card in the same
-# place.
-#
-# What the numbers still carry is their order. Both counters only ever go up,
-# and the extra cards are all created at one moment on one side, so a card
-# made earlier has a lower id than one made later on both sides even though
-# neither number matches. Ranking each list against itself -- smallest 0, next
-# 1 -- throws away the offset and keeps that order.
-#
-# It beats blanking the drifted ones, which was the first attempt here: two
-# cards blanked to "new" are indistinguishable, and their relative age is
-# exactly the thing worth comparing. [68, 53, 54, 136] and [68, 53, 54, 83]
-# both rank to [2, 0, 1, 3], and a card genuinely out of place still moves a
-# rank and still shows up.
-ID_FIELDS = ("hand_ids", "joker_ids")
-
-
-def _ranked(ids):
-    """Replace each id by its position in the sorted list of ids present."""
-    if not isinstance(ids, (list, tuple)):
-        return ids
-    if not all(isinstance(i, int) for i in ids):
-        return ids
-    rank = {value: place for place, value in enumerate(sorted(ids))}
-    return [rank[i] for i in ids]
-
-
-def differences(expected: dict, actual: dict) -> list[str]:
-    out = []
-    scoring = expected.get("phase") in SCORE_STABLE_PHASES
-    for field in COMPARED:
-        if field == "chips" and not scoring:
-            continue
-        # A recording made before a field existed simply does not have it;
-        # that is not a divergence, and treating it as one buries the real
-        # ones under noise.
-        if field not in expected:
-            continue
-        want, got = normalise(expected.get(field)), normalise(actual.get(field))
-        if field in ID_FIELDS:
-            want, got = _ranked(want), _ranked(got)
-        if want != got:
-            out.append(f"{field}: recorded {want!r} but replayed {got!r}")
-    return out
+# Kept under its old name for the tests that pin the ranking.
+_ranked = ranked
 
 
 # ---------------------------------------------------------------- record
@@ -463,98 +180,39 @@ def do_record(args) -> None:
     print(f"saved {len(actions)} actions to {args.out} ({ended})")
 
 
+
 # ---------------------------------------------------------------- replay
 
 def do_replay(args) -> None:
-    payload = json.loads(args.recording.read_text(encoding="utf-8"))
-    actions = merge_buy_and_use(payload["actions"])
+    recording = Recording.load(args.recording)
     bridge = _headless() if getattr(args, "headless", False) else _connect(args)
+    run = EngineRun(bridge)
+    print(f"replaying {len(recording.actions)} actions on seed "
+          f"{recording.seed} ({recording.deck})\n")
 
-    print(f"replaying {len(actions)} actions on seed {payload['seed']} "
-          f"({payload['deck']})\n")
-    bridge.command("start_run", payload["seed"],
-                   payload["deck"].replace(" ", "_"),
-                   *([payload["stake"]] if payload.get("stake") else []))
-    # in_run flips before the blind-select screen exists, and select_blind is
-    # a no-op until it does.
-    bridge.wait_until(lambda s: s.get("in_run") and s.get("ready"), timeout=60)
-    # Reapply whatever bankroll the recording was made with, before comparing
-    # anything -- otherwise every step diverges on dollars.
-    if payload.get("money") is not None:
-        bridge.command("set_money", payload["money"])
-
-    mismatches = 0
-    for i, entry in enumerate(actions, start=1):
-        action, params = entry["action"], normalise(entry["params"])
-
-        # If the recording had a hand here, let dealing finish before
-        # comparing: an Arcana pack deals its targeting hand over several
-        # frames, and comparing mid-deal reports a divergence that is really
-        # just impatience.
-        if (entry["before"].get("hand_size") or 0) > 0:
-            bridge.wait_hand_dealt(timeout=10.0)
-
-        # Reproduce any reordering the player did (dragging, or the sort
-        # buttons) before comparing, so a rearranged hand is followed rather
-        # than reported as a divergence.
-        _match_hand_order(bridge, normalise(entry["before"].get("hand_ids")))
-        _match_joker_order(bridge, entry["before"])
-
-        # A use_card on a card in no area is the game using something it made
-        # itself: a Meteor Tag opening its own Celestial pack calls use_card
-        # on a card that belongs to no shop row and no consumable slot, so the
-        # recorder writes "?" for where it was. The engine fires the tag and
-        # opens the pack unprompted, so replaying the entry as well opens a
-        # second one.
-        #
-        # A player's buy-and-use also lands here in older recordings, as a buy
-        # followed by an area-less use -- but merge_buy_and_use has already
-        # folded those into their buy by now. What is left is the game's.
-        if (action == "use_card" and (params or {}).get("area") == "?"):
-            if args.verbose:
-                print(f"  [{i:3d}] --   {action:32s} "
-                      f"(the game's own, the engine repeats it)")
-            continue
-
-        # Compare before acting: the recorded `before` is the state the human
-        # was looking at when they made this choice. A difference is re-read
-        # until the game settles before it is believed -- the human looked at
-        # a finished screen, and the previous action can return with a card
-        # still being made (see BalatroBridge.settle).
-        actual = bridge.settle(
-            lambda: normalise(bridge.command("check")),
-            lambda state: not differences(entry["before"], state))
-        problems = differences(entry["before"], actual)
+    def report(step, entry, snapshot, problems):
         if problems:
-            mismatches += 1
-            print(f"  [{i:3d}] MISMATCH before {action}")
+            print(f"  [{step:3d}] MISMATCH before {entry['action']}")
             for line in problems:
                 print(f"         {line}")
-            if args.stop_on_mismatch:
-                break
         elif args.verbose:
-            score = (f"chips {actual['chips']}"
-                     if actual.get("phase") in SCORE_STABLE_PHASES
+            score = (f"chips {snapshot.get('chips')}"
+                     if snapshot.get("phase") in SCORE_STABLE_PHASES
                      else "chips --")
-            print(f"  [{i:3d}] ok   {action:32s} "
-                  f"${actual['dollars']:<4} {score}")
+            print(f"  [{step:3d}] ok   {entry['action']:32s} "
+                  f"${snapshot.get('dollars'):<4} {score}")
 
-        handler = REPLAY.get(action)
-        if handler is None:
-            print(f"  [{i:3d}] NO REPLAY for {action} -- the API cannot "
-                  f"express this action")
-            mismatches += 1
-            break
-        try:
-            handler(bridge, params)
-        except BridgeError as error:
-            print(f"  [{i:3d}] FAILED {action}: {error}")
-            mismatches += 1
-            break
-        bridge.wait_until(lambda s: s.get("ready"), timeout=30)
-        if getattr(args, "stop_at", None) and i >= args.stop_at:
-            print(f"  stopped after {i} actions")
-            break
+    result = replay(run, recording, keep_going=not args.stop_on_mismatch,
+                    stop_at=getattr(args, "stop_at", None), report=report)
+    mismatches = len(result.mismatches)
+    if result.problem is not None and not (
+            result.mismatches and args.stop_on_mismatch):
+        # Stopped on an action rather than on a difference: the API could not
+        # express it, or the game refused it.
+        print(f"  [{result.reached + 1:3d}] FAILED: {result.problem}")
+        mismatches += 1
+    if getattr(args, "stop_at", None) and result.reached >= args.stop_at:
+        print(f"  stopped after {result.reached} actions")
 
     if getattr(args, "probe", None):
         # The engine is standing exactly where the recording left it, which is
@@ -563,7 +221,7 @@ def do_replay(args) -> None:
         print("\nprobe:", engine.eval("(function() %s end)()" % args.probe)
               if engine is not None else "probe needs --headless")
 
-    print("\n" + f"{len(actions)} actions, {mismatches} divergences")
+    print("\n" + f"{len(recording.actions)} actions, {mismatches} divergences")
     if not mismatches:
         print("the replay matched the recording at every step")
     raise SystemExit(1 if mismatches else 0)

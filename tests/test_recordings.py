@@ -24,16 +24,12 @@ held retriggers, in the before-hand hooks -- plus the ordering of the bosses
 that move money, and DNA's copy counting as a held card.
 """
 
-import json
 import pathlib
-import sys
 
 import pytest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "ops"))
-
-import sim_replay                                        # noqa: E402
-from jimbot_sim.game import GameState                       # noqa: E402
+from jimbot_sim.replay import Recording, replay
+from jimbot_sim.run import SimRun
 
 RECORDINGS = pathlib.Path(__file__).resolve().parents[1] / "recordings"
 
@@ -54,34 +50,19 @@ REACHES = {1: None, 2: None, 3: None, 4: None, 5: None, 6: None, 7: None,
 
 
 def _replay(path):
-    """Follow one recording, returning (steps reached, total, first problem)."""
-    payload = json.loads(path.read_text())
-    actions = sim_replay.merge_buy_and_use(payload["actions"])
-    # Endless, because a human does not stop at the win: 11, 12 and 14 all
-    # reach ante nine. A run built without it is one the simulator believes
-    # should be over, and 12 stopped at 361 of 362 on "the simulator's shop
-    # offers no voucher" -- the last shop, past ante eight, where a finished
-    # run no longer stocks one. ops/sim_replay.py and
-    # ops/explain_divergence.py have always built it this way, and that flag
-    # is the whole of why they disagreed with this test about that recording.
-    game = GameState(seed=payload["seed"], deck=payload["deck"],
-                     stake=payload.get("stake") or 1, endless=True)
-    if payload.get("money") is not None:
-        game.money = payload["money"]
-    index = {card.uid: i for i, card in enumerate(game.full_deck)}
+    """Follow one recording, returning (steps reached, total, first problem).
 
-    for step, entry in enumerate(actions, start=1):
-        recorded = entry.get("before") or {}
-        sim_replay.match_hand_order(game, recorded.get("hand_ids"), index)
-        sim_replay.match_joker_order(game, recorded.get("jokers"))
-        problems = sim_replay.differences(recorded, sim_replay.sim_view(game))
-        if problems:
-            return step, len(actions), "\n".join(problems)
-        reason = sim_replay.apply(game, entry["action"],
-                                  entry.get("params") or {}, None)
-        if reason is not None:
-            return step, len(actions), reason
-    return len(actions), len(actions), None
+    On the shared replayer (`jimbot_sim.replay`), the one the engine replay
+    runs too. Endless, because a human does not stop at the win: 11, 12 and
+    14 all reach ante nine. A run built without it is one the simulator
+    believes should be over, and 12 stopped at 361 of 362 on "the
+    simulator's shop offers no voucher" -- the last shop, past ante eight,
+    where a finished run no longer stocks one.
+    """
+    result = replay(SimRun(endless=True), Recording.load(path))
+    if result.problem is None:
+        return result.total, result.total, None
+    return result.reached + 1, result.total, result.problem
 
 
 @pytest.mark.parametrize("number", sorted(REACHES))

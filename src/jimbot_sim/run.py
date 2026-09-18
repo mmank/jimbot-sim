@@ -25,6 +25,13 @@ middle of one.
 
 States are all the engine's shape (`jimbot_sim.state`) and are compared with
 `jimbot_sim.compare`.
+
+What a player does that is not an `Action` is on the interface too, because a
+replay has to do it: `arrange` puts the hand and the joker row in an order a
+player dragged them into, `sort_hand` presses a sort button, `set_money`
+restores the bankroll a recording was made with, and `fingerprint` is the
+recorder's own snapshot (bot_api's `check`) for comparing against one. See
+`jimbot_sim.replay`.
 """
 
 from __future__ import annotations
@@ -35,6 +42,8 @@ from .compare import Names, differences
 from .game import Action, ActionType, GameState, Phase
 from .hands import HandType
 from .headless.driving import AUTO_STATES, advance, is_over
+from .joker_data import JOKER_DATA
+from .shop_pool import NAME_BY_CONSUMABLE_KEY
 from .state import state_dict
 
 
@@ -50,6 +59,34 @@ class Run(Protocol):
 
     @property
     def is_over(self) -> bool: ...
+
+    def settle(self, done, timeout: float = 10.0, read=None) -> dict: ...
+
+    def key(self, row: dict) -> str: ...
+
+    def arrange(self, hand_ids=None, joker_ids=None,
+                joker_keys=None) -> None: ...
+
+    def sort_hand(self, by: str) -> None: ...
+
+    def set_money(self, amount: int) -> None: ...
+
+    def fingerprint(self) -> dict: ...
+
+
+# Centre keys by the simulator's display names, for the recorder's snapshot.
+KEY_BY_JOKER = {name: key for name, (key, *_r) in JOKER_DATA.items()}
+KEY_BY_CONSUMABLE = {name: key
+                     for key, name in NAME_BY_CONSUMABLE_KEY.items()}
+
+_SIM_NAMES: Names | None = None
+
+
+def _sim_names() -> Names:
+    global _SIM_NAMES
+    if _SIM_NAMES is None:
+        _SIM_NAMES = Names()
+    return _SIM_NAMES
 
 
 # ----------------------------------------------------------------------
@@ -91,6 +128,33 @@ class SimRun:
     @property
     def is_over(self) -> bool:
         return self.game.is_over
+
+    def settle(self, done, timeout: float = 10.0, read=None) -> dict:
+        """Nothing is ever in flight here: every step completes."""
+        return self.state()
+
+    def key(self, row: dict) -> str:
+        return _sim_names().key(row, live=False)
+
+    def arrange(self, hand_ids=None, joker_ids=None,
+                joker_keys=None) -> None:
+        """The hand in the order of the game's ids, the row by joker keys.
+
+        The ids line up because the simulator builds its deck in the game's
+        own order; the simulator's jokers carry no game ids, so the row is
+        ordered by key. See `match_hand_order`, `match_joker_order`.
+        """
+        match_hand_order(self.game, list(hand_ids or []), self.deck_index)
+        match_joker_order(self.game, joker_keys)
+
+    def sort_hand(self, by: str) -> None:
+        self.game.sort_hand(by)
+
+    def set_money(self, amount: int) -> None:
+        self.game.money = amount
+
+    def fingerprint(self) -> dict:
+        return sim_fingerprint(self.game)
 
     def follow(self, state: dict) -> None:
         """Line this run up with an engine's before they are compared.
@@ -140,6 +204,59 @@ def match_hand_order(game: GameState, ids: list[int],
         ordered.append(card)
         leftover.remove(card)
     game.hand[:] = ordered + leftover
+
+
+def sim_fingerprint(game: GameState) -> dict:
+    """The recorder's snapshot, as far as the simulator can say it.
+
+    Card ids are not in it -- the simulator numbers its cards its own way --
+    and nor is anything else it cannot report in the game's terms; a replay
+    compares only the fields both sides have.
+    """
+    return {
+        "dollars": game.money,
+        "chips": game.chips_scored,
+        "hands_left": game.hands_left,
+        "discards_left": game.discards_left,
+        "hand_size": len(game.hand),
+        "ante": game.ante,
+        "jokers": [KEY_BY_JOKER.get(j.name, j.name) for j in game.jokers],
+        "consumables": [KEY_BY_CONSUMABLE.get(c.name, c.name)
+                        for c in game.consumables],
+        "last_hand": game.last_hand,
+        "blind": game.blind_name,
+        "blind_chips": game.blind_target,
+        "round": game.round_number,
+    }
+
+
+def match_joker_order(game: GameState, recorded_keys) -> None:
+    """Put the simulator's joker row into the order the recording shows.
+
+    Jokers are dragged as often as cards are, and the order is not cosmetic:
+    Blueprint copies the joker to its right, so the same five jokers in a
+    different arrangement score differently. Like the hand, the arrangement
+    is not a function call and cannot be recorded, but every snapshot carries
+    the result.
+
+    Only a reordering is applied. If the two sides hold different jokers that
+    is a real divergence and the comparison should see it, so anything that
+    does not line up is left where it is.
+    """
+    if not recorded_keys:
+        return
+    by_key: dict = {}
+    for joker in game.jokers:
+        by_key.setdefault(KEY_BY_JOKER.get(joker.name, joker.name),
+                          []).append(joker)
+    ordered, leftover = [], list(game.jokers)
+    for key in recorded_keys:
+        pool = by_key.get(key)
+        if pool:
+            joker = pool.pop(0)
+            ordered.append(joker)
+            leftover.remove(joker)
+    game.jokers[:] = ordered + leftover
 
 
 _HAND_BY_LABEL = {hand.label: hand for hand in HandType}
@@ -197,12 +314,115 @@ class EngineRun:
     def __init__(self, bridge) -> None:
         self.bridge = bridge
         self.driver = _Driver(bridge)
+        self._names: Names | None = None
+
+    @property
+    def names(self) -> Names:
+        if self._names is None:
+            self._names = Names.of(self.bridge)
+        return self._names
 
     def start(self, seed: str, deck: str = "Red Deck",
               stake: int = 1) -> dict:
+        # in_run flips before the blind-select screen exists, and
+        # select_blind is a no-op until it does.
         self.bridge.command("start_run", seed, deck.replace(" ", "_"), stake)
         return self.bridge.wait_until(
             lambda s: s.get("in_run") and s.get("ready"), timeout=60)
+
+    def key(self, row: dict) -> str:
+        return self.names.key(row, live=True)
+
+    def set_money(self, amount: int) -> None:
+        self.bridge.command("set_money", amount)
+
+    def sort_hand(self, by: str) -> None:
+        self.bridge.command("sort_hand", by)
+
+    def fingerprint(self) -> dict:
+        from .replay import normalise
+
+        return normalise(self.bridge.command("check"))
+
+    def arrange(self, hand_ids=None, joker_ids=None,
+                joker_keys=None) -> None:
+        """Put the hand and the jokers in an order a player dragged them into.
+
+        Dragging is not a G.FUNCS call so it cannot be hooked, but the order
+        it produces is observable and can be set directly. Joker order
+        matters as much as hand order: effects resolve left to right, and a
+        recording of this very project diverged by 434 chips on ordering
+        alone. The hand is let finish dealing first -- an Arcana pack deals
+        its targeting hand over several frames, and a partial hand cannot be
+        put in any order.
+        """
+        if hand_ids:
+            self.bridge.wait_hand_dealt(timeout=10.0)
+            self._arrange_hand(list(hand_ids))
+        self._arrange_jokers(list(joker_ids or []), list(joker_keys or []))
+
+    def _arrange_hand(self, expected: list) -> bool:
+        from .replay import normalise, ranked
+
+        current = normalise(self.bridge.command("check").get("hand_ids")) or []
+        if current == expected:
+            return True
+        if sorted(current) == sorted(expected):
+            self.bridge.command("set_hand_order", *expected)
+            return True
+        # The numbers can drift apart while the hand is the same hand: the
+        # run's card counter moves whenever the real game builds something
+        # the engine does not (see replay.ranked), so a card is the same card
+        # under a different number. Ranking both sides and mapping back gives
+        # the reorder anyway.
+        if len(current) != len(expected) or ranked(current) == ranked(expected):
+            return ranked(current) == ranked(expected)
+        by_rank = sorted(current)
+        self.bridge.command("set_hand_order",
+                            *[by_rank[r] for r in ranked(expected)])
+        return True
+
+    def _arrange_jokers(self, ids: list, keys: list) -> bool:
+        """By ids where they line up, else by the recorded key order.
+
+        Ids can be right about identity and still not match -- the card
+        counter again -- and a recording made before joker ids existed
+        carries only the keys. Jokers sharing a key are interchangeable for
+        this purpose.
+        """
+        from .replay import normalise
+
+        if ids:
+            current = normalise(self.bridge.command("check")
+                                .get("joker_ids")) or []
+            if current == ids:
+                return True
+            if sorted(current) == sorted(ids):
+                self.bridge.command("set_joker_order", *ids)
+                return True
+        if not keys:
+            return True
+        current_keys = normalise(self.bridge.command("check")
+                                 .get("jokers")) or []
+        if list(current_keys) == keys:
+            return True
+        if sorted(current_keys) != sorted(keys):
+            return False
+        live = normalise(self.bridge.command("state").get("jokers")) or []
+        if len(live) != len(current_keys):
+            return True
+        remaining = dict(enumerate(current_keys))
+        order = []
+        for key in keys:
+            for i, have in list(remaining.items()):
+                if have == key:
+                    order.append(live[i]["id"])
+                    del remaining[i]
+                    break
+        if len(order) != len(live):
+            return False
+        self.bridge.command("set_joker_order", *order)
+        return True
 
     def state(self) -> dict:
         return self.bridge.wait_ready(timeout=60)
@@ -220,8 +440,11 @@ class EngineRun:
         """
         return advance(state, self.driver, settled)
 
-    def settle(self, done, timeout: float = 10.0) -> dict:
-        """The state once `done(state)` holds, or as it is after `timeout`.
+    def settle(self, done, timeout: float = 10.0, read=None) -> dict:
+        """The state once `done(read())` holds, or as it is after `timeout`.
+
+        `read` is the state by default; a replay reads the recorder's
+        snapshot (`fingerprint`) instead.
 
         For comparing against a state known to be settled -- a shadow's, a
         recording's -- where one read can land mid-flight: money paying out
@@ -231,7 +454,7 @@ class EngineRun:
         waits for the expected state to arrive, so a real difference is still
         there when it gives up. Then `state()`, so the answer is actionable.
         """
-        self.bridge.settle(self.bridge.state, done, timeout=timeout)
+        self.bridge.settle(read or self.bridge.state, done, timeout=timeout)
         return self.state()
 
     def step(self, action: Action, *, closes: bool | None = None) -> None:

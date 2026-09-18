@@ -6,6 +6,9 @@ window with it. It is the bridge's demonstration and its end-to-end check:
 that the mod loads, that the socket answers, that an action taken here has
 the consequence it should in a game that animates.
 
+It drives the game through `jimbot_sim.run.EngineRun`, the interface every
+driver uses, so what it checks is the path a policy's actions take too.
+
 It reads no checkpoint and holds no model. Driving the window with a trained
 agent is a separate concern and lives with whatever does the training.
 
@@ -28,22 +31,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from jimbot_sim.bridge import BalatroBridge, BridgeError, launch  # noqa: E402
+from jimbot_sim.compare import hand as hand_names  # noqa: E402
+from jimbot_sim.game import Action, ActionType  # noqa: E402
+from jimbot_sim.run import EngineRun  # noqa: E402
 
-RANKS = {1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "7", 7: "8", 8: "9",
-         9: "10", 10: "J", 11: "Q", 12: "K", 13: "A"}
-SUITS = {1: "S", 2: "H", 3: "C", 4: "D"}
-
-
-def show_hand(hand) -> str:
-    return " ".join(f"{RANKS.get(c['rank'], '?')}{SUITS.get(c['suit'], '?')}"
-                    for c in (hand or []))
+# What buys from each of the shop's areas.
+BUYS = {"shop_jokers": ActionType.BUY, "shop_vouchers": ActionType.BUY_VOUCHER,
+        "shop_booster": ActionType.BUY_PACK}
 
 
-def play_blind(bridge: BalatroBridge, state: dict, pace: float) -> dict:
+def play_blind(run: EngineRun, state: dict, pace: float) -> dict:
     """Play one blind: best hand each time, discarding when it is weak."""
     while state["state_name"] == "SELECTING_HAND":
-        best = bridge.command("best_play")
-        choice = best["cards"]
+        best = run.bridge.command("best_play")
+        choice = list(best["cards"] or [])
         if not choice:
             break
 
@@ -58,18 +59,16 @@ def play_blind(bridge: BalatroBridge, state: dict, pace: float) -> dict:
                       if i not in keep][:5]
             if not choice:
                 discarding = False
-                choice = best["cards"]
+                choice = list(best["cards"])
 
-        for index in choice:
-            state = bridge.toggle(index)
-        time.sleep(pace)
-
+        cards = tuple(i - 1 for i in choice)
+        run.step(Action(ActionType.DISCARD if discarding else ActionType.PLAY,
+                        cards=cards))
+        state = run.state()
         if discarding:
-            state = bridge.discard()
             print(f"    discarded {len(choice)} cards "
                   f"({state['discards_left']} left)")
         else:
-            state = bridge.play()
             print(f"    played {best['hand']:<15} -> "
                   f"{state['chips']}/{state['blind_chips']} chips, "
                   f"{state['hands_left']} hands left")
@@ -80,7 +79,7 @@ def play_blind(bridge: BalatroBridge, state: dict, pace: float) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", default="ABCDEFGH")
-    parser.add_argument("--deck", default=None,
+    parser.add_argument("--deck", default="Red Deck",
                         help='e.g. "Yellow Deck"')
     parser.add_argument("--launch", action="store_true",
                         help="start the modded build first")
@@ -104,13 +103,12 @@ def main() -> None:
             raise SystemExit(1)
 
     print(f"connected: {bridge.hello()}")
-    bridge.command("start_run", args.seed,
-                   *( [args.deck.replace(" ", "_")] if args.deck else [] ))
-    state = bridge.wait_until(lambda s: s.get("blind_select_up"), timeout=40)
+    run = EngineRun(bridge)
+    run.start(args.seed, args.deck)
     print(f"run started on seed {args.seed}\n")
 
     for _ in range(args.max_rounds):
-        state = bridge.state()
+        state = run.state()
         if state.get("won"):
             print("\n*** RUN WON ***")
             break
@@ -120,36 +118,33 @@ def main() -> None:
             print(f"\ngame over on ante {state['ante']}")
             break
         if name == "BLIND_SELECT":
-            if not state.get("blind_select_up"):
-                time.sleep(0.2)
-                continue
-            print(f"ante {state['ante']} {state['blind_on_deck']} blind  "
+            print(f"ante {state['ante']} {state.get('blind_on_deck')} blind  "
                   f"(${state['dollars']})")
-            state = bridge.select_blind()
-            print(f"  need {state['blind_chips']}, hand: {show_hand(state['hand'])}")
+            run.step(Action(ActionType.SELECT_BLIND))
+            state = run.state()
+            print(f"  need {state['blind_chips']}, "
+                  f"hand: {' '.join(hand_names(state))}")
             time.sleep(args.pace)
-            state = play_blind(bridge, state, args.pace)
+            play_blind(run, state, args.pace)
         elif name == "ROUND_EVAL":
-            state = bridge.cash_out()
-            print(f"  cashed out -> ${state['dollars']}")
+            run.step(Action(ActionType.CASH_OUT))
+            print(f"  cashed out -> ${run.state()['dollars']}")
             time.sleep(args.pace)
         elif name == "SHOP":
-            if not state.get("shop_settled"):
-                time.sleep(0.2)
-                continue
-            shop = state.get("shop") or []
-            affordable = [i for i in shop if i.get("buyable")]
-            if affordable:
-                pick = max(affordable, key=lambda i: i["cost"])
-                bridge.buy(pick["area"], pick["index"])
+            shop = [row for row in state.get("shop") or []
+                    if row.get("buyable") and row.get("area") in BUYS]
+            if shop:
+                pick = max(shop, key=lambda row: row["cost"])
+                run.step(Action(BUYS[pick["area"]],
+                                index=int(pick["index"]) - 1))
                 print(f"  bought something for ${pick['cost']}")
                 time.sleep(args.pace)
                 continue
             time.sleep(args.pace)
-            state = bridge.leave_shop()
+            run.step(Action(ActionType.LEAVE_SHOP))
             print("  left the shop")
         elif state.get("in_pack"):
-            state = bridge.skip_pack()
+            run.step(Action(ActionType.SKIP_PACK))
         else:
             time.sleep(0.2)
 
