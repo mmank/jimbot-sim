@@ -517,8 +517,13 @@ def do_replay(args) -> None:
             continue
 
         # Compare before acting: the recorded `before` is the state the human
-        # was looking at when they made this choice.
-        actual = normalise(bridge.command("check"))
+        # was looking at when they made this choice. A difference is re-read
+        # until the game settles before it is believed -- the human looked at
+        # a finished screen, and the previous action can return with a card
+        # still being made (see BalatroBridge.settle).
+        actual = bridge.settle(
+            lambda: normalise(bridge.command("check")),
+            lambda state: not differences(entry["before"], state))
         problems = differences(entry["before"], actual)
         if problems:
             mismatches += 1

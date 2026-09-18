@@ -195,6 +195,25 @@ class BalatroBridge:
         raise NotReady(f"condition not met within {timeout}s "
                        f"(state {last.get('state_name')})")
 
+    def settle(self, read, done, timeout: float = 5.0, poll: float = 0.1):
+        """Re-read until `done(read())` holds or `timeout` passes; the last read.
+
+        For comparing the game against a state known to be settled -- a
+        recording's `before`, a shadow's -- where a single read can land
+        mid-flight. Hallucination reserves a consumable slot as a pack opens
+        and makes the Tarot in a queued event (card.lua:2336-2348), after
+        `buy_pack` has returned on the pack being stocked and paid for: a live
+        run stopped on SUPMAN01 with the Wheel of Fortune on screen and not
+        yet in the consumable area. It only waits for the expected state to
+        arrive, so a real difference is still there when it gives up.
+        """
+        deadline = time.time() + timeout
+        value = read()
+        while not done(value) and time.time() < deadline:
+            self._pause(poll)
+            value = read()
+        return value
+
     def wait_for(self, predicate, timeout: float = 30.0,
                  poll: float = 0.05) -> dict:
         """Wait for a consequence, without requiring the game to be actionable.
