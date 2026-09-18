@@ -1673,6 +1673,11 @@ def _certificate(j: JokerInstance, game: "GameState") -> None:
     # different deck. Putting it only in the hand loses it at the end of the
     # round.
     game.add_card_to_hand(card)
+    # And sorted in: the event ends with G.hand:sort() (card.lua:2476), so
+    # the card takes its place by the hand's sort rather than joining the
+    # end -- where every position after it named a different card than the
+    # game's.
+    game._sort_hand()
 
 
 register("Certificate", Rarity.UNCOMMON,

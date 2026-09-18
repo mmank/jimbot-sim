@@ -289,6 +289,21 @@ function api.enter_round_eval()
   -- That HUD element is never built here, so an Investment Tag paid its $25
   -- and then stayed in the list forever -- visible to a policy as a reward it
   -- could collect again.
+  --
+  -- But where the chain does run to its end, Tag:remove_from_game looks for
+  -- a tag this has already taken out, finds no index, and table.remove()s
+  -- a nil one -- which in Lua removes the *last* tag held. An Uncommon Tag
+  -- behind a spent Investment Tag vanished before the shop it was for. The
+  -- game never takes a tag out early, so only here does it need guarding.
+  if not TAG_REMOVE_GUARDED then
+    TAG_REMOVE_GUARDED = true
+    local remove_from_game = Tag.remove_from_game
+    function Tag:remove_from_game()
+      for _, held in pairs(G.GAME.tags) do
+        if held == self then return remove_from_game(self) end
+      end
+    end
+  end
   for i = #G.GAME.tags, 1, -1 do
     if G.GAME.tags[i].triggered then table.remove(G.GAME.tags, i) end
   end
@@ -390,39 +405,38 @@ function api.skip_blind()
     add_tag(Tag(tag))
   end
 
-  -- The tags that pay the instant a blind is skipped: Economy doubles the
-  -- bankroll, Handy and Garbage pay per hand and per unspent discard, Speed
-  -- per skip, Top-up makes two jokers, Orbital levels a hand three times.
-  -- The game fires this loop in skip_blind itself; only the new_blind_choice
-  -- one below was copied, so all six did nothing at all here -- a skip
-  -- handed over a tag that was then never applied.
-  for i = 1, #G.GAME.tags do
-    G.GAME.tags[i]:apply_to_run({ type = 'immediate' })
-  end
   G.GAME.round_resets.blind_states[on_deck] = 'Skipped'
   G.GAME.round_resets.blind_states[on_deck == 'Small' and 'Big' or 'Boss'] = 'Select'
   G.GAME.blind_on_deck = on_deck == 'Small' and 'Big' or 'Boss'
 
-  -- Skipping puts a new blind on the table, and some tags act on exactly
-  -- that: a Boss Tag rerolls the boss the moment the next choice appears,
-  -- then removes itself. The game fires this from the UI that builds the
-  -- choice screen, which is not built here, so without it a Boss Tag is taken
-  -- and then sits in the run for ever -- present in the tag list, never
-  -- spent, and rerolling nothing.
+  -- Then the tags, from an event queued behind add_tag's, as
+  -- G.FUNCS.skip_blind queues them (button_callbacks.lua:2765-2780): the
+  -- ones that pay the instant a blind is skipped -- Economy, Handy, Garbage,
+  -- Speed, Top-up, Orbital -- and then the first that acts on the new blind
+  -- choice, a Boss Tag's re-roll or a pack tag's pack. The choice screen is
+  -- never built here, so this is the only place that loop runs on a skip.
   --
-  -- This is the game's own apply_to_run, not a reimplementation of what the
-  -- tag does; the loop is copied from the three places the game calls it.
+  -- Queued, not run at once. A Double Tag copies the tag the skip gives
+  -- from events add_tag queues (tag.lua:320-331, Tag:yep), and those come
+  -- first: in the game a doubled Handy Tag pays twice on the skip. Firing
+  -- the loop straight after add_tag paid it once and left the copy held.
+  local fired = false
   G.E_MANAGER:add_event(Event({
-    blocking = false, trigger = 'after', delay = 0.5,
+    trigger = 'immediate',
     func = function()
+      for i = 1, #G.GAME.tags do
+        G.GAME.tags[i]:apply_to_run({ type = 'immediate' })
+      end
       for i = 1, #G.GAME.tags do
         if G.GAME.tags[i]:apply_to_run({ type = 'new_blind_choice' }) then
           break
         end
       end
+      fired = true
       return true
     end
   }))
+  api.pump_until(function() return fired end, 600)
 
   api.pump(120)
   return G.GAME.blind_on_deck

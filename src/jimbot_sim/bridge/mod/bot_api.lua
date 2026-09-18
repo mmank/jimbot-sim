@@ -615,6 +615,9 @@ function BotAPI.state()
     joker_limit = in_run and G.jokers.config.card_limit or 0,
     consumable_limit = in_run and G.consumeables.config.card_limit or 0,
     reroll_cost = in_run and (G.GAME.current_round.reroll_cost or 0) or 0,
+    -- How far the run may go into debt: 0, or -20 per Credit Card. The
+    -- reroll button and every buy test against dollars - bankrupt_at.
+    bankrupt_at = in_run and (G.GAME.bankrupt_at or 0) or 0,
     won = (in_run and G.GAME.won) and 1 or 0,
     in_pack = in_pack() and 1 or 0,
     -- Picks left in the open pack: a Mega pack takes two, and the game
@@ -798,6 +801,26 @@ function BotAPI.state()
         return { name = "", level = 0, chips = 0, mult = 0, cards = 0,
                  estimate = 0 }
       end
+      -- Which cards score is evaluate_play's (state_events.lua:580-598), not
+      -- the preview's: a Splash makes every card played score, and a Stone
+      -- Card scores whatever the hand. get_poker_hand_info knows neither, so
+      -- two cards played beside a Splash read as one.
+      local scored = {}
+      if next(find_joker('Splash')) then
+        for _, card in ipairs(cards) do scored[#scored + 1] = card end
+      else
+        for _, card in ipairs(scoring or {}) do scored[#scored + 1] = card end
+        for _, card in ipairs(cards) do
+          if card.ability.effect == 'Stone Card' then
+            local inside = false
+            for _, other in ipairs(scored) do
+              if other == card then inside = true end
+            end
+            if not inside then scored[#scored + 1] = card end
+          end
+        end
+      end
+      scoring = scored
       local level = G.GAME.hands[text]
       local base_chips = (level and level.chips) or 0
       local mult = (level and level.mult) or 0
@@ -973,6 +996,15 @@ function BotAPI.state()
     }
   end
 
+  -- What the shop's buttons can spend: G.FUNCS.can_buy and its siblings
+  -- test the cost against dollars - bankrupt_at, and Credit Card moves
+  -- bankrupt_at to -20 (button_callbacks.lua:56, 78, 97, 112). Against the
+  -- dollars alone, a run holding one could buy nothing it was short for.
+  local spendable = G.GAME.dollars - (G.GAME.bankrupt_at or 0)
+  local function affordable(card)
+    return (card.cost or 0) <= 0 or (card.cost or 0) <= spendable
+  end
+
   state.shop = {}
   for _, name in ipairs({ 'shop_jokers', 'shop_vouchers', 'shop_booster' }) do
     local area = G[name]
@@ -997,13 +1029,13 @@ function BotAPI.state()
           -- in every shop, so `buyable` was zero, so the mask never offered
           -- the buy, so no policy trained here has ever opened one. Packs
           -- are most of where jokers and planets come from.
-          buyable = ((card.cost or 0) <= G.GAME.dollars
+          buyable = (affordable(card)
                      and (card.config.center.set == 'Booster'
                           or buy_space(card))) and 1 or 0,
           -- The shop's second button. Legal where plain buying is not: the
           -- card is used rather than stored, so it needs no free slot.
           buy_and_usable = (card.ability.consumeable
-                            and (card.cost or 0) <= G.GAME.dollars
+                            and affordable(card)
                             and can_use(card)) and 1 or 0,
         }
       end

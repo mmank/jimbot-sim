@@ -195,5 +195,9 @@ class Shop:
         """
         if self.free_rerolls > 0:
             return 0
+        return self.reroll_price(discount)
+
+    def reroll_price(self, discount: int = 0) -> int:
+        """The price a reroll has once no free one is left."""
         base = 0 if self.free_reroll_cost else 5
         return max(0, base + self.rerolls - discount)

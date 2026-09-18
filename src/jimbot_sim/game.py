@@ -324,8 +324,16 @@ class GameState:
     best_hand: int = 0
     # G.GAME.current_round.reroll_cost, which survives the shop closing: the
     # game resets it at the start of a round, not when the shop is left, so a
-    # shop rerolled twice still reads its climbed price afterwards.
-    reroll_cost_carried: int = 5
+    # shop rerolled twice still reads its climbed price afterwards. Carried
+    # as the game carries it -- current_round.free_rerolls and the price
+    # behind them -- so a Chaos the Clown sold or taken between shops moves
+    # it (calculate_reroll_cost, common_events.lua:2263).
+    free_rerolls_carried: int = 0
+    reroll_price_carried: int = 5
+    # round_resets.temp_reroll_cost, the D6 Tag's $0 start. Not the shop's
+    # alone: it stands until the end of the round after it
+    # (state_events.lua:271), so the round's reroll price reads 0 too.
+    temp_reroll_cost: bool = False
     # round_resets.blind_states, for the ante in progress: which of this
     # ante's three blinds were skipped rather than beaten. The run info
     # screen shows the difference and a skipped blind pays nothing, so it is
@@ -817,6 +825,20 @@ class GameState:
                     and self._takes_forced_card(targets))
         return True
 
+    def held_forced_card(self):
+        """Cerulean Bell's card, while it is in force and in the hand.
+
+        Highlighted from the deal, whatever the player clicks: see
+        `_takes_forced_card` for when that is.
+        """
+        boss = self.boss
+        card = self.forced_card
+        if (self.phase is not Phase.PLAYING or boss is None
+                or not boss.forces_a_card or card is None
+                or not any(c is card for c in self.hand)):
+            return None
+        return card
+
     def _takes_forced_card(self, targets: tuple) -> bool:
         """Whether a selection holds Cerulean Bell's card, when one is forced.
 
@@ -836,11 +858,8 @@ class GameState:
         card; and a card a Hanged Man has destroyed forces nothing until the
         next draw nominates another.
         """
-        boss = self.boss
-        card = self.forced_card
-        if (self.phase is not Phase.PLAYING or boss is None
-                or not boss.forces_a_card or card is None
-                or not any(c is card for c in self.hand)):
+        card = self.held_forced_card()
+        if card is None:
             return True
         return any(t is card for t in targets)
 
@@ -1092,6 +1111,10 @@ class GameState:
             self.shop.free_rerolls = (
                 self.shop.free_rerolls + rerolls if arriving
                 else max(0, self.shop.free_rerolls - rerolls))
+        elif rerolls:
+            self.free_rerolls_carried = (
+                self.free_rerolls_carried + rerolls if arriving
+                else max(0, self.free_rerolls_carried - rerolls))
         # Strictly `> 0`, as the game has it: a negative d_size takes nothing
         # away on arrival. Clamped on the way down because ease_discard is
         # `mod = math.max(-G.GAME.current_round.discards_left, mod)`.
@@ -1210,6 +1233,11 @@ class GameState:
     # ------------------------------------------------------------------
 
     @property
+    def reroll_cost_carried(self) -> int:
+        """current_round.reroll_cost outside a shop."""
+        return 0 if self.free_rerolls_carried > 0 else self.reroll_price_carried
+
+    @property
     def boss(self) -> BossEffect | None:
         if self.blind is None or self.blind.kind is not BlindKind.BOSS:
             return None
@@ -1267,6 +1295,12 @@ class GameState:
             self._hand_size_changed(-boss.hand_size_delta)
             self._draw_cards(-boss.hand_size_delta)
 
+        # Every playing card is asked debuff_card again (blind.lua:407-409),
+        # and a disabled blind claims none, so each is released: a Verdant
+        # Leaf lifted by a sale left the whole hand reading debuffed here
+        # until the next play re-asked it.
+        for card in self.full_deck:
+            self.debuff_card(card)
         # And every joker is asked debuff_card again (blind.lua:410-412),
         # which a disabled Crimson Heart no longer answers (blind.lua:647-651):
         # the joker it held comes back, and deals its card if it is a Juggler.
@@ -1856,8 +1890,13 @@ class GameState:
         # to take away. Setting the allowance afterwards handed the discards
         # straight back.
         self.hands_left, self.discards_left = self._round_allowance()
-        # round_resets.reroll_cost, restored as the round begins.
-        self.reroll_cost_carried = max(
+        # round_resets.reroll_cost, restored as the round begins -- or
+        # nothing, while a Chaos the Clown is held: new_round counts them
+        # into free_rerolls, and calculate_reroll_cost answers 0 while there
+        # is one (state_events.lua:311-313, common_events.lua:2265).
+        self.free_rerolls_carried = sum(j.spec.free_rerolls
+                                        for j in self.active_jokers)
+        self.reroll_price_carried = 0 if self.temp_reroll_cost else max(
             0, 5 - sum(v.reroll_discount for v in self.vouchers))
 
         # round_start_bonus, applied to every tag held rather than the first:
@@ -2130,6 +2169,9 @@ class GameState:
                 BlindKind.BOSS, self.ante, self._pick_boss(),
                 ante_scaling=self.deck_config.get("ante_scaling", 1),
                 scaling=self.blind_scaling)
+        # G.FUNCS.reroll_boss ends by offering the tags a new blind choice
+        # (button_callbacks.lua:2848), paid re-roll or Boss Tag alike.
+        self._new_blind_choice()
 
     def _pick_boss(self):
         if not self.ante_boss:
@@ -2927,6 +2969,12 @@ class GameState:
         engine has all fifty-two cards again the moment the round ends.
         """
         assert self.blind is not None
+        # end_round lets the D6 Tag's $0 start go, and the price is the
+        # round's own again (state_events.lua:271).
+        if self.temp_reroll_cost:
+            self.temp_reroll_cost = False
+            self.reroll_price_carried = max(
+                0, 5 - sum(v.reroll_discount for v in self.vouchers))
         # A gold card pays the moment the round ends -- ease_dollars, right
         # there in the hand loop -- rather than as a row on the cash-out
         # screen. Folding it into the payout left the run three dollars short
@@ -3190,6 +3238,14 @@ class GameState:
         # here left the simulator still showing the beaten blind's target.
         was_boss = self.beaten_was_boss
         self.beaten_blind = None
+        # And its debuffs go with it. Blind:defeat, run from the round's
+        # evaluation after the end-of-round effects, resets the blind
+        # (blind.lua:336), and set_blind asks every playing card again with
+        # no rule to catch it, which releases it (blind.lua:207-209, 653).
+        # Kept here, the last boss's debuffs showed on the hand an Arcana
+        # pack deals at the next blind select, where the engine has none.
+        for card in self.full_deck:
+            card.debuffed = False
         if was_boss:
             for card in self.full_deck:
                 card.played_this_ante = False
@@ -3356,11 +3412,17 @@ class GameState:
             forced = self._forced_shop_slot()
             slot = forced if forced is not None else self._roll_slot()
             shop.slots.append(self._modify_shop_slot(slot))
-        # The Coupon Tag runs last, over the finished shop: everything in it
-        # is free, including the packs.
+        # The Coupon Tag runs last, over the finished shop: every card on the
+        # shelves then is free, the packs included. By card -- it marks each
+        # one couponed (tag.lua:451-458) -- so what a reroll brings in, or an
+        # Overstock adds, costs its price. `shop_free` is the game's flag
+        # that the tag has been spent on this shop, and prices the packs,
+        # which no reroll replaces.
         if Tag.COUPON in self.tags:
             self.tags.remove(Tag.COUPON)
             self.shop_free = True
+            for slot in shop.slots:
+                slot.couponed = True
             self.log("Coupon Tag: the shop is free")
 
 
@@ -3419,6 +3481,7 @@ class GameState:
         if Tag.D_SIX in self.tags:
             self.tags.remove(Tag.D_SIX)
             shop.free_reroll_cost = True
+            self.temp_reroll_cost = True
             self.log("D6 Tag: rerolls start at nothing")
         self.phase = Phase.SHOP
         self._apply_shop_tags()
@@ -3458,16 +3521,25 @@ class GameState:
             if tag is Tag.ECONOMY:
                 self.add_money(min(40, max(0, self.money)), tag.value)
                 self.tags.remove(tag)
-        # Only the first tag that actually does something fires here -- the
-        # game breaks out of the loop -- so two Charm Tags open one pack now
-        # and the other at the next blind.
+        self._new_blind_choice()
+
+    def _new_blind_choice(self) -> None:
+        """The tags that fire on a new blind choice: the first one only.
+
+        The game walks G.GAME.tags and breaks at the first that fires, from
+        four places: the blind-select screen being built (game.lua:3294), a
+        skip (button_callbacks.lua:2776), a boss re-roll (2848) and a pack
+        closing (2618). So two Charm Tags open one pack, and the second opens
+        when that pack closes; two Boss Tags re-roll twice, the second off
+        the first's re-roll.
+        """
         for tag in list(self.tags):
             if tag is Tag.BOSS:
                 # Re-rolls the boss, free -- the paid reroll is the Director's
                 # Cut button, which costs ten.
                 self.tags.remove(tag)
-                self._reroll_boss_blind()
                 self.log("Boss Tag: the boss is re-rolled")
+                self._reroll_boss_blind()
                 return
             if tag in self.PACK_TAGS:
                 self.tags.remove(tag)
@@ -3535,7 +3607,7 @@ class GameState:
         sitting beside it becomes free; take a Coupon Tag and the whole shop
         does. Pricing at stocking time meant the run paid the old price.
         """
-        if self.shop_free or slot.couponed:
+        if slot.couponed:
             return 0
         if (slot.consumable is not None
                 and slot.consumable.kind is ConsumableKind.PLANET
@@ -3614,7 +3686,8 @@ class GameState:
         # The blind index and the ante moved on at cash-out; leaving the shop
         # only chooses which blind is now on offer.
         if self.shop is not None:
-            self.reroll_cost_carried = self.shop.reroll_cost(
+            self.free_rerolls_carried = self.shop.free_rerolls
+            self.reroll_price_carried = self.shop.reroll_price(
                 sum(v.reroll_discount for v in self.vouchers))
         self.shop = None
         self._next_blind()
@@ -3751,6 +3824,10 @@ class GameState:
             self.hand = []
             self._pack_dealt_hand = False
         self.phase = Phase.SHOP if self.shop is not None else Phase.BLIND_SELECT
+        # end_consumeable offers the tags a new blind choice as the pack
+        # closes (button_callbacks.lua:2618): the second of two pack tags
+        # opens its pack now.
+        self._new_blind_choice()
 
     def _pick_pack(self, index: int, card_indices: tuple[int, ...]) -> None:
         choice = self.pack_options[index]
@@ -4191,18 +4268,15 @@ class GameState:
                      % (self.blind.name, tag.value if tag else key))
             self._fire_immediate_tags()
             self.blind_index += 1
+            # _next_blind offers the new blind choice, which is the skip's own
+            # (button_callbacks.lua:2776); the skip does not build the blind
+            # select screen again, so there is no second. A second fired here
+            # opened both packs of two pack tags at once -- a Double Tag
+            # doubles the tag a skip gives -- and put the second in front of
+            # the player, where the game opens the second when the first
+            # closes. Two Boss Tags still both re-roll: the re-roll offers
+            # the choice again.
             self._next_blind()
-            # The game fires new_blind_choice from several places, each with
-            # its own `break`, and Tag.triggered stops any one tag firing
-            # twice. Skipping therefore runs it once for the skip and again
-            # for the blind-select screen that follows -- which is how two
-            # Boss Tags, doubled off one Double Tag, both re-roll. Firing it
-            # only from _next_blind left the second one held for ever.
-            #
-            # After _next_blind, not before: a pack tag opens its pack here,
-            # and _next_blind ends by putting the phase back to BLIND_SELECT,
-            # which threw the pack away.
-            self._apply_blind_select_tags()
         elif t is ActionType.PLAY:
             self._play(action.cards)
         elif t is ActionType.DISCARD:
@@ -4276,6 +4350,11 @@ class GameState:
             self.add_money(-self.price(voucher.cost),
                            f"bought {voucher.name}")
             self.vouchers.append(voucher)
+            # Any voucher redeemed takes the ante's off the later shelves:
+            # Card:redeem clears current_round.voucher whichever it was
+            # (card.lua:1850), so buying a Voucher Tag's one forgoes the
+            # round's too until the next ante draws another.
+            self.round_voucher = ""
             self._redeem_voucher(voucher)
         elif t is ActionType.REROLL:
             assert self.shop is not None

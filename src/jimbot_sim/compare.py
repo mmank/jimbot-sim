@@ -26,9 +26,9 @@ EDITIONS = {0: "", 1: "-foil", 2: "-holo", 3: "-poly", 4: "-neg"}
 SEALS = {0: "", 1: "-gold", 2: "-red", 3: "-blue", 4: "-purple"}
 
 # A playing card on a shelf or in a pack is reported by its *enhancement*
-# centre -- c_base for a plain one -- and the simulator reports no centre at
-# all for a shop slot holding one. Neither number names the card, so both
-# sides call it "card" and the ranks are compared where they are visible.
+# centre -- c_base for a plain one -- on both sides. That does not name the
+# card, so both sides call it "card" and the ranks are compared where they
+# are visible.
 CARD_KEYS = set(ENHANCEMENT_KEYS.values())
 
 # A booster's centre key ends in a variant number -- p_buffoon_normal_1 and

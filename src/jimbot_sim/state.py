@@ -60,7 +60,7 @@ ENHANCEMENT_IDS = {
 RARITY_IDS = {"COMMON": 1, "UNCOMMON": 2, "RARE": 3, "LEGENDARY": 4}
 # SHOP_SETS in encoding.py, one-based when it reaches the encoder.
 SHOP_SET_IDS = {"Joker": 1, "Tarot": 2, "Planet": 3, "Spectral": 4,
-                "Voucher": 5, "Booster": 6}
+                "Voucher": 5, "Booster": 6, "Default": 7, "Enhanced": 8}
 
 # The simulator's phases, named as the engine names its states. A phase with
 # no engine equivalent would break the state one-hot, so every one is mapped.
@@ -211,6 +211,13 @@ def _consumable_row(game, held, usable: bool) -> dict:
     }
 
 
+def _card_key_and_set(card: Card) -> tuple[str, str]:
+    """A playing card, as the game names it: by its enhancement's centre --
+    c_base for a plain one -- whose set is Default, or Enhanced."""
+    key = ENHANCEMENT_KEYS[card.enhancement]
+    return key, "Default" if card.enhancement is Enhancement.NONE else "Enhanced"
+
+
 def _shop_key_and_set(slot) -> tuple[str, str]:
     from jimbot_sim import shop_pool
     if slot.joker is not None:
@@ -218,10 +225,12 @@ def _shop_key_and_set(slot) -> tuple[str, str]:
     if slot.consumable is not None:
         key = shop_pool.KEY_BY_CONSUMABLE_NAME.get(slot.consumable.name, "")
         return key, slot.consumable.kind.value.title()
+    if slot.card is not None:
+        return _card_key_and_set(slot.card)
     return "", "Joker"
 
 
-def _shop_row(game, slot) -> dict:
+def _shop_row(game, slot, picked: tuple = ()) -> dict:
     key, kind = _shop_key_and_set(slot)
     price = game.slot_price(slot)
     card = slot.card
@@ -239,7 +248,7 @@ def _shop_row(game, slot) -> dict:
         "buy_and_usable": 1 if (slot.consumable is not None
                                 and game.affords(price)
                                 and game.can_use_consumable(slot.consumable,
-                                                            ())) else 0,
+                                                            picked)) else 0,
         "edition": EDITION_IDS[slot.joker.edition] if slot.joker is not None
         else (EDITION_IDS[card.edition] if card is not None else 0),
         "seal": SEAL_IDS[card.seal] if card is not None else 0,
@@ -286,7 +295,7 @@ def _has_room(game, slot) -> bool:
     return True                            # a playing card goes to the deck
 
 
-def shop_rows(game) -> list[dict]:
+def shop_rows(game, picked: tuple = ()) -> list[dict]:
     """The whole shop, in the engine's own area order.
 
     Every card in all three rows is one entry of the same list, so `buy 2`
@@ -301,7 +310,10 @@ def shop_rows(game) -> list[dict]:
     """
     if game.shop is None:
         return []
-    rows = [_shop_row(game, slot) for slot in game.shop.slots]
+    # With the cards highlighted, as bot_api's can_use reads them: an Arcana
+    # pack bought here deals a hand, and a Tarot still on the shelf is then
+    # usable on what is picked from it.
+    rows = [_shop_row(game, slot, picked) for slot in game.shop.slots]
 
     for voucher in game.shop.vouchers_on_offer():
         price = game.price(voucher.cost)
@@ -373,8 +385,10 @@ def _pack_row(game, option, picked: tuple = ()) -> dict:
                 "usable": 1 if game.room_for_joker(option) else 0,
                 **_stickers(option)}
     if isinstance(option, Card):
-        return {"center": centres().of(ENHANCEMENT_KEYS[option.enhancement]),
-                "set": SHOP_SET_IDS["Joker"],
+        # Its own set, as the engine reports it (SET_IDS in bot_api.lua):
+        # this said Joker, so every card in a Standard pack read as one.
+        key, kind = _card_key_and_set(option)
+        return {"center": centres().of(key), "set": SHOP_SET_IDS[kind],
                 "edition": EDITION_IDS[option.edition],
                 "seal": SEAL_IDS[option.seal], "usable": 1,
                 **_stickers(None)}
@@ -477,6 +491,9 @@ def state_dict(game, selection: tuple[int, ...] = (),
         # climbs as the shop is rerolled. Reporting zero outside a shop said
         # a reroll was free on almost every step of a run.
         "reroll_cost": _reroll_cost(game),
+        # How far into debt the run may go (Credit Card), which every buy
+        # and the reroll button test against.
+        "bankrupt_at": game.bankrupt_at,
         "won": 1 if game.phase is Phase.WON else 0,
         "selection_size": len(chosen),
         "highlight_limit": 5,
@@ -531,7 +548,7 @@ def state_dict(game, selection: tuple[int, ...] = (),
             _consumable_row(game, c,
                             game.can_use_consumable(c, tuple(picked)))
             for c in game.consumables],
-        "shop": shop_rows(game),
+        "shop": shop_rows(game, tuple(picked)),
         "pack": [_pack_row(game, o, tuple(picked))
                  for o in game.pack_options],
     }
@@ -552,19 +569,21 @@ def _blind_row(game, kind, index: int, boss_key: str) -> dict:
     that it is knowable *before* the blind is in force -- which boss is coming
     decides what to build for while there is still a shop to spend in.
     """
-    from jimbot_sim.blinds import (BLIND_MULT, BLIND_REWARD, BlindKind,
-                                ante_base_chips)
+    from jimbot_sim.blinds import BLIND_MULT, BlindKind, _reward, ante_base_chips
 
     key = boss_key if kind is BlindKind.BOSS else (
         "bl_small" if kind is BlindKind.SMALL else "bl_big")
     mult = BLIND_MULT[kind]
+    effect = None
     if kind is BlindKind.BOSS and boss_key:
         effect = game._pick_boss()
         if effect is not None:
             mult = effect.chip_mult
     target = int(ante_base_chips(game.ante, game.blind_scaling) * mult
                  * game.deck_config.get("ante_scaling", 1))
-    reward = BLIND_REWARD[kind]
+    # The blind's own dollars, as bot_api reads them off P_BLINDS: a
+    # finisher pays eight where the table says five for any boss.
+    reward = _reward(kind, effect)
     return {
         "kind": kind.value.title(),
         "blind": centres().blind_id.get(key, 0),

@@ -57,7 +57,7 @@ from .hands import HandType
 from .headless.driving import advance, is_over
 from .joker_data import JOKER_DATA
 from .shop_pool import NAME_BY_CONSUMABLE_KEY
-from .state import _pack_row, state_dict
+from .state import _pack_row, shop_rows, state_dict
 
 # When on, `SimRun.patched` checks every patch against a full `state()`. Off
 # in training, where it would double the cost of the step it exists to save;
@@ -124,14 +124,23 @@ class Run(Protocol):
 HIGHLIGHT_LIMIT = 5
 # Packs that deal a hand to aim their cards at.
 HAND_PACKS = {"TAROT_PACK", "SPECTRAL_PACK"}
-# Actions after which the highlight, the hand's toggle count and its sort
-# presses start over in `SimRun`. A buy is on the list for being in a shop,
-# where there is no hand to hold a highlight.
+# Actions after which the game has taken the highlight off: `SimRun` drops
+# its selection. A buy is on the list for being in a shop, where there is no
+# hand to hold one.
 CLEARS_SELECTION = {ActionType.PLAY, ActionType.DISCARD,
-                    ActionType.USE_CONSUMABLE, ActionType.SELECT_BLIND,
-                    ActionType.PICK_PACK, ActionType.SKIP_PACK,
+                    ActionType.SELECT_BLIND, ActionType.SKIP_PACK,
                     ActionType.BUY, ActionType.BUY_AND_USE,
                     ActionType.BUY_VOUCHER, ActionType.BUY_PACK}
+# And the consumables whose use takes it off, from the slots or out of a
+# pack: the Tarots that convert the cards picked (mod_conv, suit_conv;
+# card.lua:1150) and the four seal Spectrals (card.lua:1190). Anything else
+# leaves it where it was -- Aura and Cryptid, which aim at a card too, and
+# everything that aims at none.
+UNHIGHLIGHTS = frozenset({
+    "c_magician", "c_empress", "c_heirophant", "c_lovers", "c_chariot",
+    "c_justice", "c_devil", "c_tower", "c_death", "c_strength", "c_star",
+    "c_moon", "c_sun", "c_world",
+    "c_talisman", "c_deja_vu", "c_trance", "c_medium"})
 
 
 # Centre keys by the simulator's display names, for the recorder's snapshot.
@@ -161,11 +170,12 @@ class SimRun:
     thing that can happen. `all_stickers` puts every sticker on whatever the
     stake allows -- a training device, see `GameState.all_stickers`.
 
-    What the engine keeps per hand in bot_api is kept here too, so the state
-    reads the same: the highlight and the toggles spent (`toggle`), one press
-    of each sort button (`sort_hand`), and the joker-swap budget, which
-    refreshes with the round and with the set of jokers held (bot_api's
-    `joker_state`).
+    What the engine keeps in bot_api is kept here too, so the state reads
+    the same: the highlight, and -- for as long as the same cards are held,
+    as bot_api's `sort_state` keys them -- the toggles spent (`toggle`) and
+    one press of each sort button (`sort_hand`); and the joker-swap budget,
+    which refreshes with the round and with the set of jokers held
+    (`joker_state`).
     """
 
     def __init__(self, endless: bool = False,
@@ -182,6 +192,7 @@ class SimRun:
         self._selected: list = []
         self._toggles = 0
         self._sorted = {"rank": False, "suit": False}
+        self._hand_key: tuple | None = None
         self._swaps = 0
         self._swap_key: tuple | None = None
 
@@ -206,13 +217,15 @@ class SimRun:
         self.game = game
         self.deck_index = {card.uid: i
                            for i, card in enumerate(game.full_deck)}
-        self._new_hand()
+        self._hand_key = None
+        self._held()
         self._selected = [game.hand[i] for i in selected
                           if 0 <= i < len(game.hand)][:HIGHLIGHT_LIMIT]
         self._toggles = len(self._selected)
         self._swaps, self._swap_key = 0, None
 
     def state(self) -> dict:
+        self._held()
         state = state_dict(self.game, self.selection(), self._toggles,
                            self._swap_budget())
         # state_dict reports the sort buttons as pressed, for a caller with
@@ -266,6 +279,10 @@ class SimRun:
         if game.pack_options:
             state["pack"] = [_pack_row(game, option, picked)
                              for option in game.pack_options]
+            # And the shelf behind a pack opened in a shop: a Tarot there is
+            # usable on the hand the pack dealt.
+            if game.shop is not None:
+                state["shop"] = shop_rows(game, picked)
 
         state["selected_hand"] = made
         state["selection_size"] = len(chosen)
@@ -282,9 +299,26 @@ class SimRun:
             # Spent from the budget as it stands before the swap.
             self._swap_budget()
             self._swaps += 1
+        used = self._consumable_key(action)
         self.game.step(action)
-        if action.type in CLEARS_SELECTION:
-            self._new_hand()
+        if action.type in CLEARS_SELECTION or used in UNHIGHLIGHTS:
+            self._selected = []
+
+    def _consumable_key(self, action: Action) -> str | None:
+        """The consumable `action` is about to use, if it uses one."""
+        from .shop_pool import KEY_BY_CONSUMABLE_NAME
+
+        game = self.game
+        if action.type is ActionType.USE_CONSUMABLE:
+            held = game.consumables
+        elif action.type is ActionType.PICK_PACK:
+            held = game.pack_options
+        else:
+            return None
+        if not 0 <= action.index < len(held):
+            return None
+        return KEY_BY_CONSUMABLE_NAME.get(getattr(held[action.index],
+                                                  "name", None))
 
     def advance(self, state: dict | None = None, settled: int = 0) -> bool:
         """Move on through a phase no player is asked about; False if none.
@@ -298,10 +332,19 @@ class SimRun:
             return True
         return False
 
-    def _new_hand(self) -> None:
-        """The highlight, the toggles and the sort presses start over."""
-        self._selected, self._toggles = [], 0
-        self._sorted = {"rank": False, "suit": False}
+    def _held(self) -> None:
+        """The toggles and the sort presses start over with different cards.
+
+        bot_api's `sort_state`: keyed by the cards held, not by the action
+        taken. A Tarot aimed at the hand leaves the same cards in it, so the
+        presses and the toggles stand -- this used to start them over after
+        every consumable, where the engine does not.
+        """
+        key = tuple(sorted(card.uid for card in self.game.hand))
+        if key != self._hand_key:
+            self._hand_key = key
+            self._toggles = 0
+            self._sorted = {"rank": False, "suit": False}
 
     def _swap_budget(self) -> int:
         """Swaps spent, refreshed when the round or the set of jokers moves."""
@@ -312,10 +355,25 @@ class SimRun:
         return self._swaps
 
     def selection(self) -> tuple[int, ...]:
-        if self.game is None or not self._selected:
+        if self.game is None:
+            return ()
+        chosen = self._chosen()
+        if not chosen:
             return ()
         return tuple(i for i, card in enumerate(self.game.hand)
-                     if any(card is c for c in self._selected))
+                     if any(card is c for c in chosen))
+
+    def _chosen(self) -> list:
+        """The cards highlighted: those clicked, and Cerulean Bell's.
+
+        The boss highlights its card from the deal, and no click or clear
+        takes it off (cardarea.lua:188, 201-208), so it is selected however
+        the rest were picked -- and it counts towards the five.
+        """
+        forced = self.game.held_forced_card()
+        if forced is None or any(forced is c for c in self._selected):
+            return self._selected
+        return self._selected + [forced]
 
     def toggle(self, index: int) -> None:
         """Highlight or unhighlight a card, as a click on it does.
@@ -325,10 +383,18 @@ class SimRun:
         """
         if index >= len(self.game.hand):
             return
-        card = self.game.hand[index]
-        if any(card is c for c in self._selected):
+        self._held()
+        # Only what is still held counts towards the five: The Hanged Man
+        # destroys the cards it was aimed at, highlight and all.
+        hand = self.game.hand
+        self._selected = [c for c in self._selected
+                          if any(c is h for h in hand)]
+        card = hand[index]
+        if card is self.game.held_forced_card():
+            pass                        # the game will not let it go
+        elif any(card is c for c in self._selected):
             self._selected = [c for c in self._selected if c is not card]
-        elif len(self._selected) < HIGHLIGHT_LIMIT:
+        elif len(self._chosen()) < HIGHLIGHT_LIMIT:
             self._selected.append(card)
         self._toggles += 1
 
@@ -364,6 +430,7 @@ class SimRun:
     def sort_hand(self, by: str) -> None:
         # The order sticks for later draws (GameState.sort_hand); the press
         # counts until the hand starts over.
+        self._held()
         self.game.sort_hand(by)
         self._sorted["suit" if by == "suit" else "rank"] = True
 
