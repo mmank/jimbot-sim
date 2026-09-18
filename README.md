@@ -57,17 +57,20 @@ afterwards, so you can weigh every option before committing to one.
 Plain attributes. There is no observation format to learn.
 
 ```python
-game.phase           # BLIND_SELECT, PLAYING, ROUND_EVAL, SHOP, GAME_OVER ...
-game.ante            # 1..8, and past it
+game.phase           # BLIND_SELECT, PLAYING, ROUND_EVAL, SHOP, PACK,
+                     # GAME_OVER, WON
+game.ante            # 1..8; past it with GameState(..., endless=True)
 game.money           # dollars
 game.hands_left      # and game.discards_left
 game.chips_scored    # against game.blind.target
 game.blind           # kind, target, reward, and the boss effect if any
+game.boss            # the boss in force: None on the blind select screen,
+                     # where game.blind is only on offer
 
 game.hand            # what you are holding, as Card objects
 game.full_deck       # all 52, or however many it is by now
 game.jokers          # JokerInstance: name, edition, stickers, counter
-game.consumables     # what is in the consumable slots
+game.consumables     # ConsumableInstance: name, edition, sell value
 game.shop            # while you are in one
 game.pack_options    # while a booster is open
 
@@ -117,6 +120,12 @@ you can develop against the simulator and expect the real game to agree.
 Two runs from one seed are identical. Nothing here reads a clock or a global
 random source.
 
+The headless engine is deterministic too, though it was not at first. Its
+LuaJIT hashed strings differently in every process, and To Do List and the
+Orbital Tag pick a poker hand by walking the game's hand table with `pairs()`,
+so the same seed could pick a different hand. It now walks that table in the
+game's own list order.
+
 ## When you want the real thing instead
 
 The simulator is fast — no game install, no Lua, and a few thousand steps a
@@ -129,10 +138,37 @@ when being *exactly* right matters more:
 - **`jimbot_sim.bridge`** talks to the actual running game over a socket, so a
   bot can play the copy on your screen.
 
-All three answer the same questions, so a bot written against one runs against
-the others. `scripts/play_visible.py` drives the real window — build a
-driveable copy of your own install first with `scripts/build_modded_game.py`,
-and note it needs the Steam client running even though it launches outside it.
+`scripts/play_visible.py` drives the real window — build a driveable copy of
+your own install first with `scripts/build_modded_game.py`, and note it needs
+the Steam client running even though it launches outside it.
+
+## One run, any backend
+
+`jimbot_sim.run` puts all three behind one interface. The same driving code
+plays any of them:
+
+```python
+from jimbot_sim.game import Action, ActionType
+from jimbot_sim.run import SimRun, EngineRun
+from jimbot_sim.bridge.headless import HeadlessBridge
+from jimbot_sim.headless.runtime import HeadlessBalatro
+
+run = SimRun()   # or EngineRun(HeadlessBridge(HeadlessBalatro().boot()))
+run.start("SEED0000", "Red Deck", 1)
+run.step(Action(ActionType.SELECT_BLIND))
+state = run.state()   # a dict, the same shape whichever backend made it
+```
+
+`state()` is the position as the game itself reports it (`jimbot_sim.state`),
+and `jimbot_sim.compare` says where two of them differ. The engine resolves an
+action as a chain of queued animations, so `EngineRun` waits for each action's
+consequence before it returns, and `state()` reads the position once it has
+settled.
+
+`Mirrored` plays the engine for real with a `SimRun` stepped beside it.
+`mirror.game` is a `GameState` of the same run, so a bot that decides on one
+can play the engine, and `mirror.check(state)` says where the two have parted.
+`jimbot_sim.replay` replays a recorded game on any backend.
 
 ## Is the simulator actually right?
 
@@ -140,6 +176,12 @@ Mostly, and where it is not, it is written down rather than left to be found.
 
 - `tests/test_differential.py` plays one seed through the simulator and the
   real engine side by side, comparing them step by step.
+- `tests/test_engine_agreement.py` pins each place a lockstep walk found the
+  two parting. The walk steps the engine and the simulator with the same
+  random moves, with every blind cut to one chip so that random play reaches
+  the shops, the packs and ante eight. It has covered 420 seeds across every
+  deck and stake so far. Each case is written from the game's Lua, so the
+  test needs no engine.
 - `tests/test_recordings.py` replays games recorded from a person playing and
   demands the same scores.
 - `recordings/` holds those games: every action taken, with the state the
