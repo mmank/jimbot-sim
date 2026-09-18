@@ -32,6 +32,14 @@ player dragged them into, `sort_hand` presses a sort button, `set_money`
 restores the bankroll a recording was made with, and `fingerprint` is the
 recorder's own snapshot (bot_api's `check`) for comparing against one. See
 `jimbot_sim.replay`.
+
+And the clicks a trained policy makes, because it was trained on them rather
+than on `Action`s: `toggle` a card's highlight, `clear` it, `swap_card_left`,
+and `selection`, the highlighted cards as hand positions. The highlight is
+part of what a policy sees, so it is held where the backend shows it -- in
+the game's own G.hand.highlighted, and in `SimRun` by card, so it follows the
+cards through a sort or a swap as the game's does. A play, a discard or a
+consumable is then an `Action` carrying the selection.
 """
 
 from __future__ import annotations
@@ -73,6 +81,26 @@ class Run(Protocol):
 
     def fingerprint(self) -> dict: ...
 
+    def toggle(self, index: int) -> None: ...
+
+    def clear(self) -> None: ...
+
+    def swap_card_left(self, index: int) -> None: ...
+
+    def selection(self) -> tuple[int, ...]: ...
+
+
+# The game allows this many cards highlighted (G.hand.config.highlighted_limit).
+HIGHLIGHT_LIMIT = 5
+# Actions after which the highlight and the hand's toggle count start over,
+# as balatro_env.sim_env has them. A buy is on the list for being in a shop,
+# where there is no hand to hold a highlight.
+CLEARS_SELECTION = {ActionType.PLAY, ActionType.DISCARD,
+                    ActionType.USE_CONSUMABLE, ActionType.SELECT_BLIND,
+                    ActionType.PICK_PACK, ActionType.SKIP_PACK,
+                    ActionType.BUY, ActionType.BUY_AND_USE,
+                    ActionType.BUY_VOUCHER, ActionType.BUY_PACK}
+
 
 # Centre keys by the simulator's display names, for the recorder's snapshot.
 KEY_BY_JOKER = {name: key for name, (key, *_r) in JOKER_DATA.items()}
@@ -107,6 +135,11 @@ class SimRun:
         # Each starting card's place in the deck, which is the id the game
         # gives it -- the simulator builds its deck in the game's own order.
         self.deck_index: dict[int, int] = {}
+        # The highlighted cards, held by card rather than by position: the
+        # game's highlight follows a card when the hand is sorted or a card
+        # dragged. And how many toggles this hand, which the state reports.
+        self._selected: list = []
+        self._toggles = 0
 
     def start(self, seed: str, deck: str = "Red Deck",
               stake: int = 1) -> dict:
@@ -114,16 +147,47 @@ class SimRun:
                               endless=self.endless)
         self.deck_index = {card.uid: i
                            for i, card in enumerate(self.game.full_deck)}
+        self._selected, self._toggles = [], 0
         return self.state()
 
     def state(self) -> dict:
-        return state_dict(self.game)
+        return state_dict(self.game, self.selection(), self._toggles)
 
     def legal_actions(self) -> list[Action]:
         return self.game.legal_actions()
 
     def step(self, action: Action) -> None:
         self.game.step(action)
+        if action.type in CLEARS_SELECTION:
+            self._selected, self._toggles = [], 0
+
+    def selection(self) -> tuple[int, ...]:
+        if self.game is None or not self._selected:
+            return ()
+        return tuple(i for i, card in enumerate(self.game.hand)
+                     if any(card is c for c in self._selected))
+
+    def toggle(self, index: int) -> None:
+        """Highlight or unhighlight a card, as a click on it does.
+
+        Past the fifth the game ignores the click, and so does this; either
+        way it counts as a toggle.
+        """
+        if index >= len(self.game.hand):
+            return
+        card = self.game.hand[index]
+        if any(card is c for c in self._selected):
+            self._selected = [c for c in self._selected if c is not card]
+        elif len(self._selected) < HIGHLIGHT_LIMIT:
+            self._selected.append(card)
+        self._toggles += 1
+
+    def clear(self) -> None:
+        self._selected = []
+
+    def swap_card_left(self, index: int) -> None:
+        # The selection is held by card, so it follows the cards that moved.
+        self.game.swap_card_left(index)
 
     @property
     def is_over(self) -> bool:
@@ -338,6 +402,20 @@ class EngineRun:
 
     def key(self, row: dict) -> str:
         return self.names.key(row, live=True)
+
+    def selection(self) -> tuple[int, ...]:
+        """The game's own highlight, as hand positions (bot_api `selected`)."""
+        return tuple(int(i) - 1 for i in self.bridge.state().get("selected")
+                     or [])
+
+    def toggle(self, index: int) -> None:
+        self.bridge.toggle(index + 1)
+
+    def clear(self) -> None:
+        self.bridge.command("clear")
+
+    def swap_card_left(self, index: int) -> None:
+        self.bridge.command("swap_card_left", index + 1)
 
     def set_money(self, amount: int) -> None:
         self.bridge.command("set_money", amount)

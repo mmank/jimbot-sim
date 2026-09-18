@@ -43,6 +43,47 @@ def test_a_state_does_not_differ_from_itself():
     assert [line.split()[0] for line in found] == ["dollars"]
 
 
+def test_a_highlight_is_held_by_card_as_the_game_holds_it():
+    run = SimRun()
+    run.start("ABCDEFGH", "Red Deck", 1)
+    run.step(Action(ActionType.SELECT_BLIND))
+    run.toggle(6)
+    run.toggle(2)
+    picked = {id(run.game.hand[2]), id(run.game.hand[6])}
+    assert run.selection() == (2, 6)
+    run.swap_card_left(2)
+    assert run.selection() == (1, 6)
+    run.sort_hand("suit")
+    assert {id(run.game.hand[i]) for i in run.selection()} == picked
+    assert run.state()["toggles_used"] == 2
+    run.toggle(run.selection()[0])
+    assert len(run.selection()) == 1
+    run.clear()
+    assert run.selection() == ()
+    assert run.state()["toggles_used"] == 3        # a clear is not a toggle
+
+
+def test_a_sixth_card_is_not_highlighted():
+    run = SimRun()
+    run.start("ABCDEFGH", "Red Deck", 1)
+    run.step(Action(ActionType.SELECT_BLIND))
+    for i in range(6):
+        run.toggle(i)
+    assert run.selection() == (0, 1, 2, 3, 4)
+    assert run.state()["selection_size"] == 5
+    assert run.state()["toggles_used"] == 6        # the refused one counts
+
+
+def test_a_play_starts_the_highlight_over():
+    run = SimRun()
+    run.start("ABCDEFGH", "Red Deck", 1)
+    run.step(Action(ActionType.SELECT_BLIND))
+    run.toggle(0)
+    run.step(Action(ActionType.PLAY, cards=run.selection()))
+    assert run.selection() == ()
+    assert run.state()["toggles_used"] == 0
+
+
 # -- the engine's translation ------------------------------------------------
 
 class Calls(BalatroBridge):
@@ -78,6 +119,48 @@ def test_a_buy_names_the_shelf_the_engine_keeps():
                             ("buy_pack", "shop_booster", 1)]
     assert shelf_of(Action(ActionType.BUY_VOUCHER, index=0)) == (
         "shop_vouchers", 1)
+
+
+class Highlights(BalatroBridge):
+    """A client whose game keeps a highlight, as bot_api reports it."""
+
+    def __init__(self, selected=()) -> None:
+        super().__init__()
+        self.selected = list(selected)
+        self.calls = []
+
+    def state(self) -> dict:
+        return {"hand": [{}] * 8, "selected": sorted(self.selected)}
+
+    def command(self, cmd, *args):
+        self.calls.append((cmd,) + args)
+        if cmd == "clear":
+            self.selected = []
+        elif cmd == "toggle":
+            i = int(args[0])
+            if i in self.selected:
+                self.selected.remove(i)
+            else:
+                self.selected.append(i)
+
+
+def test_the_engines_highlight_reads_as_hand_positions():
+    engine = EngineRun(Highlights(selected=[5, 2]))
+    assert engine.selection() == (1, 4)
+    engine.clear()
+    engine.swap_card_left(3)
+    assert engine.bridge.calls == [("clear",), ("swap_card_left", 4)]
+
+
+def test_cards_already_highlighted_are_not_picked_again():
+    # A policy picks its own cards a toggle at a time; the game counts every
+    # toggle against the hand, so selecting them over again would show it a
+    # budget spent twice.
+    bridge = Highlights(selected=[2, 5])
+    bridge.select([2, 5])
+    assert bridge.calls == []
+    bridge.select([3])
+    assert bridge.calls == [("clear",), ("toggle", 3)]
 
 
 def test_a_pick_says_whether_it_closes_the_pack():

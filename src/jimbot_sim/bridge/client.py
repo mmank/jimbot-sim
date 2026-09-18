@@ -538,7 +538,15 @@ class BalatroBridge:
         The game refuses a selection rather than reporting one: over the hand
         limit, or mid-animation, `toggle` is a no-op. Verifying here turns a
         wrong-target bug into a plain error at the point it happens.
+
+        Nothing to do if they already are -- a policy that picks its cards
+        one toggle at a time has highlighted them itself. Clearing and
+        picking again would count each toggle twice against the hand's
+        budget (`toggles_used`), which that policy sees and is masked by.
         """
+        state = self.state()
+        if sorted(state.get("selected") or []) == sorted(cards):
+            return state
         self.command("clear")
         for index_in_hand in cards:
             self.command("toggle", index_in_hand)
