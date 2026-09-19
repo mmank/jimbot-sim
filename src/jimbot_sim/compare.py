@@ -25,6 +25,10 @@ SUITS = {1: "S", 2: "H", 3: "C", 4: "D"}
 EDITIONS = {0: "", 1: "-foil", 2: "-holo", 3: "-poly", 4: "-neg"}
 SEALS = {0: "", 1: "-gold", 2: "-red", 3: "-blue", 4: "-purple"}
 
+# bot_api.lua's ENHANCEMENT_IDS, for reading the deck's make-up back out.
+ENHANCEMENTS = {0: "plain", 1: "bonus", 2: "mult", 3: "wild", 4: "glass",
+                5: "steel", 6: "stone", 7: "gold", 8: "lucky"}
+
 # A playing card on a shelf or in a pack is reported by its *enhancement*
 # centre -- c_base for a plain one -- on both sides. That does not name the
 # card, so both sides call it "card" and the ranks are compared where they
@@ -185,6 +189,41 @@ def levels(state: dict) -> dict:
             for name, data in (state.get("hand_levels") or {}).items()}
 
 
+def deck_cards(state: dict) -> dict:
+    """What the whole deck holds, by name: {"6": 4, "D": 13, "steel": 1}.
+
+    The engine reports the deck as counts rather than as cards -- ranks,
+    suits, enhancements, seals and editions over G.playing_cards -- and both
+    sides have reported it all along for the observation encoder. Nothing
+    compared it, so two decks holding different cards read as the same run
+    until a draw happened to deal the difference: FATBOY02 stopped 299
+    decisions in with a 6D in the game's hand and a red-sealed 6H in the
+    shadow's, which is a deck that had disagreed for some time.
+
+    Only the counts, so this catches a card that is not the same card. Two
+    decks holding the same cards in an order that deals differently -- a card
+    whose id is out of step with when it was added (see GameState._start_round
+    on pseudoshuffle) -- still needs the cards themselves, which the mod does
+    not report.
+    """
+    block = state.get("deck_cards") or {}
+    out: dict[str, int] = {}
+
+    def tally(field: str, labels: dict, base: int, prefix: str = "") -> None:
+        for slot, count in enumerate(block.get(field) or []):
+            label = labels.get(slot + base)
+            if label is None or not count:
+                continue
+            out[prefix + (label.lstrip("-") or "none")] = int(count)
+
+    tally("ranks", RANKS, 1)
+    tally("suits", SUITS, 1)
+    tally("enhancements", ENHANCEMENTS, 0)
+    tally("seals", SEALS, 0, "seal ")
+    tally("editions", EDITIONS, 0, "edition ")
+    return out
+
+
 def differences(state: dict, shadow: dict, names: Names) -> list[str]:
     """Every way the engine's state and the simulator's disagree.
 
@@ -203,6 +242,14 @@ def differences(state: dict, shadow: dict, names: Names) -> list[str]:
     for field in NUMBERS:
         note(field, int(state.get(field) or 0), int(shadow.get(field) or 0))
     note("hand", hand(state), hand(shadow))
+    # Named down to what differs: a whole deck either side of the line is
+    # unreadable, and what is wanted is the card that is not the same card.
+    held, mirrored = deck_cards(state), deck_cards(shadow)
+    if held != mirrored:
+        keys = sorted(k for k in set(held) | set(mirrored)
+                      if held.get(k, 0) != mirrored.get(k, 0))
+        note("deck_cards", {k: held.get(k, 0) for k in keys},
+             {k: mirrored.get(k, 0) for k in keys})
     note("jokers", rows(state, names, True, "jokers"),
          rows(shadow, names, False, "jokers"))
     note("consumables", rows(state, names, True, "consumables"),
