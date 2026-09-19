@@ -282,6 +282,49 @@ def test_a_shelf_that_does_not_hold_the_card_spends_nothing():
     assert bridge.calls == [] and stepped == []
 
 
+class PackScreens(BalatroBridge):
+    """A pack's screens in turn, the last one standing."""
+
+    def __init__(self, screens):
+        super().__init__()
+        self.screens = list(screens)
+        self.reads = 0
+        self.dealt = 0
+
+    def state(self):
+        self.reads += 1
+        return self.screens[min(self.reads, len(self.screens)) - 1]
+
+    def _pause(self, seconds):
+        pass
+
+    def wait_hand_dealt(self, timeout=20.0):
+        self.dealt += 1
+        return self.screens[-1]
+
+
+def test_a_pack_sliding_away_is_not_waited_on_for_cards():
+    # After the last pick the game stays in the pack state, holding nothing,
+    # until end_consumeable's events put it back in the shop.
+    from jimbot_sim.run import _Driver
+
+    closing = {"state_name": "TAROT_PACK", "in_pack": 1, "pack": []}
+    shop = {"state_name": "SHOP", "in_pack": 0, "pack": []}
+    bridge = PackScreens([closing, closing, shop])
+    _Driver(bridge).settle_pack()
+    assert bridge.reads == 3 and bridge.dealt == 0
+
+
+def test_a_pack_opening_is_still_waited_for():
+    from jimbot_sim.run import _Driver
+
+    opening = {"state_name": "TAROT_PACK", "in_pack": 1, "pack": []}
+    dealt = dict(opening, pack=[{"center": 1}])
+    bridge = PackScreens([opening, opening, dealt])
+    _Driver(bridge).settle_pack()
+    assert bridge.reads == 3 and bridge.dealt == 1
+
+
 def test_a_bought_out_shop_is_not_waited_on():
     """`shop_ready` is raised while any shelf holds a card, so a shop bought
     out of everything never raised it and `advance` waited thirty seconds."""

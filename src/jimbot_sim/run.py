@@ -907,11 +907,20 @@ class _Driver:
         several frames more. Both environments used to put the pack to the
         policy with that hand still empty, so every Tarot in it that needs a
         target was unusable on the first decision.
+
+        Or for the pack to be gone. The last pick's pack reads the same as
+        one opening -- a pack state holding no cards -- for as long as it
+        takes to slide away (end_consumeable, button_callbacks.lua:2285), and
+        the pick hands back as soon as the cards leave. Waiting for cards
+        there ran the whole two seconds out after every pack in a live run,
+        and after every skip: Marcin, *"there are often 1s hiccups,
+        especially in the shop."*
         """
         try:
-            state = self.bridge.wait_for(lambda s: bool(s.get("pack")),
-                                         timeout=2.0)
-            if state.get("state_name") in HAND_PACKS:
+            state = self.bridge.wait_for(
+                lambda s: bool(s.get("pack")) or not s.get("in_pack"),
+                timeout=2.0)
+            if state.get("in_pack") and state.get("state_name") in HAND_PACKS:
                 self.bridge.wait_hand_dealt(timeout=5.0)
         except Exception:                                  # noqa: BLE001
             pass
