@@ -211,6 +211,12 @@ class GameState:
     blind_index: int = 0          # 0 small, 1 big, 2 boss
     round_number: int = 0
     money: int = 4
+    # The money as the hand being played found it. The game's dollars move
+    # through `ease_dollars` events that run after evaluate_play, so a joker
+    # reading G.GAME.dollars mid-hand -- Vagabond -- sees this and not what
+    # the hand pays (Matador's $8, a Gold Seal's $3). Set by `_play` for the
+    # hand and None outside one, where the money in hand is the answer.
+    money_at_play: int | None = None
 
     full_deck: list[Card] = field(default_factory=list)
     draw_pile: list[Card] = field(default_factory=list)
@@ -2640,6 +2646,13 @@ class GameState:
         return tuple(range(len(chosen)))
 
     def _play(self, indices: tuple[int, ...]) -> None:
+        self.money_at_play = self.money
+        try:
+            self._play_hand(indices)
+        finally:
+            self.money_at_play = None
+
+    def _play_hand(self, indices: tuple[int, ...]) -> None:
         # Which cards the boss debuffs is decided again every time, not once
         # when the round began. The game re-evaluates it in Card:update, so a
         # card the player has just turned into a Diamond is debuffed by The

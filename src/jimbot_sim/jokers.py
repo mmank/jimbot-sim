@@ -1779,9 +1779,16 @@ register('Séance', Rarity.UNCOMMON,
          if CONTAINS_STRAIGHT_FLUSH & ctx.contains else None)
 register("Vagabond", Rarity.RARE,
          "Create a Tarot card if a hand is played with $4 or less", cost=8,
+         # `G.GAME.dollars <= extra` in joker_main (card.lua:3743-3744), and
+         # the hand's own payouts are `ease_dollars` events still queued then:
+         # Matador's $8 left of it did not stop the game's tarot, and read
+         # after the hand it stopped this one. Seed FATMAN06, Yellow Deck,
+         # decision 23: a lone Ace of Clubs into The Club with $0, the game
+         # made The Devil and this made nothing.
          after_hand=lambda j, ctx: ctx.game.add_consumables(
              ctx.game.random_consumables(ConsumableKind.TAROT, 1, "vag"))
-         if ctx.money <= 4 else None)
+         if (ctx.game.money if ctx.game.money_at_play is None
+             else ctx.game.money_at_play) <= 4 else None)
 def _sixth_sense(j: JokerInstance, played: list, game: "GameState") -> None:
     if len(played) == 1 and played[0].rank is Rank.SIX:
         game.remove_card(played[0])
