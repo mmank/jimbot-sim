@@ -29,6 +29,21 @@ class ScoreContext:
     money_gained: int = 0
     # Lucky card triggers this hand, hit or miss. See GameState.preview_outcome.
     lucky_rolls: int = 0
+    # The money a play earns in expectation rather than as rolled: what each
+    # chance payout paid (`chance_paid`) and what it is worth at its odds
+    # (`chance_expected`), so the certain money plus the expected is
+    # `money_gained - chance_paid + chance_expected`. Business Card's $2 on
+    # a coin read $2 or nothing on one roll, and four fixed rolls read a
+    # King's coin as $2 every time. See GameState.preview_money.
+    chance_paid: int = 0
+    chance_expected: float = 0.0
+
+    def expect(self, dollars: float, numerator: int,
+               denominator: int) -> None:
+        """Count a chance payout at its odds, scaled as the roll is by any
+        Oops! All 6s, before the roll decides what it actually pays."""
+        chance = numerator * self.game.probability_scale() / denominator
+        self.chance_expected += dollars * min(1.0, chance)
 
     @property
     def money(self) -> int:

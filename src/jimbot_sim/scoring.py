@@ -162,8 +162,10 @@ def _score_card_once(card: Card, ctx: ScoreContext) -> bool:
         if _listed(game, "lucky_mult", *LUCKY_MULT_CHANCE):
             ctx.add_mult(20, "lucky card")
             lucky_trigger = True
+        ctx.expect(20, *LUCKY_MONEY_CHANCE)
         if _listed(game, "lucky_money", *LUCKY_MONEY_CHANCE):
             ctx.money_gained += 20
+            ctx.chance_paid += 20
             lucky_trigger = True
 
     _apply_edition(card.edition, ctx, "card")

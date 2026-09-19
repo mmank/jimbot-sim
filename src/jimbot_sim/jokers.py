@@ -1254,16 +1254,26 @@ register("Bloodstone", Rarity.UNCOMMON,
          scored=lambda j, c, ctx: ctx.times_mult(1.5, j.name)
          if suit_matches(c, Suit.HEARTS, ctx)
          and _chance(ctx, "bloodstone", 1, 2) else None)
+def _pays_on_face(dollars: int, key: str):
+    """A face card's coin for `dollars`, counted at its odds as well as paid
+    as rolled (ScoreContext.expect). The roll is the one it always was."""
+    def hook(j, c, ctx):
+        if not is_face(c, ctx):
+            return None
+        ctx.expect(dollars, 1, 2)
+        if _chance(ctx, key, 1, 2):
+            ctx.money_gained += dollars
+            ctx.chance_paid += dollars
+        return None
+    return hook
+
+
 register("Business Card", Rarity.COMMON,
          "Played face cards have a 1 in 2 chance to give $2", cost=4,
-         scored=lambda j, c, ctx: ctx.__setattr__(
-             "money_gained", ctx.money_gained + 2)
-         if is_face(c, ctx) and _chance(ctx, "business", 1, 2) else None)
+         scored=_pays_on_face(2, "business"))
 register("Reserved Parking", Rarity.COMMON,
          "Each face card held in hand has a 1 in 2 chance to give $1", cost=6,
-         held=lambda j, c, ctx: ctx.__setattr__(
-             "money_gained", ctx.money_gained + 1)
-         if is_face(c, ctx) and _chance(ctx, "parking", 1, 2) else None)
+         held=_pays_on_face(1, "parking"))
 def _space_joker(j: JokerInstance, ctx: ScoreContext) -> None:
     """Upgrade the played hand, and score it at the new level.
 

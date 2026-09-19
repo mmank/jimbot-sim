@@ -2457,6 +2457,19 @@ class GameState:
         score, _, dollars, rolls = self._preview(indices)
         return score, dollars, rolls
 
+    def preview_money(self, indices: tuple[int, ...]) -> tuple[int, float]:
+        """The score, and the money the play earns in expectation.
+
+        What is certain -- a Gold Seal's $3 a trigger, Golden Ticket's $4 --
+        plus each chance payout at its odds: Business Card's $2 a face at
+        one in two, a Lucky card's $20 at one in fifteen. Exact, where the
+        rolled previews are a sample: one roll reads a coin as $2 or nothing,
+        and `preview_value`'s four fixed rolls read a King's as $2 each time.
+        """
+        self._preview_expected = 0.0
+        score = self._preview(indices)[0]
+        return score, float(self._preview_expected)
+
     def preview_value(self, indices: tuple[int, ...], mode: str = "roll"
                       ) -> tuple[int, int]:
         """The score, and the dollars the play earns while it scores.
@@ -2576,6 +2589,9 @@ class GameState:
             # would pay from the context once the hand has scored, and
             # anything a hook paid into the run on the way.
             dollars = ctx.money_gained + (self.money - money)
+            # And in expectation, for preview_money.
+            self._preview_expected = (dollars - ctx.chance_paid
+                                      + ctx.chance_expected)
             # The copies, read before `finally` puts the real row back.
             return ctx.score, self.jokers, dollars, ctx.lucky_rolls
         finally:
