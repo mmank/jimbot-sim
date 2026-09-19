@@ -69,3 +69,14 @@ def test_beating_a_boss_gives_the_reroll_back():
     assert not game.can_reroll_boss
     game.boss_rerolled = False          # what reset_blinds does at cash-out
     assert game.can_reroll_boss
+
+
+def test_the_reroll_is_listed_where_it_is_legal():
+    # is_legal is the exact membership test for legal_actions(); the button
+    # was allowed by the one and missing from the other.
+    for game in (_run(), _run("v_directors_cut"), _run("v_retcon", money=5)):
+        listed = any(a.type is ActionType.REROLL_BOSS
+                     for a in game.legal_actions())
+        assert listed == game.is_legal(Action(ActionType.REROLL_BOSS))
+    assert any(a.type is ActionType.REROLL_BOSS
+               for a in _run("v_directors_cut").legal_actions())

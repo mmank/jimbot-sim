@@ -3994,6 +3994,10 @@ class GameState:
             actions = [Action(ActionType.SELECT_BLIND)]
             if self.blind is not None and self.blind.kind is not BlindKind.BOSS:
                 actions.append(Action(ActionType.SKIP_BLIND))
+            # The Director's Cut / Retcon button, which `is_legal` has always
+            # allowed and this list never offered.
+            if self.can_reroll_boss:
+                actions.append(Action(ActionType.REROLL_BOSS))
             return actions
 
         if self.phase is Phase.PLAYING:
