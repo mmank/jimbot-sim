@@ -474,9 +474,19 @@ function BotAPI.configure(args)
 
   -- Game speed. 4 is the maximum the options screen offers, and it only
   -- shortens animation: event delays are measured against a clock that runs at
-  -- dt*SPEEDFACTOR, so nothing about the rules changes.
+  -- dt*SPEEDFACTOR, so nothing about the rules changes. 4 when the game boots,
+  -- which is what a person recording plays at; a bot asks for more (the
+  -- client's set_speed), and the headless engine runs at 64.
   G.SETTINGS.GAMESPEED = tonumber(args and args[1]) or 4
   changed.gamespeed = G.SETTINGS.GAMESPEED
+
+  -- Reduced motion, the options screen's own switch: the background swirl
+  -- stands still -- the shader's clock is pinned (game.lua:2465) and a boss
+  -- no longer spins it (blind.lua:215) -- and the cards stop their idle sway
+  -- and tilt. Presentation only; the headless engine always runs with it.
+  -- Off when the game boots, on when a bot asks (args[2] "1").
+  G.SETTINGS.reduced_motion = (args and args[2] == "1") or false
+  changed.reduced_motion = G.SETTINGS.reduced_motion
 
   -- Window mode has to be set here rather than pre-boot: Game:start_up loads
   -- settings.jkr from the profile, which overwrites anything set before it.

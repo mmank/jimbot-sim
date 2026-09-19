@@ -389,3 +389,25 @@ def test_a_real_difference_is_still_reported():
     state, found, _ = _mirror(bridge, 8).check({"hand": [{}] * 7},
                                                timeout=0.05)
     assert found == ["hand"] and bridge.reads > 1
+
+
+def test_a_bot_asks_for_speed_and_stillness_through_configure():
+    # The game boots at 4 with the swirl moving, for a person recording;
+    # configure's first argument is the speed, its second reduced motion.
+    from jimbot_sim.bridge.headless import HeadlessBridge
+
+    class Sent(BalatroBridge):
+        def __init__(self):
+            super().__init__()
+            self.sent = []
+
+        def command(self, cmd, *args):
+            self.sent.append((cmd, args))
+            return {}
+
+    bridge = Sent()
+    bridge.set_speed(16)
+    bridge.set_speed(64, reduced_motion=False)
+    assert bridge.sent == [("configure", (16, 1)), ("configure", (64, 0))]
+    # The headless engine keeps its own speed and has no configure command.
+    assert HeadlessBridge.set_speed(object(), 16) == {}

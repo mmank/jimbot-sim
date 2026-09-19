@@ -163,6 +163,20 @@ class BalatroBridge:
     def hello(self) -> dict:
         return self.command("hello")
 
+    def set_speed(self, speed: float, reduced_motion: bool = True) -> dict:
+        """Run the game's animation at `speed` and, by default, hold it still.
+
+        The game boots at 4, the options screen's fastest and what a person
+        recording plays at. A bot has no use for the wait: at 4 a planet's
+        level-up holds the next card back for two seconds, and a voucher
+        slides the shop away and back for two more. It is only animation --
+        event delays run on a clock scaled by it, so the rules are untouched
+        (the headless engine runs at 64). `reduced_motion` stops the
+        background swirl and the cards' idle sway. A build from before
+        `reduced_motion` was an argument takes the speed and ignores the rest.
+        """
+        return self.command("configure", speed, 1 if reduced_motion else 0)
+
     def state(self) -> dict:
         return self.command("state")
 

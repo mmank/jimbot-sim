@@ -95,6 +95,9 @@ function BotServer.handlers.hello()
                     and G.SETTINGS.SOUND.music_volume) or -1,
     sound_volume = (G and G.SETTINGS and G.SETTINGS.SOUND
                     and G.SETTINGS.SOUND.volume) or -1,
+    gamespeed = (G and G.SETTINGS and G.SETTINGS.GAMESPEED) or -1,
+    reduced_motion = (G and G.SETTINGS and G.SETTINGS.reduced_motion)
+                     and 1 or 0,
   }
 end
 

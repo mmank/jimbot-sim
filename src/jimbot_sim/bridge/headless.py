@@ -62,6 +62,11 @@ class HeadlessBridge(BalatroBridge):
         # moment" is "let the game get further", and frames are that currency.
         self.pump()
 
+    def set_speed(self, speed: float, reduced_motion: bool = True) -> dict:
+        # The engine sets its own, and pumps frames rather than waiting for
+        # them: see headless_patch.fast_forward.
+        return {}
+
     def command(self, cmd: str, *args: Any) -> Any:
         fn = self.engine.eval(f"BOT_CMD.{cmd}")
         if fn is None:
