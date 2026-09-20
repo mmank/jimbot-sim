@@ -63,7 +63,18 @@ class Driver(Protocol):
         """Let a booster finish dealing before its contents are chosen."""
 
 
-def is_over(state) -> bool:
+def is_over(state, endless: bool = False) -> bool:
+    """Whether the run has ended.
+
+    `won` ends a run that stops at ante eight. It ends nothing in an endless
+    one: the game raises G.GAME.won when the final boss's round ends and
+    never lowers it again, so reading it as the end stops an endless run on
+    the very blind it exists to play past. There, only a terminal state ends
+    it -- which is also what the training environment counts as the end of
+    an endless episode (balatro_env.env).
+    """
+    if endless:
+        return state["state_name"] in TERMINAL_STATES
     return state["state_name"] in TERMINAL_STATES or bool(state["won"])
 
 
@@ -85,16 +96,19 @@ def was_won(state) -> bool:
     return bool(state.get("won")) and state.get("state_name")         not in TERMINAL_STATES
 
 
-def advance(state, driver: Driver, settled: int = 0) -> bool:
+def advance(state, driver: Driver, settled: int = 0,
+            endless: bool = False) -> bool:
     """Advance one phase the policy is not asked about.
 
     Returns True when the driver acted and the state should be read again;
     False when this is a phase the policy decides. `settled` is how many times
     the caller has already advanced without a decision in between, which bounds
-    the one wait here that can otherwise never end.
+    the one wait here that can otherwise never end. `endless` carries on past
+    the win -- without it the cash-out of the winning boss is never made,
+    because `won` reads as the end of the run.
     """
     name = state["state_name"]
-    if is_over(state):
+    if is_over(state, endless):
         return False
     if name in AUTO_STATES:
         driver.wait()

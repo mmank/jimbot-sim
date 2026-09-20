@@ -180,11 +180,22 @@ class BalatroBridge:
     def state(self) -> dict:
         return self.command("state")
 
-    def wait_ready(self, timeout: float = 30.0, poll: float = 0.05) -> dict:
-        """Block until the game is between animations and can take input."""
+    def wait_ready(self, timeout: float = 30.0, poll: float = 0.05,
+                   watch=None) -> dict:
+        """Block until the game is between animations and can take input.
+
+        `watch` is handed every read before readiness is judged, for the
+        caller who has to *do* something to make the game actionable rather
+        than wait for it. The win screen is that: it pauses the game, so
+        nothing under it becomes ready until its button is pressed, and a
+        caller that waited for ready first would wait for a screen only its
+        own press takes down (see `run.EngineRun`).
+        """
         deadline = time.time() + timeout
         while time.time() < deadline:
             state = self.state()
+            if watch is not None:
+                watch(state)
             if state.get("ready"):
                 return state
             self._pause(poll)

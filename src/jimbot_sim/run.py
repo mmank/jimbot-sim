@@ -601,8 +601,8 @@ class EngineRun:
         self._names: Names | None = None
         # Carry on past a win, as `SimRun(endless=True)` does: the game puts
         # its win screen up and waits, paused, for a button no recording has
-        # (bot_api's continue_endless). A replay of a player who pressed it
-        # presses it too.
+        # (bot_api's continue_endless, pressed by `_carry_on` below). A replay
+        # of a player who pressed it presses it too.
         self.endless = endless
         self._carried_on = False
         self.seed: str | None = None
@@ -749,16 +749,40 @@ class EngineRun:
         return True
 
     def state(self) -> dict:
-        state = self.bridge.wait_ready(timeout=60)
-        if self.endless and not self._carried_on and state.get("won"):
-            if (self.bridge.command("continue_endless") or {}).get("continued"):
-                self._carried_on = True
-                state = self.bridge.wait_ready(timeout=60)
-        return state
+        if self.endless and not self._carried_on:
+            return self.bridge.wait_ready(timeout=60, watch=self._carry_on)
+        return self.bridge.wait_ready(timeout=60)
+
+    def _carry_on(self, state: dict) -> None:
+        """Press the win screen's Continue, from inside the wait for ready.
+
+        The screen pauses the game, and a paused game is never ready: the
+        ROUND_EVAL underneath it is waiting for a Cash Out button that queued
+        events build, and the pause holds those events. So this cannot be
+        done after waiting for ready -- that waits for a screen which only
+        this press takes down, and a live endless run sat on the win screen
+        until a human clicked it.
+
+        It fires on the flag rather than on the screen because `won` is up
+        some frames before the screen is; `continue_endless` queues a watcher
+        that presses the button when it appears (bot_api says why). Once, and
+        only while the run is actually carrying on: a run that *died* at the
+        final boss has the flag up too and nothing to continue, and the
+        command says so.
+        """
+        if self._carried_on or not state.get("won"):
+            return
+        if (self.bridge.command("continue_endless") or {}).get("continued"):
+            self._carried_on = True
+
+    @property
+    def carried_on(self) -> bool:
+        """Whether this run has been carried on past its win."""
+        return self._carried_on
 
     @property
     def is_over(self) -> bool:
-        return is_over(self.bridge.state())
+        return is_over(self.bridge.state(), self.endless)
 
     def advance(self, state: dict, settled: int = 0) -> bool:
         """Move on through a phase no player is asked about; False if none.
@@ -767,7 +791,7 @@ class EngineRun:
         for the environment, so which phases get offered at all is the same
         for every driver. A cash-out is one of them.
         """
-        return advance(state, self.driver, settled)
+        return advance(state, self.driver, settled, self.endless)
 
     def settle(self, done, timeout: float = 10.0, read=None) -> dict:
         """The state once `done(read())` holds, or as it is after `timeout`.
