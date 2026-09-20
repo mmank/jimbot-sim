@@ -67,6 +67,24 @@ def is_over(state) -> bool:
     return state["state_name"] in TERMINAL_STATES or bool(state["won"])
 
 
+def was_won(state) -> bool:
+    """Whether the run was actually won, rather than merely finished.
+
+    `G.GAME.won` is not "you won": end_round sets it whenever the *final
+    boss's round ends*, beaten or not, and only `game_over` decides which it
+    was (state_events.lua:111-116, where the flag is set outside that guard
+    and GAME_OVER is set inside it). So a run that dies at the ante-8 boss
+    reports won *and* GAME_OVER -- which is what XKW3G8PC did, dying at
+    Crimson Heart on 156,469 of 200,000 and being reported as a win by both
+    the live driver and the headless one.
+
+    A run that really wins is not in GAME_OVER: the game carries on
+    underneath the win screen, which is why its "Endless" button is nothing
+    but exit_overlay_menu.
+    """
+    return bool(state.get("won")) and state.get("state_name")         not in TERMINAL_STATES
+
+
 def advance(state, driver: Driver, settled: int = 0) -> bool:
     """Advance one phase the policy is not asked about.
 

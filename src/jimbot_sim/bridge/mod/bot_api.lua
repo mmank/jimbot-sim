@@ -1859,6 +1859,11 @@ end
 --- Nothing if the run is not won.
 function BotAPI.continue_endless()
   if not (G.GAME and G.GAME.won) then return { continued = false } end
+  -- G.GAME.won is set when the final boss's round *ends*, won or lost
+  -- (state_events.lua:111-116), and a lost run sits in GAME_OVER with no run
+  -- left to carry on. Exiting that overlay dismisses the screen and resumes
+  -- nothing, so saying it continued is a lie the client then waits on.
+  if G.STATE == G.STATES.GAME_OVER then return { continued = false } end
   local frames = 600
   G.E_MANAGER:add_event(Event({
     trigger = 'immediate', blocking = false, blockable = false,
