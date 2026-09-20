@@ -242,9 +242,18 @@ def differences(state: dict, shadow: dict, names: Names) -> list[str]:
     for field in NUMBERS:
         note(field, int(state.get(field) or 0), int(shadow.get(field) or 0))
     note("hand", hand(state), hand(shadow))
-    # Named down to what differs: a whole deck either side of the line is
-    # unreadable, and what is wanted is the card that is not the same card.
-    held, mirrored = deck_cards(state), deck_cards(shadow)
+    # Between rounds only. The deck is a settled fact in a shop and a thing in
+    # flight during a hand -- cards are destroyed and made inside a play, and
+    # the engine's G.playing_cards and the simulator's full_deck do not change
+    # on the same frame -- so comparing it after every action made the live
+    # driver re-read until it agreed, a tenth of a second at a time. Marcin:
+    # *"there is now like a 1 second hiccup before every play or discard."*
+    # A deck that has really diverged is still caught at the next shop, which
+    # is hundreds of decisions before a draw happens to deal the difference.
+    between = (state.get("state_name") == shadow.get("state_name")
+               and state.get("state_name") in ("SHOP", "BLIND_SELECT"))
+    held, mirrored = ((deck_cards(state), deck_cards(shadow)) if between
+                      else ({}, {}))
     if held != mirrored:
         keys = sorted(k for k in set(held) | set(mirrored)
                       if held.get(k, 0) != mirrored.get(k, 0))

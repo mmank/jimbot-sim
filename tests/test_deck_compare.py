@@ -62,3 +62,18 @@ def test_the_deck_is_read_by_name():
     assert held["A"] == 5 and held["S"] == 14
     assert held["seal gold"] == 1 and held["gold"] == 1
     assert held["plain"] == 52
+
+
+def test_a_hand_in_flight_is_not_compared():
+    """Mid-round the deck is in flight, and the live driver re-reads until
+    every difference clears -- a tenth of a second at a time, after every
+    action. Marcin: *"there is now like a 1 second hiccup before every play or
+    discard."* A deck that has really diverged is still caught at the shop."""
+    from jimbot_sim.game import Action, ActionType, Phase
+
+    game, shadow = _run(), _run()
+    for one in (game, shadow):
+        one.step(Action(ActionType.SELECT_BLIND))
+        assert one.phase is Phase.PLAYING
+    shadow.add_card_to_hand(Card(Rank.SIX, Suit.HEARTS, seal=Seal.RED))
+    assert not _field(_difference(game, shadow), "deck_cards")
