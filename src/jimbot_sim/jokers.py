@@ -1028,10 +1028,31 @@ register("Driver's License", Rarity.RARE,
          independent=lambda j, ctx: ctx.times_mult(3.0, j.name)
          if sum(1 for c in ctx.game.full_deck
                 if c.enhancement is not Enhancement.NONE) >= 16 else None)
+def _stencil(j: JokerInstance, ctx) -> None:
+    """X1 for each empty slot, and one for *every* Joker Stencil held.
+
+    card.lua:4203-4207 counts the stencils rather than adding one for itself:
+
+        self.ability.x_mult = (G.jokers.config.card_limit - #G.jokers.cards)
+        for i = 1, #G.jokers.cards do
+          if ... == 'Joker Stencil' then self.ability.x_mult = ... + 1 end
+        end
+
+    One of them reads the same either way, which is why adding one for itself
+    stood. Two do not: U9QERIL2 held two with four jokers in six slots, so the
+    game gave each X4 and this gave each X3 -- X16 against X9, and the live
+    run stopped on 81360 against 45765, which is 16/9 exactly.
+    """
+    game = ctx.game
+    stencils = sum(1 for other in game.jokers
+                   if other.name == "Joker Stencil")
+    ctx.times_mult(float(game.joker_slots - len(game.jokers) + stencils),
+                   j.name)
+
+
 register("Joker Stencil", Rarity.UNCOMMON,
          "X1 Mult for each empty Joker slot, itself included", cost=8,
-         independent=lambda j, ctx: ctx.times_mult(
-             float(ctx.game.joker_slots - len(ctx.game.jokers) + 1), j.name))
+         independent=_stencil)
 
 
 # -- jokers that scale on what the run has done -----------------------------
