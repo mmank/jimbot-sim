@@ -1398,7 +1398,16 @@ function BotAPI.start_run(args)
   -- Stake 1-8 (White, Red, Green, Black, Blue, Purple, Orange, Gold). Higher
   -- stakes add the modifiers worth testing against: eternal, perishable,
   -- rental jokers.
+  --
+  -- A negative stake is the simulators' convention for "stake n with every
+  -- sticker on" (rust/jimbot_sim `GameState::new`, the Python `all_stickers`):
+  -- the run starts at n, and the three shop modifiers Gold would set
+  -- (game.lua:2055-2059) are set by hand once the new G.GAME exists. Handed
+  -- to the game raw, -1 reached get_stake_sprite and indexed
+  -- G.P_CENTER_POOLS.Stake[-1] (misc_functions.lua:1819).
   local stake = args and args[3] and tonumber(args[3]) or nil
+  local all_stickers = stake ~= nil and stake < 0
+  if all_stickers then stake = -stake end
 
   -- Card ids are normalised against this run's lowest sort_id; forget the
   -- previous run's.
@@ -1415,10 +1424,18 @@ function BotAPI.start_run(args)
   G.FUNCS.start_run(nil, { seed = seed, stake = stake })
   G.E_MANAGER:add_event(Event({
     trigger = 'immediate', no_delete = true,
-    func = function() BOT_RUN_PENDING = false; return true end,
+    func = function()
+      if all_stickers then
+        G.GAME.modifiers.enable_eternals_in_shop = true
+        G.GAME.modifiers.enable_perishables_in_shop = true
+        G.GAME.modifiers.enable_rentals_in_shop = true
+      end
+      BOT_RUN_PENDING = false
+      return true
+    end,
   }))
   return { started = true, seed = seed or "random", deck = deck or "Red Deck",
-           stake = stake or 1 }
+           stake = all_stickers and -stake or (stake or 1) }
 end
 
 function BotAPI.select_blind()
