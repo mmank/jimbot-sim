@@ -13,27 +13,35 @@ local api = {}
 
 local DT = 1 / 60
 
--- G.GAME.hands walked in G.handlist's order, not the hash table's.
+-- G.GAME.hands walked in the shipped game's order, not lupa's.
 --
 -- To Do List draws its hand from a pool built by walking pairs(G.GAME.hands)
--- (card.lua:313, 2977), and so does the Orbital Tag's screen: an index into
--- a list whose order is the table's. LuaJIT seeds its string hashes per
--- process, so the same draw named a different hand in a different process
--- -- the engine disagreed with itself from one run of a batch to the next,
--- and with the simulator, which walks jimbot_sim.hands.HANDLIST. That is
--- G.handlist, the game's own fixed list of the twelve hands, and every other
--- walk of the table either sums over it or breaks ties by `order`, so the
--- order changes nothing else. The real game is as unrepeatable as ever.
+-- (card.lua:313, 2977), and so does the Orbital Tag's screen
+-- (UI_definitions.lua:1511): an index into a list whose order is the table's.
+-- The game's lua51.dll is LuaJIT 2.0.5, whose string hash is the string's
+-- alone, so the game walks the table in the same order in every process
+-- (below, read off that DLL). lupa's LuaJIT 2.1 seeds its hash per process, so
+-- left alone the engine disagreed with itself from one run of a batch to the
+-- next. This used to walk G.handlist instead, which matched the simulator and
+-- not the game: on JOKER189 the real To Do List named Three of a Kind where
+-- this one and the simulator named Pair. jimbot_sim.hands.GAME_PAIRS_ORDER is
+-- the same list. Every other walk of the table sums over it or breaks ties by
+-- `order`, so the order changes nothing else.
+local GAME_PAIRS_ORDER = {
+  'Flush House', 'Full House', 'Flush', 'Pair', 'High Card', 'Straight Flush',
+  'Straight', 'Two Pair', 'Flush Five', 'Five of a Kind', 'Three of a Kind',
+  'Four of a Kind',
+}
 local raw_pairs = pairs
 function pairs(t)
-  if G and G.GAME and t == G.GAME.hands and G.handlist then
+  if G and G.GAME and t == G.GAME.hands then
     local i = 0
     return function()
       i = i + 1
-      local name = G.handlist[i]
+      local name = GAME_PAIRS_ORDER[i]
       while name and t[name] == nil do
         i = i + 1
-        name = G.handlist[i]
+        name = GAME_PAIRS_ORDER[i]
       end
       if name then return name, t[name] end
     end, t, nil
@@ -219,15 +227,12 @@ local function ensure_orbital_choices()
   for _, kind in ipairs({ 'Small', 'Big', 'Boss' }) do
     local states = G.GAME.round_resets.blind_states or {}
     if states[kind] ~= 'Hide' and not G.GAME.orbital_choices[ante][kind] then
-      -- In G.handlist's order, not pairs(G.GAME.hands)'s. The screen walks
-      -- the hash table, whose order LuaJIT seeds per process, so the same
-      -- roll named Straight Flush in one process and Pair in the next. The
-      -- game's own list of the hands is fixed, and is the order the
-      -- simulator draws from (jimbot_sim.hands.HANDLIST).
+      -- The screen's own walk (UI_definitions.lua:1511), through the
+      -- pairs() above, so in the shipped game's order: the simulator draws
+      -- from the same list (jimbot_sim.hands.GAME_PAIRS_ORDER).
       local hands = {}
-      for _, name in ipairs(G.handlist) do
-        local data = G.GAME.hands[name]
-        if data and data.visible then hands[#hands + 1] = name end
+      for name, data in pairs(G.GAME.hands) do
+        if data.visible then hands[#hands + 1] = name end
       end
       if #hands > 0 then
         G.GAME.orbital_choices[ante][kind] =

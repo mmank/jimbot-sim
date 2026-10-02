@@ -39,8 +39,8 @@ _RANK_BY_CODE = {"2": Rank.TWO, "3": Rank.THREE, "4": Rank.FOUR,
 _SUIT_BY_CODE = {"C": Suit.CLUBS, "D": Suit.DIAMONDS, "H": Suit.HEARTS,
                  "S": Suit.SPADES}
 from .consumables import ConsumableInstance, ConsumableKind, ConsumableSpec
-from .hands import (HANDLIST, PLANET_FOR_HAND, SECRET_HANDS, HandLevels,
-                    HandType, evaluate)
+from .hands import (GAME_PAIRS_ORDER, HANDLIST, PLANET_FOR_HAND, SECRET_HANDS,
+                    HandLevels, HandType, evaluate)
 from .jokers import (EDITION_VALUE, REGISTRY as JOKER_REGISTRY,
                      JokerInstance, Rarity, is_face_for, suit_matches_for)
 
@@ -1752,10 +1752,11 @@ class GameState:
         twelve-entry one, which changes both the hand picked and where the
         stream lands afterwards.
 
-        Returned in HANDLIST order -- see the note there on why the engine's
-        own order for this is not reproducible.
+        Returned in the order the game's pairs(G.GAME.hands) walks them
+        (hands.GAME_PAIRS_ORDER), because every caller is a draw that indexes
+        into a list built by that walk.
         """
-        return [h for h in HANDLIST
+        return [h for h in GAME_PAIRS_ORDER
                 if h not in SECRET_HANDS or self.hand_levels.plays[h] > 0]
 
     def _reroll_todo_hands(self) -> None:

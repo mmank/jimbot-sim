@@ -78,23 +78,27 @@ SECRET_HANDS = frozenset({HandType.FIVE_OF_A_KIND, HandType.FLUSH_HOUSE,
 # on plays goes to the strongest hand rather than the weakest.
 HANDLIST = tuple(sorted(HandType, reverse=True))
 
-# To Do List builds its pool by walking `pairs(G.GAME.hands)` and appending,
-# then indexes into the result -- so the iteration order decides which hand a
-# given roll names. That order is not defined: it is a Lua hash table, and
-# measuring it three times in three processes gave
+# `pairs(G.GAME.hands)` in the shipped game: the order a walk of the hash table
+# meets the twelve hands. Three draws index into a list built by that walk --
+# To Do List's hand when the card is made (card.lua:313) and at round end
+# (card.lua:2977), and each blind's Orbital Tag hand (UI_definitions.lua:1511)
+# -- so the same draw names a different hand under a different order.
 #
-#   Straight Flush | Four of a Kind | ... | Pair | High Card
-#   High Card | Straight Flush | Four of a Kind | ... | Pair
-#   Straight Flush | Four of a Kind | ... | Pair | High Card
-#
-# -- the same within one process, rotated between them, because LuaJIT seeds
-# its string hash per process. So the hand To Do List names is not
-# reproducible from the run's seed in the real game either, and no simulator
-# can match it every time. The stream is fine -- the raw draws agree exactly;
-# it is only which name that index lands on that moves.
-#
-# HANDLIST is what we use instead: the game's own stated order, deterministic,
-# and the one the two matching processes above happened to produce.
+# The game's lua51.dll is LuaJIT 2.0.5, whose string hash depends on the string
+# alone, so the table literal at game.lua:2001 lays out the same way in every
+# process; this is that layout, read off the game's own DLL. An earlier note
+# here called the order unrepeatable: that was measured on lupa's LuaJIT 2.1,
+# which seeds its string hash per process, and HANDLIST was used instead. On
+# JOKER189 (Blue Deck, stake 8) that had To Do List name Pair where the real
+# game named Three of a Kind, and the Rust policy farmed Pairs for $4 the game
+# never paid, shopping itself to -$36. Holds for a run started fresh; one
+# continued from a save rebuilds the table and may lay it out otherwise.
+GAME_PAIRS_ORDER = (
+    HandType.FLUSH_HOUSE, HandType.FULL_HOUSE, HandType.FLUSH, HandType.PAIR,
+    HandType.HIGH_CARD, HandType.STRAIGHT_FLUSH, HandType.STRAIGHT,
+    HandType.TWO_PAIR, HandType.FLUSH_FIVE, HandType.FIVE_OF_A_KIND,
+    HandType.THREE_OF_A_KIND, HandType.FOUR_OF_A_KIND,
+)
 
 # Planet card that levels each hand, for shop generation.
 PLANET_FOR_HAND: dict[HandType, str] = {
