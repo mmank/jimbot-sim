@@ -66,8 +66,11 @@ FINISHER_REWARD = 8
 class BossEffect:
     """Declarative boss modifiers; the engine reads these fields directly.
 
-    Bosses whose effect is purely about face-down cards are represented with no
-    mechanical modifier, since this engine has full information anyway.
+    The four face-down bosses change no rule: a face-down card scores as
+    itself. What they change is what a player can see, so the engine marks
+    the cards (Card.face_down) the way Blind:stay_flipped (blind.lua:605)
+    decides it, and a policy that plays fair reads the mark. The Wheel's roll
+    is a real draw on the `wheel` pool, one per card dealt into the hand.
     """
 
     name: str
@@ -87,12 +90,24 @@ class BossEffect:
     lock_first_hand_type: bool = False
     debuff_previously_played: bool = False
     halve_base: bool = False
+    # The face-down draws, one field a boss (blind.lua:605-620).
+    # The House: dealt face down while no hand has been played and no
+    # discard used this round.
+    face_down_first_hand: bool = False
+    # The Wheel: each card dealt face down on `normal / odds`.
+    face_down_odds: int = 0
+    # The Mark: face cards, is_face(true) -- every card beside Pareidolia.
+    face_down_faces: bool = False
+    # The Fish: the draw that follows a played hand, off Blind.prepped.
+    face_down_after_play: bool = False
     # The finishers, and one ordinary boss, that do something to the run
     # rather than to a card. These were all left blank on the grounds that
     # face-down cards mean nothing to an engine with full information, which
-    # is true of four of them and not of these five.
+    # is true of the rules of four of them and not of these five.
     always_draw_three: bool = False    # The Serpent
-    shuffles_jokers: bool = False      # Amber Acorn
+    # Amber Acorn: turns the row face down (JokerInstance.face_down) and
+    # shuffles it three times on `aajk`.
+    shuffles_jokers: bool = False
     debuff_until_sale: bool = False    # Verdant Leaf
     debuff_a_joker: bool = False       # Crimson Heart
     forces_a_card: bool = False        # Cerulean Bell
@@ -104,13 +119,16 @@ BOSSES: list[BossEffect] = [
                discard_random_on_play=2),
     BossEffect("The Ox", "Playing your most played hand sets money to $0",
                zero_money_on_most_played=True),
-    BossEffect("The House", "First hand is drawn face down"),
+    BossEffect("The House", "First hand is drawn face down",
+               face_down_first_hand=True),
     BossEffect("The Wall", "Extra large blind", chip_mult=4.0),
-    BossEffect("The Wheel", "1 in 7 cards get drawn face down"),
+    BossEffect("The Wheel", "1 in 7 cards get drawn face down",
+               face_down_odds=7),
     BossEffect("The Arm", "Decrease level of played poker hand",
                level_down_played_hand=True),
     BossEffect("The Club", "All Club cards are debuffed", debuff_suit=Suit.CLUBS),
-    BossEffect("The Fish", "Cards drawn face down after each hand played"),
+    BossEffect("The Fish", "Cards drawn face down after each hand played",
+               face_down_after_play=True),
     BossEffect("The Psychic", "Must play 5 cards", min_cards_played=5),
     BossEffect("The Goad", "All Spade cards are debuffed", debuff_suit=Suit.SPADES),
     BossEffect("The Water", "Start with 0 discards", discards_delta=-99),
@@ -133,7 +151,8 @@ BOSSES: list[BossEffect] = [
     BossEffect("The Head", "All Heart cards are debuffed", debuff_suit=Suit.HEARTS),
     BossEffect("The Tooth", "Lose $1 per card played", money_per_card_played=-1),
     BossEffect("The Flint", "Base Chips and Mult are halved", halve_base=True),
-    BossEffect("The Mark", "All face cards are drawn face down"),
+    BossEffect("The Mark", "All face cards are drawn face down",
+               face_down_faces=True),
 ]
 
 FINISHER_BOSSES: list[BossEffect] = [
@@ -186,7 +205,10 @@ class Blind:
     # Set by set_blind (blind.lua:94) -- which here is _start_round, not the
     # moment a blind is put on offer -- and by press_play when Crimson Heart
     # has a joker to take (blind.lua:488-493); cleared by drawn_to_hand
-    # (blind.lua:602). Only Crimson Heart reads it: GameState._drawn_to_hand.
+    # (blind.lua:602). Crimson Heart reads it in GameState._drawn_to_hand, and
+    # The Fish in GameState._stay_flipped: set_blind clears it for the Fish
+    # (blind.lua:176) and every press_play sets it (blind.lua:494), so only
+    # the draw after a played hand is dealt face down.
     prepped: bool = False
     # On offer on the blind select screen and not yet set (set_blind is
     # _start_round). The game's G.GAME.blind is then the empty one the last

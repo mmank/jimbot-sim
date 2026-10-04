@@ -194,6 +194,10 @@ class JokerInstance:
     # To Do List's poker hand. The game keeps it in the joker's own ability
     # table -- ability.to_do_poker_hand -- so two of them name two hands.
     named_hand: object = None
+    # Turned over by Amber Acorn (blind.lua:190-193) before it shuffles the
+    # row, and back by Blind:defeat and Blind:disable. The rules do not read
+    # it; it is what a player could not see -- which joker sits where.
+    face_down: bool = False
 
     def __post_init__(self) -> None:
         if self.counter == 0.0:
@@ -1016,9 +1020,11 @@ register("Seeing Double", Rarity.UNCOMMON,
 # -- jokers that scale on the deck ------------------------------------------
 
 register("Erosion", Rarity.UNCOMMON,
-         "+4 Mult for each card below 52 in your full deck", cost=6,
+         "+4 Mult for each card below the starting deck size in your full deck",
+         cost=6,
          independent=lambda j, ctx: ctx.add_mult(
-             4 * max(0, 52 - len(ctx.game.full_deck)), j.name))
+             4 * max(0, ctx.game.starting_deck_size - len(ctx.game.full_deck)),
+             j.name))
 register("Stone Joker", Rarity.UNCOMMON,
          "+25 Chips for each Stone card in your full deck", enhancement_gate="m_stone", cost=6,
          independent=lambda j, ctx: ctx.add_chips(

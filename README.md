@@ -33,7 +33,7 @@ Four things, and no hidden state between them.
 
 | | |
 |---|---|
-| `GameState(seed=..., deck=..., stake=...)` | a run. The seed is Balatro's own — the same string is the same run in the real game |
+| `GameState(seed=..., deck=..., stake=...)` | a run. The seed is Balatro's own — the same string is the same run in the real game. A negative stake, -1 to -7, is stake n with every sticker on, as the bot mod reads it |
 | `game.legal_actions()` | every legal move right now, as `Action` objects |
 | `game.step(action)` | takes one, and advances as far as that goes |
 | `game.is_over` | the run ended, won or lost |
@@ -190,10 +190,13 @@ Mostly, and where it is not, it is written down rather than left to be found.
   24 tags are implemented. `tests/test_registry_honesty.py` names the ones
   that are registered but hollow, so that list cannot quietly grow.
 
-The largest known gap is the four bosses that hide cards from the player. They
-carry their chip requirement and no mechanic, and
-`tests/test_finisher_bosses.py` pins them as the only four that are blank — so
-nothing here has ever had to play under uncertainty.
+The four bosses that hide cards from the player -- The House, The Wheel, The
+Mark and The Fish -- deal them face down (`Card.face_down`), and Amber Acorn
+turns the joker row over (`JokerInstance.face_down`). No rule reads the mark,
+so the simulator still plays every card as itself; a policy that plays fair
+reads it and does not look underneath. `tests/test_face_down_draws.py` checks
+the marks, and The Wheel's own `wheel` draws, against 87 cases recorded off the
+game's Lua.
 
 ```bash
 pytest              # the simulator, seconds

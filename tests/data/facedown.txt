@@ -1,0 +1,605 @@
+# Face-down draws recorded off the game's own Lua by
+# scripts/gen_facedown_fixture.py -- see its docstring for the format.
+case V6444444 Red_Deck 1 bl_house The_House -
+step deal | DK* SJ* HJ* CJ* D9* D7* H3* C3* | - | -
+step discard 1,2 | CA HJ* CJ* S9 D9* D7* H3* C3* | - | -
+step play 1 | HJ* CJ* S9 D9* D7* S6 H3* C3* | - | -
+step discard 1,2,3 | H9 D9* C7 D7* S6 C6 H3* C3* | - | -
+step play 1,2 | C7 D7* S6 C6 H5 S3 H3* C3* | - | -
+step play 1 | HK D7* S6 C6 H5 S3 H3* C3* | - | -
+case W3CNQ1DB Yellow_Deck 3 bl_house The_House -
+step deal | SJ* HJ* CT* D9* S7* H7* C6* H5* | - | -
+step discard 1,2 | HA CT* D9* S7* H7* C6* H5* C2 | - | -
+step play 1 | CT* D9* S7* H7* C7 C6* H5* C2 | - | -
+step discard 1,2,3 | S8 H7* C7 C6* D6 H5* C5 C2 | - | -
+step play 1,2 | DA C7 H6 C6* D6 H5* C5 C2 | - | -
+step play 1 | CJ C7 H6 C6* D6 H5* C5 C2 | - | -
+case XZJ8DYLI Black_Deck 1 bl_house The_House -
+step deal | HK* SJ* HT* DT* H6* D5* S4* S2* | - | -
+step discard 1,2 | DA HT* DT* S9 H6* D5* S4* S2* | - | -
+step play 1 | SQ HT* DT* S9 H6* D5* S4* S2* | - | -
+step discard 1,2,3 | S9 D8 D7 H6* D5* S4* S2* C2 | - | -
+step play 1,2 | HA ST D7 H6* D5* S4* S2* C2 | - | -
+case YWSSZVVQ Nebula_Deck 3 bl_house The_House -
+step deal | CA* D9* S7* C7* S5* D4* H3* S2* | - | -
+step discard 1,2 | SQ DQ S7* C7* S5* D4* H3* S2* | - | -
+step play 1 | HK DQ S7* C7* S5* D4* H3* S2* | - | -
+step discard 1,2,3 | CK CQ C7* S5* D4* H3* C3 S2* | - | -
+step play 1,2 | SA S8 C7* S5* D4* H3* C3 S2* | - | -
+step play 1 | HJ S8 C7* S5* D4* H3* C3 S2* | - | -
+case ZT1DMT5Y Abandoned_Deck 1 bl_house The_House -
+step deal | H9* H8* S7* S4* H4* D4* C3* C2* | - | -
+step discard 1,2 | S7* D7 S4* H4* D4* C3* H2 C2* | - | -
+step play 1 | D7 D5 S4* H4* D4* C3* H2 C2* | - | -
+step discard 1,2,3 | HA ST H4* D4* S3 C3* H2 C2* | - | -
+step play 1,2 | CT S9 H4* D4* S3 C3* H2 C2* | - | -
+step play 1 | S9 H4* D4* S3 C3* H2 C2* D2 | - | -
+case 1R9X9RE6 Zodiac_Deck 3 bl_house The_House -
+step deal | CA* DA* SK* CK* H6* D5* H3* D3* | - | -
+step discard 1,2 | SA SK* CK* ST H6* D5* H3* D3* | - | -
+step play 1 | SK* CK* ST S8 H6* D5* H3* D3* | - | -
+step discard 1,2,3 | H9 S8 H7 H6* D5* H3* D3* C2 | - | -
+step play 1,2 | C9 C8 H7 H6* D5* H3* D3* C2 | - | -
+step play 1 | C8 S7 H7 H6* D5* H3* D3* C2 | - | -
+case 2NHHWNND Anaglyph_Deck 1 bl_house The_House -
+step deal | CA* DA* CK* DK* HT* C9* D9* D6* | - | -
+step discard 1,2 | SA HA CK* DK* HT* C9* D9* D6* | - | -
+step play 1 | HA CK* DK* HT* C9* D9* S7 D6* | - | -
+step discard 1,2,3 | HT* C9* D9* S7 S6 D6* S3 H2 | - | -
+step play 1,2 | CT D9* S7 S6 D6* D5 S3 H2 | - | -
+step play 1 | DT D9* S7 S6 D6* D5 S3 H2 | - | -
+case 3KQ2JLXK Erratic_Deck 3 bl_house The_House -
+step deal | HQ* DQ* DJ* HT* H8* C8* C4* C3* | - | -
+step discard 1,2 | DJ* HT* DT H8* C8* C4* C3* C3 | - | -
+step play 1 | HT* DT H8* C8* C6 C4* C3* C3 | - | -
+step discard 1,2,3 | SK DK HT C8* C6 C4* C3* C3 | - | -
+step play 1,2 | SA HT S9 C8* C6 C4* C3* C3 | - | -
+step play 1 | HT S9 C8* C6 C4* C3* C3 D3 | - | -
+case 4HYL6J7T Blue_Deck 1 bl_house The_House -
+step deal | H9* H8* S7* D7* C6* S5* H3* D2* | - | -
+step discard 1,2 | HT S7* H7 D7* C6* S5* H3* D2* | - | -
+step play 1 | S7* H7 D7* C6* S5* D5 H3* D2* | - | -
+step discard 1,2,3 | S8 C6* S5* D5 H3* D3 H2 D2* | - | -
+step play 1,2 | CT S5* D5 H3* D3 S2 H2 D2* | - | -
+step play 1 | S6 S5* D5 H3* D3 S2 H2 D2* | - | -
+case 5E77TGG1 Green_Deck 3 bl_house The_House -
+step deal | HQ* HJ* CT* H7* C6* S3* C3* D2* | - | -
+step discard 1,2 | ST CT* H7* C6* S5 S3* C3* D2* | - | -
+step play 1 | CQ CT* H7* C6* S5 S3* C3* D2* | - | -
+step discard 1,2,3 | H6 C6* S5 D5 S3* C3* H2 D2* | - | -
+step play 1,2 | D7 S5 D5 C4 S3* C3* H2 D2* | - | -
+step play 1 | S9 S5 D5 C4 S3* C3* H2 D2* | - | -
+case 6BFRFEQ8 Magic_Deck 1 bl_house The_House -
+step deal | HA* HQ* SJ* DJ* HT* S4* H4* S3* | - | -
+step discard 1,2 | DA SJ* DJ* HT* H5 S4* H4* S3* | - | -
+step play 1 | SJ* DJ* HT* H5 S4* H4* S3* D2 | - | -
+step discard 1,2,3 | HJ C6 H5 S4* H4* C4 S3* D2 | - | -
+step play 1,2 | SA CJ H5 S4* H4* C4 S3* D2 | - | -
+step play 1 | CJ ST H5 S4* H4* C4 S3* D2 | - | -
+case 78NB3CZF Ghost_Deck 3 bl_house The_House -
+step deal | CA* SJ* ST* HT* C9* D9* H4* H3* | - | -
+step discard 1,2 | DA DK ST* HT* C9* D9* H4* H3* | - | -
+step play 1 | DK ST* HT* C9* D9* H4* H3* D3 | - | -
+step discard 1,2,3 | DQ C9* D9* D7 H4* C4 H3* D3 | - | -
+step play 1,2 | D9* D7 S5 H5 H4* C4 H3* D3 | - | -
+step play 1 | SK D7 S5 H5 H4* C4 H3* D3 | - | -
+case 85WVP99N Checkered_Deck 1 bl_house The_House -
+step deal | SA* HK* SJ* HT* HT* H5* S2* H2* | - | -
+step discard 1,2 | HA SJ* HT* HT* S8 H5* S2* H2* | - | -
+step play 1 | SJ* HJ HT* HT* S8 H5* S2* H2* | - | -
+step discard 1,2,3 | HT* S8 H6 H5* S3 H3 S2* H2* | - | -
+step play 1,2 | SK HK H6 H5* S3 H3 S2* H2* | - | -
+step play 1 | HK S6 H6 H5* S3 H3 S2* H2* | - | -
+case 925GC7IV Painted_Deck 3 bl_house The_House -
+step deal | CJ* ST* D9* H7* H6* C6* D6* H5* D5* S3* | - | -
+step discard 1,2 | S9 H9 D9* H7* H6* C6* D6* H5* D5* S3* | - | -
+step play 1 | H9 D9* H8 H7* H6* C6* D6* H5* D5* S3* | - | -
+step discard 1,2,3 | SA SK H7* H6* C6* D6* S5 H5* D5* S3* | - | -
+step play 1,2 | H7* H6* C6* D6* S5 H5* D5* D4 S3* D3 | - | -
+step play 1 | HA H6* C6* D6* S5 H5* D5* D4 S3* D3 | - | -
+case AYC1Z4S3 Plasma_Deck 1 bl_house The_House -
+step deal | CA* DK* HJ* HT* D8* H5* S2* C2* | - | -
+step discard 1,2 | HJ* HT* C9 D8* H5* C4 S2* C2* | - | -
+step play 1 | ST HT* C9 D8* H5* C4 S2* C2* | - | -
+step discard 1,2,3 | SK D8* H7 H5* S4 C4 S2* C2* | - | -
+step play 1,2 | H9 H7 H5* S4 C4 S3 S2* C2* | - | -
+step play 1 | CK H7 H5* S4 C4 S3 S2* C2* | - | -
+case BVKKL22B Red_Deck 4 bl_wheel The_Wheel -
+step deal | HJ S9 C9 D8 H7 C7 H6* C4 | - | 0.84736788964010001
+step discard 1,2 | CK H9 C9 D8 H7 C7 H6* C4 | - | 0.16141995501440001
+step play 1 | H9 C9 D8 S7 H7 C7 H6* C4 | - | 0.41279184949460002
+step discard 1,2,3 | CJ S7 H7 C7 H6* C4 H2 C2* | - | 0.15805310105299999
+step play 1,2 | DQ* H7 C7 H6* C4 S3 H2 C2* | - | 0.83622500028019997
+step play 1 | H7 C7 H6* D5 C4 S3 H2 C2* | - | 0.5763665161407
+case CST59ZAI Yellow_Deck 2 bl_wheel The_Wheel -
+step deal | HA DK SQ ST S6 S5 C5 S4 | - | 0.36580958866079999
+step discard 1,2 | SQ CJ ST S9 S6 S5 C5 S4 | - | 0.45393760986050002
+step play 1 | CJ ST S9 D9 S6 S5 C5 S4 | - | 0.91718365141360003
+step discard 1,2,3 | DA HT D9 H8 S6 S5 C5 S4 | - | 0.7707244780243
+step play 1,2 | CK D9 H8 S7 S6 S5 C5 S4 | - | 0.93353969798140002
+step play 1 | D9 H8 S7 S6 S5 C5 S4 D2 | - | 0.74416745025020004
+case DP2QVWJQ Black_Deck 4 bl_wheel The_Wheel -
+step deal | SA HK* H9 C9 C4 C3 S2 C2 | - | 0.58226844560879998
+step discard 1,2 | HT H9 C9 C5 C4 C3 S2 C2 | - | 0.3732122255882
+step play 1 | HA H9 C9 C5 C4 C3 S2 C2 | - | 0.77798787516159995
+step discard 1,2,3 | D9 S8 S5 C5 C4 C3 S2 C2 | - | 0.78140555756789998
+step play 1,2 | CQ C6 S5 C5 C4 C3 S2 C2 | - | 0.96529725026750002
+case ELAAIUTX Nebula_Deck 2 bl_wheel The_Wheel -
+step deal | DA SQ S9 D8* S7 H7 C7 D3 | - | 0.22370462905810001
+step discard 1,2 | DQ* S9 D8* S7 H7 C7 D3 S2 | - | 0.0314236058878
+step play 1 | S9 D8* S7 H7 C7 H4* D3 S2 | - | 0.1886375405406
+step discard 1,2,3 | DT H8 H7 C7 H5 H4* D3 S2 | - | 0.73316733790099997
+step play 1,2 | C9 H7 C7 S6* H5 H4* D3 S2 | - | 0.82187281671519996
+step play 1 | H7 C7 S6* H5 H4* H3 D3 S2 | - | 0.55161886891360001
+case FIIU5S36 Abandoned_Deck 4 bl_wheel The_Wheel -
+step deal | DT C9 D9 H6 C6 H4* D4 H2* | - | 0.44470381576130003
+step discard 1,2 | HA D9 H6 C6 S4 H4* D4 H2* | - | 0.6885101108892
+step play 1 | HT D9 H6 C6 S4 H4* D4 H2* | - | 0.32165990956200002
+step discard 1,2,3 | C8 D7 C6 S4 H4* D4 S3 H2* | - | 0.69083632973219999
+step play 1,2 | C6 S4 H4* D4 S3 H3 H2* D2 | - | 0.69601201774230004
+step play 1 | S6 S4 H4* D4 S3 H3 H2* D2 | - | 0.33459554012229997
+case GFRESPCD Zodiac_Deck 2 bl_wheel The_Wheel -
+step deal | HQ* DJ C9 S8 C6 S5 H5 C2 | - | 0.048096330958199998
+step discard 1,2 | C9 S8 C6 S5 H5 H3 D3 C2 | - | 0.509295698681
+step play 1 | SJ S8 C6 S5 H5 H3 D3 C2 | - | 0.012638287085600001
+step discard 1,2,3 | SQ CT S9* S5 H5 H3 D3 C2 | - | 0.83085138791790003
+step play 1,2 | DK S9* S5 H5 C4 H3 D3 C2 | - | 0.1123122159616
+step play 1 | CK S9* S5 H5 C4 H3 D3 C2 | - | 0.32811476905629999
+case HCZYEMLK Anaglyph_Deck 4 bl_wheel The_Wheel -
+step deal | DQ HJ HT H8 H7 C7 H4 H3 | - | 0.1636725884471
+step discard 1,2 | SJ HT H8 H7 C7 C6 H4 H3 | - | 0.85293315829100003
+step play 1 | SQ HT H8 H7 C7 C6 H4 H3 | - | 0.60517659917730005
+step discard 1,2,3 | D8 H7 C7 C6 S4 H4 H3 D3 | - | 0.89543378441270005
+step play 1,2 | DK H9 C7 C6 S4 H4 H3 D3 | - | 0.30433202304969997
+step play 1 | DJ H9 C7 C6 S4 H4 H3 D3 | - | 0.65921689194279998
+case I98J2KVS Erratic_Deck 2 bl_wheel The_Wheel -
+step deal | HQ* CJ* C5 C5 D5 S3 D3 H2 | - | 0.20922551494989999
+step discard 1,2 | HJ* C5 C5 D5 S4 S3 D3 H2 | - | 0.988373535764
+step play 1 | HA C5 C5 D5 S4 S3 D3 H2 | - | 0.83871811338830005
+step discard 1,2,3 | D9 C8 C7 D5 S4 S3 D3 H2 | - | 0.3684460302791
+step play 1,2 | HK SQ C7 D5 S4 S3 D3 H2 | - | 0.46177641793259999
+step play 1 | SQ SQ C7 D5 S4 S3 D3 H2 | - | 0.93070020490320005
+case J6G4PH51 Blue_Deck 4 bl_wheel The_Wheel -
+step deal | DK DQ SJ D9 C4* C3 S2* H2 | - | 0.93937383454279999
+step discard 1,2 | SJ D9 H7 D5 C4* C3 S2* H2 | - | 0.43497691093509999
+step play 1 | DT D9 H7 D5 C4* C3 S2* H2 | - | 0.88448948428149998
+step discard 1,2,3 | C6 H5* D5 S4* C4* C3 S2* H2 | - | 0.60310746888590006
+step play 1,2 | CQ* S5* D5 S4* C4* C3 S2* H2 | - | 0.43517191501980002
+step play 1 | S8 S5* D5 S4* C4* C3 S2* H2 | - | 0.88482573223109995
+case K3PNBFE8 Green_Deck 2 bl_wheel The_Wheel -
+step deal | CQ DT D7 H6 H5 S4 C3 D3 | - | 0.1885923386277
+step discard 1,2 | HJ D7 H6 S5 H5 S4 C3 D3 | - | 0.92702588141789999
+step play 1 | SJ* D7 H6 S5 H5 S4 C3 D3 | - | 0.73293559596930002
+step discard 1,2,3 | SK C9 D9 S5 H5 S4 C3 D3 | - | 0.55043077045790001
+step play 1,2 | CK D9 S5 H5 S4 H4 C3 D3 | - | 0.2785507609722
+step play 1 | D9 S5 H5 S4 H4 H3 C3 D3 | - | 0.61476194360180003
+case LZW8YCNF Magic_Deck 4 bl_wheel The_Wheel -
+step deal | CK* SQ HQ S9 H8* S7 D5 C2 | - | 0.55005025082589998
+step discard 1,2 | DA HQ S9 H8* S7 D5 C3 C2 | - | 0.27741937981730003
+step play 1 | HQ DJ S9 H8* S7 D5 C3 C2 | - | 0.61281108911509996
+step discard 1,2,3 | S8* H8* S7 H6 S5 D5 C3 C2 | - | 0.93457441657789997
+step play 1,2 | S7 H7* H6 S5 D5 D4 C3 C2 | - | 0.4207070268525
+step play 1 | H7* H6 S5 D5 C4* D4 C3 C2 | - | 0.85988374706750004
+case MW5TKAXM Ghost_Deck 2 bl_wheel The_Wheel -
+step deal | HA HK* CQ C9 D9* C8 C7 D2 | - | 0.81443316832729995
+step discard 1,2 | CQ C9 D9* C8 C7 S3 D3 D2 | - | 0.063496694556000002
+step play 1 | C9 D9* C8 C7 S3 H3 D3 D2 | - | 0.2439415631131
+step discard 1,2,3 | HQ SJ C7 S5 S3 H3 D3 D2 | - | 0.29238859640089998
+step play 1,2 | H8 C7 S5 H4 S3 H3 D3 D2 | - | 0.23563842099269999
+step play 1 | DK C7 S5 H4 S3 H3 D3 D2 | - | 0.54076766623679995
+case NTDD887V Checkered_Deck 4 bl_wheel The_Wheel -
+step deal | HT S9 H8 S7 H6 S5 S3* H3 | - | 0.54185806326840003
+step discard 1,2 | H8 H8 S7 H6 S5 S3* H3 H2 | - | 0.25306193320949999
+step play 1 | SJ H8 S7 H6 S5 S3* H3 H2 | - | 0.57081124335839994
+step discard 1,2,3 | SQ H6 S5 S5* H4 S3* H3 H2 | - | 0.71924889684320004
+step play 1,2 | HT H9 S5 S5* H4 S3* H3 H2 | - | 0.7804897694463
+step play 1 | H9 S5 S5* H4 S3* H3 H2 H2 | - | 0.48026156984099999
+case PQLXU5G3 Painted_Deck 2 bl_wheel The_Wheel -
+step deal | DK DQ SJ CJ* C9 S6 C6 D4 S3 C3 | - | 0.21127011835260001
+step discard 1,2 | SJ CJ* H9 C9 S6 C6 D5 D4 S3 C3 | - | 0.99445265905860003
+step play 1 | HA CJ* H9 C9 S6 C6 D5 D4 S3 C3 | - | 0.84920042070159996
+step discard 1,2,3 | HK C9 H8 S6 C6 D5 D4 S3 C3 D2 | - | 0.42218690074159998
+step play 1,2 | ST H8 S6 C6 D5 D4 S3 C3 H2 D2 | - | 0.62156162472319998
+step play 1 | SQ H8 S6 C6 D5 D4 S3 C3 H2 D2 | - | 0.20621980872170001
+case QMUHH3QA Plasma_Deck 4 bl_wheel The_Wheel -
+step deal | HA SK SQ DJ* S9 C9 S8 H8* | - | 0.70608722381970002
+step discard 1,2 | SQ DQ* DJ* S9 C9 S8 H8* D5 | - | 0.74135678504049995
+step play 1 | DQ* DJ* S9 C9 S8 H8* D8 D5 | - | 0.41278408192909999
+step discard 1,2,3 | SA CQ C9 S8 H8* D8 S7 D5 | - | 0.15801327816659999
+step play 1,2 | C9 S8 H8* D8 S7 D7* D5 H4 | - | 0.83610659676179999
+step play 1 | S8 H8* D8 S7 D7* S6 D5 H4 | - | 0.57616235149280004
+case RJ3351ZH Red_Deck 3 bl_mark The_Mark -
+step deal | HK* CK* SJ* ST H7 C6 C4 C3 | - | -
+step discard 1,2 | SJ* ST C9 D9 H7 C6 C4 C3 | - | -
+step play 1 | ST C9 D9 H7 C7 C6 C4 C3 | - | -
+step discard 1,2,3 | SQ* H7 C7 C6 H5 C4 C3 C2 | - | -
+step play 1,2 | HJ* C7 C6 H5 C4 C3 S2 C2 | - | -
+step play 1 | C8 C7 C6 H5 C4 C3 S2 C2 | - | -
+case SGBMRX8Q Yellow_Deck 1 bl_mark The_Mark -
+step deal | CQ* DQ* SJ* HT CT D5 C4 C3 | - | -
+step discard 1,2 | SA SJ* HT CT C8 D5 C4 C3 | - | -
+step play 1 | SJ* HT CT C8 C7 D5 C4 C3 | - | -
+step discard 1,2,3 | CA SQ* C8 C7 D5 C4 C3 H2 | - | -
+step play 1,2 | ST H8 C8 C7 D5 C4 C3 H2 | - | -
+step play 1 | H8 C8 C7 H6 D5 C4 C3 H2 | - | -
+case TDJ7EVHX Black_Deck 3 bl_mark The_Mark -
+step deal | DA HK* HT DT C7 D4 C3 H2 | - | -
+step discard 1,2 | HT DT D8 C7 D4 C3 H2 D2 | - | -
+step play 1 | DT D8 C7 D4 S3 C3 H2 D2 | - | -
+step discard 1,2,3 | HJ* H5 C5 D4 S3 C3 H2 D2 | - | -
+step play 1,2 | DJ* C5 D4 S3 C3 S2 H2 D2 | - | -
+case UASR1TR5 Nebula_Deck 1 bl_mark The_Mark -
+step deal | HA DK* DJ* S8 C8 C6 D5 C2 | - | -
+step discard 1,2 | DJ* S8 C8 C6 D5 S2 H2 C2 | - | -
+step play 1 | C9 S8 C8 C6 D5 S2 H2 C2 | - | -
+step discard 1,2,3 | CT C6 H5 D5 H3 S2 H2 C2 | - | -
+step play 1,2 | H9 D7 H5 D5 H3 S2 H2 C2 | - | -
+step play 1 | ST D7 H5 D5 H3 S2 H2 C2 | - | -
+case V71CNQ1D Abandoned_Deck 3 bl_mark The_Mark -
+step deal | C9 H8 D7 S6 H6 S5 S4 D4 | - | -
+step discard 1,2 | DT D7 S6 H6 S5 S4 D4 D2 | - | -
+step play 1 | C8 D7 S6 H6 S5 S4 D4 D2 | - | -
+step discard 1,2,3 | CA HT H6 S5 H5 S4 D4 D2 | - | -
+step play 1,2 | H7 H6 S5 H5 S4 C4 D4 D2 | - | -
+step play 1 | S9 H6 S5 H5 S4 C4 D4 D2 | - | -
+case W49WANAK Zodiac_Deck 1 bl_mark The_Mark -
+step deal | DA SQ* DQ* CJ* ST C9 H5 C2 | - | -
+step discard 1,2 | DQ* CJ* ST C9 S6 C6 H5 C2 | - | -
+step play 1 | CJ* ST C9 S8 S6 C6 H5 C2 | - | -
+step discard 1,2,3 | DK* S8 H7 C7 S6 C6 H5 C2 | - | -
+step play 1,2 | HK* H7 C7 S6 C6 H5 S3 C2 | - | -
+step play 1 | DT H7 C7 S6 C6 H5 S3 C2 | - | -
+case X1HGXKJS Anaglyph_Deck 3 bl_mark The_Mark -
+step deal | HK* CK* DQ* HJ* C9 D8 H6 C5 | - | -
+step discard 1,2 | DQ* HJ* C9 S8 D8 H6 C5 C2 | - | -
+step play 1 | HJ* C9 S8 D8 H6 C5 C3 C2 | - | -
+step discard 1,2,3 | HA D8 H6 S5 C5 S3 C3 C2 | - | -
+step play 1,2 | H6 S5 C5 S3 H3 C3 C2 D2 | - | -
+step play 1 | D7 S5 C5 S3 H3 C3 C2 D2 | - | -
+case YXP1KITZ Erratic_Deck 1 bl_mark The_Mark -
+step deal | DK* ST HT S6 H6 C5 D5 D2 | - | -
+step discard 1,2 | HT D7 S6 H6 C5 D5 S2 D2 | - | -
+step play 1 | S7 D7 S6 H6 C5 D5 S2 D2 | - | -
+step discard 1,2,3 | H6 C5 D5 S3 S2 S2 D2 D2 | - | -
+step play 1,2 | HJ* CT D5 S3 S2 S2 D2 D2 | - | -
+step play 1 | SJ* CT D5 S3 S2 S2 D2 D2 | - | -
+case ZUXK7G38 Blue_Deck 3 bl_mark The_Mark -
+step deal | SK* HQ* DQ* S6 H6 S5 C4 H2 | - | -
+step discard 1,2 | DQ* SJ* CT S6 H6 S5 C4 H2 | - | -
+step play 1 | SJ* CT S6 H6 S5 C4 H2 D2 | - | -
+step discard 1,2,3 | CQ* H6 D6 S5 H4 C4 H2 D2 | - | -
+step play 1,2 | DJ* H7 D6 S5 H4 C4 H2 D2 | - | -
+step play 1 | H7 D6 S5 C5 H4 C4 H2 D2 | - | -
+case 1S66UDCF Green_Deck 1 bl_mark The_Mark -
+step deal | HJ* DJ* CT C8 H6 C6 D6 D4 | - | -
+step discard 1,2 | CK* HQ* CT C8 H6 C6 D6 D4 | - | -
+step play 1 | HQ* CT D9 C8 H6 C6 D6 D4 | - | -
+step discard 1,2,3 | DT C8 D7 H6 C6 D6 D4 H3 | - | -
+step play 1,2 | CQ* HT D7 H6 C6 D6 D4 H3 | - | -
+step play 1 | HT D7 H6 C6 D6 C5 D4 H3 | - | -
+case 2PEQGBLM Magic_Deck 3 bl_mark The_Mark -
+step deal | SK* HK* H8 H7 S3 C3 S2 D2 | - | -
+step discard 1,2 | SA H8 H7 S3 C3 S2 C2 D2 | - | -
+step play 1 | H8 H7 C7 S3 C3 S2 C2 D2 | - | -
+step discard 1,2,3 | HT S8 H5 S3 C3 S2 C2 D2 | - | -
+step play 1,2 | H5 H4 S3 C3 D3 S2 C2 D2 | - | -
+step play 1 | CK* H4 S3 C3 D3 S2 C2 D2 | - | -
+case 3LMA49VU Ghost_Deck 1 bl_mark The_Mark -
+step deal | HJ* S9 D9 S8 H7 D7 H4 C3 | - | -
+step discard 1,2 | D9 S8 H8 H7 D7 S5 H4 C3 | - | -
+step play 1 | SK* S8 H8 H7 D7 S5 H4 C3 | - | -
+step discard 1,2,3 | HK* DK* H7 D7 S5 H4 C3 D2 | - | -
+step play 1,2 | DT D8 H7 D7 S5 H4 C3 D2 | - | -
+step play 1 | CQ* D8 H7 D7 S5 H4 C3 D2 | - | -
+case 4IVUQ653 Checkered_Deck 3 bl_mark The_Mark -
+step deal | HK* HK* SJ* S6 H5 H3 H3 H2 | - | -
+step discard 1,2 | SJ* S6 H5 H4 H3 H3 S2 H2 | - | -
+step play 1 | HT S6 H5 H4 H3 H3 S2 H2 | - | -
+step discard 1,2,3 | HJ* S6 H4 H3 H3 S2 H2 H2 | - | -
+step play 1,2 | SK* H5 H4 H3 H3 S2 H2 H2 | - | -
+step play 1 | HA H5 H4 H3 H3 S2 H2 H2 | - | -
+case 5F4FD4EA Painted_Deck 1 bl_mark The_Mark -
+step deal | CA CQ* S9 S8 H8 D8 H6 C5 H3 H2 | - | -
+step discard 1,2 | S9 S8 H8 D8 C7 H6 C5 H4 H3 H2 | - | -
+step play 1 | C9 S8 H8 D8 C7 H6 C5 H4 H3 H2 | - | -
+step discard 1,2,3 | HA D8 H7 C7 H6 C5 H4 D4 H3 H2 | - | -
+step play 1,2 | HK* H7 C7 H6 C5 H4 D4 S3 H3 H2 | - | -
+step play 1 | ST H7 C7 H6 C5 H4 D4 S3 H3 H2 | - | -
+case 6CCZZ1NH Plasma_Deck 3 bl_mark The_Mark -
+step deal | HQ* CJ* CT C8 S7 S5 C5 D2 | - | -
+step discard 1,2 | CT C8 S7 S5 C5 H4 D3 D2 | - | -
+step play 1 | C8 S7 H7 S5 C5 H4 D3 D2 | - | -
+step discard 1,2,3 | CA S5 H5 C5 S4 H4 D3 D2 | - | -
+step play 1,2 | SQ* S9 H5 C5 S4 H4 D3 D2 | - | -
+step play 1 | CK* S9 H5 C5 S4 H4 D3 D2 | - | -
+case 79KJMYWP Red_Deck 2 bl_fish The_Fish -
+step deal | CQ DJ CT DT D6 H5 S4 H2 | - | -
+step discard 1,2 | CT DT S7 D6 H5 D5 S4 H2 | - | -
+step play 1 | DT S7 D6 H5 D5 S4 H3* H2 | - | -
+step discard 1,2,3 | DQ HJ HT H5 D5 S4 H3* H2 | - | -
+step play 1,2 | HK* HT H5 D5 S4 H3* D3* H2 | - | -
+step play 1 | HT H5 C5* D5 S4 H3* D3* H2 | - | -
+case 86T4AW6X Yellow_Deck 4 bl_fish The_Fish -
+step deal | CA HT CT C9 D9 S7 S4 H3 | - | -
+step discard 1,2 | SA DJ CT C9 D9 S7 S4 H3 | - | -
+step play 1 | DJ CT C9 D9 S7 D7* S4 H3 | - | -
+step discard 1,2,3 | SJ D9 S7 D7* D6 S4 H3 C3 | - | -
+step play 1,2 | CJ* S7 H7* D7* D6 S4 H3 C3 | - | -
+step play 1 | S7 H7* D7* D6 S4 D4* H3 C3 | - | -
+case 932PWTF5 Black_Deck 2 bl_fish The_Fish -
+step deal | CA CQ CT D7 H5 D5 C4 S2 | - | -
+step discard 1,2 | SK CT D8 D7 H5 D5 C4 S2 | - | -
+step play 1 | CT C9* D8 D7 H5 D5 C4 S2 | - | -
+step discard 1,2,3 | HQ D7 H5 D5 S4 C4 D4 S2 | - | -
+step play 1,2 | HK* CJ* H5 D5 S4 C4 D4 S2 | - | -
+case AZ99JRPC Nebula_Deck 4 bl_fish The_Fish -
+step deal | DK CQ HT DT S9 H9 C5 H4 | - | -
+step discard 1,2 | HT DT S9 H9 H7 C7 C5 H4 | - | -
+step play 1 | DT S9 H9 H7 C7 C6* C5 H4 | - | -
+step discard 1,2,3 | D8 H7 C7 C6* C5 D5 H4 D3 | - | -
+step play 1,2 | C7 C6* S5* C5 D5 H4 D3 H2* | - | -
+step play 1 | ST* C6* S5* C5 D5 H4 D3 H2* | - | -
+case BWHT6PYJ Abandoned_Deck 2 bl_fish The_Fish -
+step deal | SA CT S5 C5 S4 D4 D3 D2 | - | -
+step discard 1,2 | DA S5 C5 S4 C4 D4 D3 D2 | - | -
+step play 1 | HA* S5 C5 S4 C4 D4 D3 D2 | - | -
+step discard 1,2,3 | S9 D9 H8 S4 C4 D4 D3 D2 | - | -
+step play 1,2 | ST* H8 D6* S4 C4 D4 D3 D2 | - | -
+step play 1 | H8 D7* D6* S4 C4 D4 D3 D2 | - | -
+case CTQDTL8S Zodiac_Deck 4 bl_fish The_Fish -
+step deal | SQ CQ S9 H9 D9 H5 S2 C2 | - | -
+step discard 1,2 | CJ S9 H9 D9 C8 H5 S2 C2 | - | -
+step play 1 | S9 H9 D9 C8 H5 S4* S2 C2 | - | -
+step discard 1,2,3 | C8 H7 D7 H5 S4* S3 S2 C2 | - | -
+step play 1,2 | DA* C7* D7 H5 S4* S3 S2 C2 | - | -
+step play 1 | SK* C7* D7 H5 S4* S3 S2 C2 | - | -
+case DQYXFJHZ Anaglyph_Deck 2 bl_fish The_Fish -
+step deal | SK CK CQ ST H9 C4 D4 C3 | - | -
+step discard 1,2 | CQ DQ ST H9 C6 C4 D4 C3 | - | -
+step play 1 | DQ ST H9 C6 S5* C4 D4 C3 | - | -
+step discard 1,2,3 | C6 S5* D5 C4 D4 H3 C3 C2 | - | -
+step play 1,2 | CA* H7* D5 C4 D4 H3 C3 C2 | - | -
+step play 1 | D8* H7* D5 C4 D4 H3 C3 C2 | - | -
+case EM7I3HR7 Erratic_Deck 4 bl_fish The_Fish -
+step deal | SA DA DQ HT S7 H6 D5 C4 | - | -
+step discard 1,2 | DQ DQ DQ HT S7 H6 D5 C4 | - | -
+step play 1 | DQ DQ HT S8* S7 H6 D5 C4 | - | -
+step discard 1,2,3 | HA CT S8* S7 S7 H6 D5 C4 | - | -
+step play 1,2 | DK* S8* S7 S7 H6* H6 D5 C4 | - | -
+step play 1 | S8* S7 S7 H6* H6 D5 C4 C2* | - | -
+case FJF3QE1F Blue_Deck 2 bl_fish The_Fish -
+step deal | D8 S7 D7 C6 H5 S4 C4 S3 | - | -
+step discard 1,2 | HQ D7 C6 H5 C5 S4 C4 S3 | - | -
+step play 1 | D7 C6 D6* H5 C5 S4 C4 S3 | - | -
+step discard 1,2,3 | D9 H8 H5 C5 S4 C4 S3 H2 | - | -
+step play 1,2 | SK* SJ* H5 C5 S4 C4 S3 H2 | - | -
+step play 1 | SJ* DT* H5 C5 S4 C4 S3 H2 | - | -
+case GGNMCCAM Green_Deck 4 bl_fish The_Fish -
+step deal | CQ ST C9 H8 D7 C6 D6 S2 | - | -
+step discard 1,2 | CA C9 H8 D7 C6 D6 S2 D2 | - | -
+step play 1 | DK* C9 H8 D7 C6 D6 S2 D2 | - | -
+step discard 1,2,3 | H7 D7 C6 D6 S5 D5 S2 D2 | - | -
+step play 1,2 | CJ* C8* C6 D6 S5 D5 S2 D2 | - | -
+step play 1 | HK* C8* C6 D6 S5 D5 S2 D2 | - | -
+case HDW7Z9JU Magic_Deck 2 bl_fish The_Fish -
+step deal | SA CA DK S9 H9 S7 C6 D6 | - | -
+step discard 1,2 | DK ST CT S9 H9 S7 C6 D6 | - | -
+step play 1 | HJ* ST CT S9 H9 S7 C6 D6 | - | -
+step discard 1,2,3 | CK S9 H9 S7 C6 D6 S5 D2 | - | -
+step play 1,2 | HK* H9 S7 C6 D6 S5 C5* D2 | - | -
+step play 1 | HA* H9 S7 C6 D6 S5 C5* D2 | - | -
+case IA5SL7T2 Ghost_Deck 4 bl_fish The_Fish -
+step deal | CK DK SQ DQ HJ C8 H3 C2 | - | -
+step discard 1,2 | SK SQ DQ SJ HJ C8 H3 C2 | - | -
+step play 1 | SQ DQ SJ HJ H9* C8 H3 C2 | - | -
+step discard 1,2,3 | HJ CT H9* C8 D8 H3 H2 C2 | - | -
+step play 1,2 | H9* C8 D8 C7* D5* H3 H2 C2 | - | -
+step play 1 | CA* C8 D8 C7* D5* H3 H2 C2 | - | -
+case J7DC953A Checkered_Deck 2 bl_fish The_Fish -
+step deal | SA HA SQ H9 H8 S7 S5 S5 | - | -
+step discard 1,2 | SK SQ H9 H8 S7 H6 S5 S5 | - | -
+step play 1 | SA* SQ H9 H8 S7 H6 S5 S5 | - | -
+step discard 1,2,3 | H9 H8 S7 H6 S5 S5 S4 S3 | - | -
+step play 1,2 | SQ* S7 S7* H6 S5 S5 S4 S3 | - | -
+step play 1 | S7 S7* H6 S5 S5 S4 S3 S2* | - | -
+case K4LWV2CH Painted_Deck 4 bl_fish The_Fish -
+step deal | CA SQ CQ DT H9 C8 H7 D7 C5 D5 | - | -
+step discard 1,2 | HK CQ HT DT H9 C8 H7 D7 C5 D5 | - | -
+step play 1 | HA* CQ HT DT H9 C8 H7 D7 C5 D5 | - | -
+step discard 1,2,3 | DA SJ DT H9 D9 C8 H7 D7 C5 D5 | - | -
+step play 1,2 | HJ* DT H9 D9 C8 H7 D7 C5 D5 H2* | - | -
+step play 1 | DT H9 D9 H8* C8 H7 D7 C5 D5 H2* | - | -
+case L1UGIZKP Plasma_Deck 2 bl_fish The_Fish -
+step deal | HK CT D9 D8 D6 S5 D4 S2 | - | -
+step discard 1,2 | D9 D8 D7 C6 D6 S5 D4 S2 | - | -
+step play 1 | D8 D7 H6* C6 D6 S5 D4 S2 | - | -
+step discard 1,2,3 | SQ C6 D6 S5 H4 D4 S2 D2 | - | -
+step play 1,2 | SK* D6 S5 H4 D4 C3* S2 D2 | - | -
+step play 1 | HA* D6 S5 H4 D4 C3* S2 D2 | - | -
+case MX226XUW Red_Deck 1 bl_mark The_Mark j_pareidolia
+step deal | DQ* DJ* HT* C8* S6* S5* H4* D4* | Pareidolia | -
+step discard 1,2 | HT* C8* D8* S6* S5* C5* H4* D4* | Pareidolia | -
+step play 1 | SJ* C8* D8* S6* S5* C5* H4* D4* | Pareidolia | -
+step discard 1,2,3 | HK* DT* H8* S6* S5* C5* H4* D4* | Pareidolia | -
+step play 1,2 | CA* HQ* H8* S6* S5* C5* H4* D4* | Pareidolia | -
+step play 1 | HQ* ST* H8* S6* S5* C5* H4* D4* | Pareidolia | -
+case NUALSU45 Yellow_Deck 1 bl_mark The_Mark j_pareidolia
+step deal | CK* CJ* D9* S8* H6* C5* S4* S2* | Pareidolia | -
+step discard 1,2 | ST* D9* S8* H8* H6* C5* S4* S2* | Pareidolia | -
+step play 1 | D9* S8* H8* S7* H6* C5* S4* S2* | Pareidolia | -
+step discard 1,2,3 | HA* CQ* CT* S7* H6* C5* S4* S2* | Pareidolia | -
+step play 1,2 | CT* D8* S7* C7* H6* C5* S4* S2* | Pareidolia | -
+step play 1 | D8* S7* C7* D7* H6* C5* S4* S2* | Pareidolia | -
+case PRI6FSDC Black_Deck 1 bl_mark The_Mark j_pareidolia
+step deal | DQ* S9* C7* S5* D5* D4* C3* C2* | Pareidolia | -
+step discard 1,2 | HA* C7* D6* S5* D5* D4* C3* C2* | Pareidolia | -
+step play 1 | C7* C6* D6* S5* D5* D4* C3* C2* | Pareidolia | -
+step discard 1,2,3 | SK* DK* S5* D5* S4* D4* C3* C2* | Pareidolia | -
+step play 1,2 | HK* S5* D5* S4* D4* C3* H2* C2* | Pareidolia | -
+case QNRQ2QMJ Green_Deck 1 bl_wheel The_Wheel j_oops
+step deal | CA CQ* DQ DJ S9* H3 D3* D2* | Oops!_All_6s | 0.62782996026619997
+step discard 1,2 | DQ HJ DJ ST S9* H3 D3* D2* | Oops!_All_6s | 0.50867813781799998
+step play 1 | HJ DJ ST S9* C9 H3 D3* D2* | Oops!_All_6s | 0.011573419268799999
+step discard 1,2,3 | S9* C9 D4* H3 C3 D3* H2 D2* | Oops!_All_6s | 0.82539200558030001
+step play 1,2 | SJ* D4* H3 C3 D3* H2 C2* D2* | Oops!_All_6s | 0.0960800907978
+step play 1 | H7 D4* H3 C3 D3* H2 C2* D2* | Oops!_All_6s | 0.30012551533199999
+case RKZAPMWR Magic_Deck 1 bl_wheel The_Wheel j_oops
+step deal | SA* HA CA DJ* CT* H8* C5 D5* | Oops!_All_6s | 0.0098160546700999992
+step discard 1,2 | CA DJ* CT* H8* S6* C5 D5* H3 | Oops!_All_6s | 0.39547875061060001
+step play 1 | CQ DJ* CT* H8* S6* C5 D5* H3 | Oops!_All_6s | 0.81638231902659997
+step discard 1,2,3 | DT* H8* H7 S6* C5 D5* H3 D2 | Oops!_All_6s | 0.25393450189189998
+step play 1,2 | HQ H7 S6* C5 D5* H3 C2 D2 | Oops!_All_6s | 0.1213046673674
+step play 1 | SK H7 S6* C5 D5* H3 C2 D2 | Oops!_All_6s | 0.34362056398219998
+case SH8VBK6Z Ghost_Deck 1 bl_wheel The_Wheel j_oops
+step deal | SK HK DQ S5* D4 H3 D3 C2 | Oops!_All_6s | 0.71849636128030003
+step discard 1,2 | HQ DQ S5* D4 H3 D3 H2 C2 | Oops!_All_6s | 0.77825229079180003
+step play 1 | DQ S5* C5 D4 H3 D3 H2 C2 | Oops!_All_6s | 0.47640345778659998
+step discard 1,2,3 | CQ D7 S6 D4 H3 D3 H2 C2 | Oops!_All_6s | 0.48417817055849999
+step play 1,2 | CK S6 D5 D4 H3 D3 H2 C2 | Oops!_All_6s | 0.80587735652390002
+step play 1 | HT* S6 D5 D4 H3 D3 H2 C2 | Oops!_All_6s | 0.52403769952169998
+case TEGFYHF7 Nebula_Deck 1 bl_wheel The_Wheel j_oops,j_oops
+step deal | HJ DT* C9* S8* S7* C7* H4 S2 | Oops!_All_6s Oops!_All_6s | 0.4875305136311
+step discard 1,2 | C9* S8* S7* C7* H4 H3 S2 D2* | Oops!_All_6s Oops!_All_6s | 0.81584472077540005
+step play 1 | S9 S8* S7* C7* H4 H3 S2 D2* | Oops!_All_6s Oops!_All_6s | 0.54122454869790004
+step discard 1,2,3 | CK* ST C7* D5* H4 H3 S2 D2* | Oops!_All_6s Oops!_All_6s | 0.5675633301413
+step play 1,2 | HQ* D9 C7* D5* H4 H3 S2 D2* | Oops!_All_6s Oops!_All_6s | 0.32949019623440001
+step play 1 | SQ D9 C7* D5* H4 H3 S2 D2* | Oops!_All_6s Oops!_All_6s | 0.70259744041700001
+case UBPZKFPE Abandoned_Deck 1 bl_wheel The_Wheel j_oops,j_oops
+step deal | HA* HT* C6* S5 H4 S3* H3* D3 | Oops!_All_6s Oops!_All_6s | 0.65136177954420005
+step discard 1,2 | C7* C6* S5 H4 S3* H3* D3 S2 | Oops!_All_6s Oops!_All_6s | 0.57864419116129995
+step play 1 | D8* C6* S5 H4 S3* H3* D3 S2 | Oops!_All_6s Oops!_All_6s | 0.13221674842969999
+step discard 1,2,3 | DA S9* H4 C4 S3* H3* D3 S2 | Oops!_All_6s Oops!_All_6s | 0.44390826643920001
+step play 1,2 | H5* H4 C4 S3* H3* C3 D3 S2 | Oops!_All_6s Oops!_All_6s | 0.68614474144409998
+step play 1 | S6 H4 C4 S3* H3* C3 D3 S2 | Oops!_All_6s Oops!_All_6s | 0.31758127383919998
+case V8XJ8DYL Zodiac_Deck 1 bl_wheel The_Wheel j_oops,j_oops
+step deal | HK SJ* CT* D8* D5* H3 D3* S2 | Oops!_All_6s Oops!_All_6s | 0.2799507261784
+step discard 1,2 | CT* C8* D8* D5* S4 H3 D3* S2 | Oops!_All_6s Oops!_All_6s | 0.19865748546940001
+step play 1 | DA* C8* D8* D5* S4 H3 D3* S2 | Oops!_All_6s Oops!_All_6s | 0.47700098276929997
+step discard 1,2,3 | SA CK D5* S4 S3* H3 D3* S2 | Oops!_All_6s Oops!_All_6s | 0.48724157174810001
+step play 1,2 | H8 D5* S4 H4 S3* H3 D3* S2 | Oops!_All_6s Oops!_All_6s | 0.81498562344159997
+step play 1 | S9* D5* S4 H4 S3* H3 D3* S2 | Oops!_All_6s Oops!_All_6s | 0.53974319656390002
+case W565VA8U Checkered_Deck 1 bl_wheel The_Wheel j_chicot
+step deal | SA SK HJ ST S9 S7 H6 H5 | Chicot | -
+step discard 1,2 | SK HJ ST S9 S7 H7 H6 H5 | Chicot | -
+step play 1 | HJ ST S9 S7 H7 H6 S5 H5 | Chicot | -
+step discard 1,2,3 | HQ S8 S7 S7 H7 H6 S5 H5 | Chicot | -
+step play 1,2 | H8 S7 S7 H7 H6 S5 H5 H4 | Chicot | -
+step play 1 | HQ S7 S7 H7 H6 S5 H5 H4 | Chicot | -
+case X2EPH8H2 Painted_Deck 1 bl_wheel The_Wheel j_chicot
+step deal | DA CK SQ ST C8 S6 C4 H3 H2 D2 | Chicot | -
+step discard 1,2 | SQ HQ ST DT C8 S6 C4 H3 H2 D2 | Chicot | -
+step play 1 | HQ ST DT C9 C8 S6 C4 H3 H2 D2 | Chicot | -
+step discard 1,2,3 | DJ C9 D9 C8 S6 C4 S3 H3 H2 D2 | Chicot | -
+step play 1,2 | SK D9 C8 S6 C4 D4 S3 H3 H2 D2 | Chicot | -
+step play 1 | DK D9 C8 S6 C4 D4 S3 H3 H2 D2 | Chicot | -
+case YYL956R9 Plasma_Deck 1 bl_wheel The_Wheel j_chicot
+step deal | HA CK S9 C7 D7 H6 H5 C2 | Chicot | -
+step discard 1,2 | CA S9 C7 D7 H6 H5 S4 C2 | Chicot | -
+step play 1 | SQ S9 C7 D7 H6 H5 S4 C2 | Chicot | -
+step discard 1,2,3 | HJ D7 H6 H5 S4 C4 S2 C2 | Chicot | -
+step play 1,2 | SA S7 H6 H5 S4 C4 S2 C2 | Chicot | -
+step play 1 | H8 S7 H6 H5 S4 C4 S2 C2 | Chicot | -
+case ZVUTR31H Anaglyph_Deck 1 bl_house The_House j_chicot
+step deal | SA DK HJ HT DT D8 C7 D2 | Chicot | -
+step discard 1,2 | SJ HJ HT DT D8 C7 H6 D2 | Chicot | -
+step play 1 | HJ HT DT D8 C7 H6 H5 D2 | Chicot | -
+step discard 1,2,3 | CQ H8 D8 C7 S6 H6 H5 D2 | Chicot | -
+step play 1,2 | HQ D8 C7 S6 H6 H5 S4 D2 | Chicot | -
+step play 1 | S9 D8 C7 S6 H6 H5 S4 D2 | Chicot | -
+case 1T3EE1AP Erratic_Deck 1 bl_house The_House j_chicot
+step deal | DQ DJ D8 C5 S4 S3 D3 H2 | Chicot | -
+step discard 1,2 | SQ D8 D6 C5 S4 S3 D3 H2 | Chicot | -
+step play 1 | D8 D6 C5 S4 S3 H3 D3 H2 | Chicot | -
+step discard 1,2,3 | D7 S4 H4 C4 S3 H3 D3 H2 | Chicot | -
+step play 1,2 | C6 H4 C4 C4 S3 H3 D3 H2 | Chicot | -
+step play 1 | H4 C4 C4 S3 H3 D3 S2 H2 | Chicot | -
+case 2QBY1YIW Blue_Deck 1 bl_house The_House j_chicot
+step deal | CQ ST DT H9 H4 H3 C3 H2 | Chicot | -
+step discard 1,2 | DK DT H9 S8 H4 H3 C3 H2 | Chicot | -
+step play 1 | HJ DT H9 S8 H4 H3 C3 H2 | Chicot | -
+step discard 1,2,3 | DJ S8 H4 D4 H3 C3 S2 H2 | Chicot | -
+step play 1,2 | CK HQ H4 D4 H3 C3 S2 H2 | Chicot | -
+step play 1 | HQ S4 H4 D4 H3 C3 S2 H2 | Chicot | -
+case 3MJINVS4 Red_Deck 1 bl_final_acorn Amber_Acorn j_joker
+step deal | HJ DT H8 C8 S7 H5 D5 S2 | Joker* | -
+step discard 1,2 | D9 S8 H8 C8 S7 H5 D5 S2 | Joker* | -
+step play 1 | ST S8 H8 C8 S7 H5 D5 S2 | Joker* | -
+step discard 1,2,3 | C8 S7 C7 H5 D5 D3 S2 H2 | Joker* | -
+step play 1,2 | SA C7 C6 H5 D5 D3 S2 H2 | Joker* | -
+step play 1 | CQ C7 C6 H5 D5 D3 S2 H2 | Joker* | -
+case 4JS3BT2C Yellow_Deck 1 bl_final_acorn Amber_Acorn j_joker
+step deal | HK CK H7 H6 D5 H4 D4 S3 | Joker* | -
+step discard 1,2 | SQ DQ H7 H6 D5 H4 D4 S3 | Joker* | -
+step play 1 | DQ H7 H6 D6 D5 H4 D4 S3 | Joker* | -
+step discard 1,2,3 | SK DK H8 D6 D5 H4 D4 S3 | Joker* | -
+step play 1,2 | HT H8 D6 D5 H4 D4 S3 H2 | Joker* | -
+step play 1 | ST H8 D6 D5 H4 D4 S3 H2 | Joker* | -
+case 5G1NXQBJ Black_Deck 1 bl_final_acorn Amber_Acorn j_joker
+step deal | SQ HQ ST HT S8 S7 D6 C4 | Joker* | -
+step discard 1,2 | ST HT C9 S8 S7 D7 D6 C4 | Joker* | -
+step play 1 | SK HT C9 S8 S7 D7 D6 C4 | Joker* | -
+step discard 1,2,3 | D9 S8 C8 S7 D7 D6 C4 D3 | Joker* | -
+step play 1,2 | H9 C8 S7 D7 D6 S5 C4 D3 | Joker* | -
+case 6D98KNKR Green_Deck 1 bl_final_acorn Amber_Acorn j_joker,j_chicot,j_greedy_joker,j_lusty_joker
+step deal | CA SJ CJ DJ H9 D7 H6 D2 | Chicot Greedy_Joker Joker Lusty_Joker | -
+step discard 1,2 | SA CJ DJ HT H9 D7 H6 D2 | Chicot Greedy_Joker Joker Lusty_Joker | -
+step play 1 | DA CJ DJ HT H9 D7 H6 D2 | Chicot Greedy_Joker Joker Lusty_Joker | -
+step discard 1,2,3 | HK CQ HT H9 D7 H6 C3 D2 | Chicot Greedy_Joker Joker Lusty_Joker | -
+step play 1,2 | HT H9 D8 D7 H6 H3 C3 D2 | Chicot Greedy_Joker Joker Lusty_Joker | -
+step play 1 | H9 D8 S7 D7 H6 H3 C3 D2 | Chicot Greedy_Joker Joker Lusty_Joker | -
+case 7AHS7LUY Magic_Deck 1 bl_final_acorn Amber_Acorn j_joker,j_chicot,j_greedy_joker,j_lusty_joker
+step deal | CQ HT DT D9 D5 S4 C4 S3 | Joker Lusty_Joker Greedy_Joker Chicot | -
+step discard 1,2 | DT D9 C8 D5 S4 C4 S3 S2 | Joker Lusty_Joker Greedy_Joker Chicot | -
+step play 1 | HQ D9 C8 D5 S4 C4 S3 S2 | Joker Lusty_Joker Greedy_Joker Chicot | -
+step discard 1,2,3 | CT S5 D5 S4 C4 D4 S3 S2 | Joker Lusty_Joker Greedy_Joker Chicot | -
+step play 1,2 | SA ST D5 S4 C4 D4 S3 S2 | Joker Lusty_Joker Greedy_Joker Chicot | -
+step play 1 | ST D5 S4 H4 C4 D4 S3 S2 | Joker Lusty_Joker Greedy_Joker Chicot | -
+case 87QCUI47 Ghost_Deck 1 bl_final_acorn Amber_Acorn j_joker,j_chicot,j_greedy_joker,j_lusty_joker
+step deal | CQ DQ HT H9 S8 H4 D3 S2 | Chicot Joker Lusty_Joker Greedy_Joker | -
+step discard 1,2 | HT H9 S8 H8 D5 H4 D3 S2 | Chicot Joker Lusty_Joker Greedy_Joker | -
+step play 1 | H9 S8 H8 H6 D5 H4 D3 S2 | Chicot Joker Lusty_Joker Greedy_Joker | -
+step discard 1,2,3 | CT DT S9 H6 D5 H4 D3 S2 | Chicot Joker Lusty_Joker Greedy_Joker | -
+step play 1,2 | SA S9 H6 H5 D5 H4 D3 S2 | Chicot Joker Lusty_Joker Greedy_Joker | -
+step play 1 | SQ S9 H6 H5 D5 H4 D3 S2 | Chicot Joker Lusty_Joker Greedy_Joker | -
+case 94YWGGDE Nebula_Deck 1 bl_final_acorn Amber_Acorn j_joker,j_greedy_joker
+step deal | SA HA DK DJ C8 S6 D6 D2 | Joker* Greedy_Joker* | -
+step discard 1,2 | DK DJ C8 S6 D6 S3 C3 D2 | Joker* Greedy_Joker* | -
+step play 1 | HJ DJ C8 S6 D6 S3 C3 D2 | Joker* Greedy_Joker* | -
+step discard 1,2,3 | HQ ST C7 S6 D6 S3 C3 D2 | Joker* Greedy_Joker* | -
+step play 1,2 | H9 C7 S6 D6 D4 S3 C3 D2 | Joker* Greedy_Joker* | -
+step play 1 | H7 C7 S6 D6 D4 S3 C3 D2 | Joker* Greedy_Joker* | -
+case A17H4EML Abandoned_Deck 1 bl_final_acorn Amber_Acorn j_joker,j_greedy_joker
+step deal | D9 S8 C8 S7 D7 C6 H5 D2 | Joker* Greedy_Joker* | -
+step discard 1,2 | C8 S7 D7 C6 H5 H4 C2 D2 | Joker* Greedy_Joker* | -
+step play 1 | S7 D7 C6 S5 H5 H4 C2 D2 | Joker* Greedy_Joker* | -
+step discard 1,2,3 | H7 H6 S5 H5 C5 H4 C2 D2 | Joker* Greedy_Joker* | -
+step play 1,2 | S9 S5 H5 C5 D5 H4 C2 D2 | Joker* Greedy_Joker* | -
+step play 1 | C7 S5 H5 C5 D5 H4 C2 D2 | Joker* Greedy_Joker* | -
+case BXE2RBWT Zodiac_Deck 1 bl_final_acorn Amber_Acorn j_joker,j_greedy_joker
+step deal | CA DT C9 D8 C6 C4 S3 C2 | Greedy_Joker* Joker* | -
+step discard 1,2 | SA C9 H8 D8 C6 C4 S3 C2 | Greedy_Joker* Joker* | -
+step play 1 | C9 H8 C8 D8 C6 C4 S3 C2 | Greedy_Joker* Joker* | -
+step discard 1,2,3 | CQ HT D8 C6 D6 C4 S3 C2 | Greedy_Joker* Joker* | -
+step play 1,2 | D8 H7 C6 D6 C4 S3 H2 C2 | Greedy_Joker* Joker* | -
+step play 1 | DJ H7 C6 D6 C4 S3 H2 C2 | Greedy_Joker* Joker* | -
+case CUMLD962 Checkered_Deck 1 bl_final_acorn Amber_Acorn j_joker,j_greedy_joker,j_lusty_joker,j_wrathful_joker,j_gluttenous_joker
+step deal | SA SK SJ ST H9 S6 S5 S4 | Wrathful_Joker* Greedy_Joker* Lusty_Joker* Joker* Gluttonous_Joker* | -
+step discard 1,2 | SK SJ ST H9 S6 S5 S4 H2 | Wrathful_Joker* Greedy_Joker* Lusty_Joker* Joker* Gluttonous_Joker* | -
+step play 1 | SJ ST ST H9 S6 S5 S4 H2 | Wrathful_Joker* Greedy_Joker* Lusty_Joker* Joker* Gluttonous_Joker* | -
+step discard 1,2,3 | SJ S9 H9 S6 S5 S4 S4 H2 | Wrathful_Joker* Greedy_Joker* Lusty_Joker* Joker* Gluttonous_Joker* | -
+step play 1,2 | H9 S8 H8 S6 S5 S4 S4 H2 | Wrathful_Joker* Greedy_Joker* Lusty_Joker* Joker* Gluttonous_Joker* | -
+step play 1 | SQ S8 H8 S6 S5 S4 S4 H2 | Wrathful_Joker* Greedy_Joker* Lusty_Joker* Joker* Gluttonous_Joker* | -
+case DRV617F9 Painted_Deck 1 bl_final_acorn Amber_Acorn j_joker,j_greedy_joker,j_lusty_joker,j_wrathful_joker,j_gluttenous_joker
+step deal | HA DK S8 D6 H5 H4 C3 S2 H2 C2 | Greedy_Joker* Joker* Wrathful_Joker* Gluttonous_Joker* Lusty_Joker* | -
+step discard 1,2 | S8 D6 H5 C5 H4 C3 D3 S2 H2 C2 | Greedy_Joker* Joker* Wrathful_Joker* Gluttonous_Joker* Lusty_Joker* | -
+step play 1 | C9 D6 H5 C5 H4 C3 D3 S2 H2 C2 | Greedy_Joker* Joker* Wrathful_Joker* Gluttonous_Joker* Lusty_Joker* | -
+step discard 1,2,3 | CA SK H9 C5 H4 C3 D3 S2 H2 C2 | Greedy_Joker* Joker* Wrathful_Joker* Gluttonous_Joker* Lusty_Joker* | -
+step play 1,2 | CT H9 S6 C5 H4 C3 D3 S2 H2 C2 | Greedy_Joker* Joker* Wrathful_Joker* Gluttonous_Joker* Lusty_Joker* | -
+step play 1 | HJ H9 S6 C5 H4 C3 D3 S2 H2 C2 | Greedy_Joker* Joker* Wrathful_Joker* Gluttonous_Joker* Lusty_Joker* | -
+case EN4RM4PG Plasma_Deck 1 bl_final_acorn Amber_Acorn j_joker,j_greedy_joker,j_lusty_joker,j_wrathful_joker,j_gluttenous_joker
+step deal | D9 C7 S5 H5 C5 D5 D4 C2 | Gluttonous_Joker* Lusty_Joker* Wrathful_Joker* Joker* Greedy_Joker* | -
+step discard 1,2 | H8 S7 S5 H5 C5 D5 D4 C2 | Gluttonous_Joker* Lusty_Joker* Wrathful_Joker* Joker* Greedy_Joker* | -
+step play 1 | HK S7 S5 H5 C5 D5 D4 C2 | Gluttonous_Joker* Lusty_Joker* Wrathful_Joker* Joker* Greedy_Joker* | -
+step discard 1,2,3 | CJ H6 H5 C5 D5 D4 H2 C2 | Gluttonous_Joker* Lusty_Joker* Wrathful_Joker* Joker* Greedy_Joker* | -
+step play 1,2 | SA DA H5 C5 D5 D4 H2 C2 | Gluttonous_Joker* Lusty_Joker* Wrathful_Joker* Joker* Greedy_Joker* | -
+step play 1 | HA DA H5 C5 D5 D4 H2 C2 | Gluttonous_Joker* Lusty_Joker* Wrathful_Joker* Joker* Greedy_Joker* | -

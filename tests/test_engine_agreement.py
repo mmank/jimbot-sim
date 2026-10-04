@@ -264,14 +264,17 @@ def _engine():
 
 
 def test_the_engine_walks_the_hands_in_the_games_own_order():
-    # pairs(G.GAME.hands) is hash order, seeded per process; To Do List and
-    # the Orbital Tag index into it. Headless walks G.handlist instead.
+    # pairs(G.GAME.hands) under lupa's LuaJIT 2.1 is hash order seeded per
+    # process; To Do List and the Orbital Tag index into it. Headless walks
+    # the shipped game's own order instead (LuaJIT 2.0.5, the same in every
+    # process): hands.GAME_PAIRS_ORDER.
+    from jimbot_sim.hands import GAME_PAIRS_ORDER
+
     game = _engine()
     game.execute('BOT.start_run({"ORDER001","Red_Deck"}); api.pump(300)')
     walked = game.eval("(function() local t = {} for k in pairs(G.GAME.hands)"
                        " do t[#t+1] = k end return table.concat(t, ',') end)()")
-    listed = game.eval("table.concat(G.handlist, ',')")
-    assert walked == listed
+    assert walked == ",".join(h.label for h in GAME_PAIRS_ORDER)
 
 
 def test_a_skipped_orbital_tag_levels_its_hand():

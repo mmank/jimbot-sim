@@ -1,9 +1,10 @@
 """The bosses that do something to the run rather than to a card.
 
-Nine bosses carried no mechanical modifier at all. For four of them that is
-right: The House, The Wheel, The Fish and The Mark draw cards face down, and
-an engine with full information has nothing to hide. The other five were
-simply not built, and they are not small -- one of them switches a joker off
+Nine bosses carried no mechanical modifier at all. Four of them -- The
+House, The Wheel, The Fish and The Mark -- draw cards face down, which changes
+what a player sees rather than a rule; they are marked now, and checked
+against the game in test_face_down_draws.py. The other five were simply not
+built, and they are not small -- one of them switches a joker off
 every hand, one debuffs the whole deck, one shuffles the joker row, which
 decides the order effects resolve in.
 
@@ -29,16 +30,6 @@ def _under(boss_name, jokers=()):
     game.blind = make_blind(BlindKind.BOSS, game.ante, BY_NAME[boss_name])
     game._start_round()
     return game
-
-
-def test_the_face_down_bosses_are_the_only_blank_ones():
-    """A blank boss has to be blank for a reason, and the reason is stated."""
-    cosmetic = {"The House", "The Wheel", "The Fish", "The Mark"}
-    blank = {b.name for b in BOSSES + FINISHER_BOSSES
-             if b.chip_mult == 2.0 and not any(
-                 getattr(b, f.name) for f in b.__dataclass_fields__.values()
-                 if f.name not in ("name", "text", "chip_mult", "is_finisher"))}
-    assert blank == cosmetic
 
 
 def test_the_serpent_deals_three_however_much_room_there_is():

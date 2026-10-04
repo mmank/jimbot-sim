@@ -127,6 +127,13 @@ class Card:
     played_this_ante: bool = False
     uid: int = field(default_factory=lambda: next(_ids))
     debuffed: bool = False
+    # Drawn face down (Blind:stay_flipped, blind.lua:605): The House, The
+    # Wheel, The Mark and The Fish. The rules do not read it -- a face-down
+    # card scores as itself -- it is what a player could not see. Set on
+    # every draw into the hand, cleared when the card is played (emplace into
+    # G.play turns it over, cardarea.lua:38) or discarded, and by
+    # Blind:disable. The game's ability.wheel_flipped is the same fact.
+    face_down: bool = False
 
     @property
     def is_stone(self) -> bool:
@@ -204,7 +211,9 @@ class Card:
         return self.suit is suit
 
     def copy(self) -> "Card":
-        return replace(self, uid=next(_ids))
+        # A new Card, and Card:init faces it up: a Cryptid copy of a
+        # face-down card lands in the hand showing.
+        return replace(self, uid=next(_ids), face_down=False)
 
     def __repr__(self) -> str:
         if self.is_stone:

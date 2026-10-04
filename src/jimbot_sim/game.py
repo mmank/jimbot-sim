@@ -219,6 +219,11 @@ class GameState:
     money_at_play: int | None = None
 
     full_deck: list[Card] = field(default_factory=list)
+    # G.GAME.starting_deck_size: the full deck as the run dealt it, 40 on an
+    # Abandoned Deck. Erosion counts the cards missing below this, not below
+    # 52 -- DM46XNV1 / Abandoned / stake 8 bought Erosion in ante 5 and the
+    # Rust simulator scored +48 Mult the game never paid.
+    starting_deck_size: int = 52
     draw_pile: list[Card] = field(default_factory=list)
     hand: list[Card] = field(default_factory=list)
     discard_pile: list[Card] = field(default_factory=list)
@@ -390,11 +395,21 @@ class GameState:
     # The stake, one to eight. It is not a difficulty label: it changes the
     # chips every ante asks for, the discards a round starts with, whether
     # the Small Blind pays, and what stickers the shop puts on its jokers.
+    #
+    # It is also given *negative*: -n is stake n in every respect but the
+    # stickers, which are rolled as on Gold -- eternal, perishable and rental
+    # all on. __post_init__ stores it as n with all_stickers set, so nothing
+    # below knows the difference. It is for tuning sticker rules on a stake
+    # that does not kill the run first; a real run cannot be at stake -3, and
+    # the rolls move the RNG, so it is not a stake-3 run with stickers added
+    # but its own run. The bot mod reads the same convention (bot_api.lua).
+    # There is no -8: Gold already rolls every sticker, so it would be stake 8
+    # under another name.
     stake: int = 1
     # Put every sticker on every stake, whatever the stake would allow.
     #
-    # Training only. The stickers are gated so that eternal appears at stake
-    # four, perishable at seven and rental at eight -- which means the agent
+    # Set by a negative stake (above), and once for training: the stickers
+    # are gated so that eternal appears at stake four, perishable at seven and rental at eight -- which means the agent
     # only ever meets them in runs it is also losing quickly for unrelated
     # reasons, and gets a handful of antes a run to learn three mechanics it
     # has never seen. Turning them on at stake one puts them in front of a
@@ -454,6 +469,14 @@ class GameState:
         return DECK_DATA.get(self.deck, ("", {}))[1]
 
     def __post_init__(self) -> None:
+        # -8 would be Gold with Gold's own stickers: the same game as 8, row
+        # for row, under a second name that read as a separate measurement.
+        if self.stake < -7:
+            raise ValueError(f"stake {self.stake}: a negative stake runs -1 to "
+                             "-7 (-8 is stake 8)")
+        if self.stake < 0:
+            self.stake = -self.stake
+            self.all_stickers = True
         self.rng = RunRng(self.seed)
         config = self.deck_config
         self.money += config.get("dollars", 0)
@@ -461,6 +484,7 @@ class GameState:
             self.full_deck = standard_deck(
                 no_faces=config.get("remove_faces", False),
                 erratic=self.rng if config.get("randomize_rank_suit") else None)
+        self.starting_deck_size = len(self.full_deck)
         self._apply_deck_config(config)
         # The order the game starts a run in: the boss, then the voucher, then
         # the two skip tags. Every one of them draws, so the order is part of
@@ -1245,6 +1269,7 @@ class GameState:
 
         clone = copy.deepcopy(joker)
         clone.uid = next_sort_id()
+        clone.face_down = False  # a new card, made face up
         self._made_joker(clone)
         clone.named_hand = joker.named_hand
         if joker.edition is Edition.NEGATIVE:
@@ -1310,6 +1335,10 @@ class GameState:
             return
         boss = blind.boss
         blind.disabled = True
+        # Everything face down turns over, the row for any boss and the hand
+        # for the four that dealt it that way.
+        self._jokers_face_up()
+        self._hand_face_up()
 
         # A blind made larger goes back to the ordinary boss size rather than
         # to no boss at all: the game divides, so The Wall's four times
@@ -1958,8 +1987,18 @@ class GameState:
             self.log("Juggle Tag: +3 hand size for this round")
 
         # set_blind leaves the blind prepped (blind.lua:94), which is what lets
-        # Crimson Heart take a joker on the opening deal.
-        self.blind.prepped = True
+        # Crimson Heart take a joker on the opening deal -- all but The Fish,
+        # which it unpreps (blind.lua:176), so the opening deal is face up.
+        boss = self.boss
+        self.blind.prepped = not (boss is not None
+                                  and boss.face_down_after_play)
+        # Amber Acorn turns the row over in set_blind itself (blind.lua:190),
+        # before any joker hears setting_blind: a joker Riff-Raff makes is
+        # shuffled in below face up. Chicot turns them back at once
+        # (Blind:disable), which is `boss` already answering None.
+        if boss is not None and boss.shuffles_jokers:
+            for joker in self.jokers:
+                joker.face_down = True
         # set_blind asks every playing card its debuff (blind.lua:207-210)
         # before new_round runs the setting_blind context (state_events.lua:
         # 333-337). So Marble Joker's Stone card, made after, is never asked:
@@ -1973,7 +2012,12 @@ class GameState:
         # Riff-Raff's Jokers are there for the first hand.
         self._setting_blind()
 
-        boss = self.boss
+        # Chicot does not stop the shuffle: set_blind queues it before
+        # Chicot's setting_blind queues the disable, so the row is shuffled
+        # and then turned face up (the game's own Lua, three seeds: `aajk`
+        # advanced and the row reordered). Hence the blind's boss, not
+        # `self.boss`, which answers None beside Chicot.
+        boss = self.blind.boss
         if boss is not None and boss.shuffles_jokers and len(self.jokers) > 1:
             # Amber Acorn shuffles the joker row under its own pool name --
             # and joker order decides the order effects resolve in, so this
@@ -2318,7 +2362,9 @@ class GameState:
         for _ in range(count):
             if not self.draw_pile:
                 break
-            self.hand.append(self.draw_pile.pop())
+            card = self.draw_pile.pop()
+            card.face_down = self._stay_flipped(card)
+            self.hand.append(card)
             drawn += 1
         if drawn:
             self._sort_hand()
@@ -2352,7 +2398,9 @@ class GameState:
         # player dragged the hand into stands.
         drawn = 0
         while len(self.hand) < self.hand_size and self.draw_pile:
-            self.hand.append(self.draw_pile.pop())
+            card = self.draw_pile.pop()
+            card.face_down = self._stay_flipped(card)
+            self.hand.append(card)
             drawn += 1
         if drawn:
             self._sort_hand()
@@ -2684,6 +2732,10 @@ class GameState:
             # that follows the hand, in _drawn_to_hand, so this hand scores
             # against the one the last deal took.
             self.blind.prepped = True
+        # The Fish's press_play preps it too (blind.lua:494), so the draw that
+        # follows the hand is dealt face down.
+        if boss is not None and boss.face_down_after_play:
+            self.blind.prepped = True
 
         indices = self._arrange_play(indices)
         played = [self.hand[i] for i in indices]
@@ -2700,6 +2752,9 @@ class GameState:
         # NQ86453Q at decision 78, 7823 here against the game's 8069.
         for card in played:
             card.played_this_ante = True
+            # Into G.play, which turns a face-down card over
+            # (cardarea.lua:38).
+            card.face_down = False
 
         # The Hook takes its two cards *before* the hand scores. It lives in
         # `Blind:press_play`, and the game runs that between moving the
@@ -3023,7 +3078,47 @@ class GameState:
             if card not in self.hand:
                 continue
             self.hand.remove(card)
+            card.face_down = False
             self.discard_pile.append(card)
+
+    def _stay_flipped(self, card: Card) -> bool:
+        """Blind:stay_flipped (blind.lua:605-620), asked of each card dealt
+        into the hand: is it dealt face down?
+
+        Asked one card at a time, in the order they are dealt, because The
+        Wheel's answer is a draw on its own pool -- pseudorandom(
+        pseudoseed('wheel')) < normal/7 -- taken for every card while the
+        Wheel is live and for none otherwise, so a hand of eight is eight
+        draws and no other pool moves. A disabled boss (Chicot, Luchador)
+        turns nothing over, and neither does a pack's deal, which happens
+        with no blind in force.
+        """
+        boss = self.boss
+        if boss is None:
+            return False
+        if boss.face_down_odds > 0 and self.rng.chance(
+                "wheel", self.probability_scale(), boss.face_down_odds):
+            return True
+        if (boss.face_down_first_hand and not self.hands_played_this_round
+                and self.discards_used == 0):
+            return True
+        if boss.face_down_faces and is_face_for(card, self, from_boss=True):
+            return True
+        if boss.face_down_after_play and self.blind.prepped:
+            return True
+        return False
+
+    def _hand_face_up(self) -> None:
+        """Turn every card in the hand face up -- Blind:disable's loop over
+        G.hand.cards (blind.lua:364-372), and the end of a round."""
+        for card in self.hand:
+            card.face_down = False
+
+    def _jokers_face_up(self) -> None:
+        """Turn the joker row face up: Blind:defeat and Blind:disable
+        (blind.lua:338, 358)."""
+        for joker in self.jokers:
+            joker.face_down = False
 
     def _in_hand_pack(self) -> bool:
         """Is an Arcana or Spectral pack open? Those two deal a hand."""
@@ -3058,6 +3153,26 @@ class GameState:
         self.phase = Phase.GAME_OVER
         self.log(f"Lost on ante {self.ante} {self.blind.name}")
 
+    def _charge_stickers(self, in_row: list) -> None:
+        """The stake's stickers, paid for when the round ends, not when the
+        money is taken: calculate_rental and calculate_perishable run in
+        end_round, so the rent is already gone by the time the cash-out screen
+        appears. A rental takes three dollars a round and a perishable counts
+        one round closer to being switched off.
+
+        Over the row the pass began with, not what is left of it: two stake-8
+        runs, DS2IGPRB and N97LC9AB, stopped $4 and $3 rich on a rental Gros
+        Michel that went extinct without paying.
+        """
+        for joker in in_row:
+            if joker.rental:
+                self.add_money(-RENTAL_RATE, f"{joker.name} rental")
+            if joker.perishable and joker.perish_tally > 0:
+                joker.perish_tally -= 1
+                if joker.perish_tally == 0:
+                    joker.debuffed = True
+                    self.log(f"{joker.name} perished")
+
     def _beat_blind(self, reward: bool = True) -> None:
         """Close the round and stop on the cash-out screen.
 
@@ -3076,6 +3191,27 @@ class GameState:
             self.temp_reroll_cost = False
             self.reroll_price_carried = max(
                 0, 5 - sum(v.reroll_discount for v in self.vouchers))
+        # end_round walks the row once, joker by joker -- its end_of_round
+        # effect, then its rent, then its perish tick (state_events.lua:99-110)
+        # -- and only then the cards held (:170). So a joker that perishes this
+        # round is already off when they pay: JOKER211 (Yellow Deck, stake -5)
+        # held two Gold 6s beside a Mime on its last round, and the game paid
+        # $6 for them where the simulator, retriggering, paid $12.
+        #
+        # The effects themselves still run further down, after the ante has
+        # turned (Rocket reads beaten_was_boss), but over the row as it stood
+        # before the tick: the game runs a joker's effect before its own tick,
+        # so one perishing now still has its say.
+        #
+        # The row as it stood when that pass began is kept for the rent, too.
+        # A joker that leaves on its end_of_round answer -- Gros Michel going
+        # extinct, Popcorn or Turtle Bean eaten -- only queues its removal
+        # (card.lua:3021-3036, 2947-2962, 2905-2920), so it is still in the row
+        # when calculate_rental runs on it, and a rental pays its last $3.
+        in_row = list(self.jokers)
+        round_end_hooks = list(self.calculating_hooks("round_end"))
+        self._charge_stickers(in_row)
+
         # A gold card pays the moment the round ends -- ease_dollars, right
         # there in the hand loop -- rather than as a row on the cash-out
         # screen. Folding it into the payout left the run three dollars short
@@ -3141,6 +3277,10 @@ class GameState:
         # pack opened in the shop, whose hand is what a Tarot from that pack
         # is used on. Rebuilding the deck in build order dealt that hand from
         # the wrong end of it entirely.
+        # Blind:defeat turns the row back over; the hand goes back to the
+        # deck, where nothing is face up or down until it is dealt again.
+        self._jokers_face_up()
+        self._hand_face_up()
         self.discard_pile.extend(self.hand)
         self.hand = []
         self.draw_pile = self.discard_pile + self.draw_pile
@@ -3210,36 +3350,10 @@ class GameState:
         # all of it the instant the round closes and before the cash-out
         # screen appears. A Popcorn that has run out is gone by the time the
         # player sees the score. No copies: the branch is `elseif not
-        # context.blueprint` (card.lua:2888).
-        #
-        # The row as it stood when that pass began is kept for the rent. The
-        # game walks G.jokers.cards once and charges each joker's rent right
-        # after its own end_of_round answer (state_events.lua:99-110), and a
-        # joker that leaves on that answer -- Gros Michel going extinct,
-        # Popcorn or Turtle Bean eaten -- only queues its removal
-        # (card.lua:3021-3036, 2947-2962, 2905-2920). So it is still in the
-        # row when calculate_rental runs on it, and a rental pays its last $3.
-        in_row = list(self.jokers)
-        for joker, answer in self.calculating_hooks("round_end"):
+        # context.blueprint` (card.lua:2888). The row was read at the top,
+        # before the stickers were charged.
+        for joker, answer in round_end_hooks:
             answer(joker, self)
-
-        # The stake's stickers are paid for when the round ends, not when the
-        # money is taken: calculate_rental and calculate_perishable run in
-        # evaluate_round, so the rent is already gone by the time the
-        # cash-out screen appears. A rental takes three dollars a round and a
-        # perishable counts one round closer to being switched off.
-        #
-        # Over the row the pass began with, not what is left of it: two
-        # stake-8 runs, DS2IGPRB and N97LC9AB, stopped $4 and $3 rich on a
-        # rental Gros Michel that went extinct without paying.
-        for joker in in_row:
-            if joker.rental:
-                self.add_money(-RENTAL_RATE, f"{joker.name} rental")
-            if joker.perishable and joker.perish_tally > 0:
-                joker.perish_tally -= 1
-                if joker.perish_tally == 0:
-                    joker.debuffed = True
-                    self.log(f"{joker.name} perished")
 
         # And now the interest, on what is left after the rent. The multiplier
         # applies after the cap has bitten, so the cap does not limit the

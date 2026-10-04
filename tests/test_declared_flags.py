@@ -24,7 +24,7 @@ import pytest
 from jimbot_sim.blinds import BOSSES, BlindKind, make_blind
 from jimbot_sim.cards import Card, Enhancement, Rank, Suit
 from jimbot_sim.game import Action, ActionType, GameState, Phase
-from jimbot_sim.hands import HANDLIST, SECRET_HANDS, HandType
+from jimbot_sim.hands import GAME_PAIRS_ORDER, SECRET_HANDS, HandType
 from jimbot_sim.jokers import REGISTRY as JOKERS, JokerInstance
 
 BY_NAME = {b.name: b for b in BOSSES}
@@ -175,10 +175,12 @@ def test_the_secret_hands_are_not_in_the_pool_until_they_are_played():
     assert len(game.visible_hands) == 10
 
 
-def test_the_pool_is_in_the_game_s_stated_order():
-    """HANDLIST, strongest first -- see the note in hands.py on why."""
+def test_the_pool_is_in_the_order_the_shipped_game_walks_it():
+    """GAME_PAIRS_ORDER, pairs(G.GAME.hands) under the game's LuaJIT 2.0.5 --
+    see the note in hands.py on why, and JOKER189 on what HANDLIST cost."""
     game = _run()
-    assert game.visible_hands == [h for h in HANDLIST if h not in SECRET_HANDS]
+    assert game.visible_hands == [h for h in GAME_PAIRS_ORDER
+                                  if h not in SECRET_HANDS]
 
 
 # ------------------------------------------------------------------
