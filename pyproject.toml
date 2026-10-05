@@ -1,11 +1,12 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "jimbot-sim"
 version = "0.1.0"
 description = "Balatro as a Python library: a simulator checked against the game, a headless driver for the game's own Lua, and a socket bridge to the running game"
+license = "MIT"
 requires-python = ">=3.11"
 # lupa carries the LuaJIT that actually runs the game. It is the only
 # dependency: the simulator is pure Python and the bridge is a socket.
